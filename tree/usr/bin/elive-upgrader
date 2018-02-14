@@ -1,0 +1,82 @@
+#!/bin/bash
+SOURCE="$0"
+source /usr/lib/elive-tools/functions
+el_make_environment
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
+
+# Lock system (good one) {{{
+lockfile="/tmp/.$(basename $0)-${USER}.lock"
+#set -x
+
+exit_ok(){
+    rm -f "$lockfile"
+}
+exit_error(){
+    rm -f "$lockfile"
+}
+
+if [[ -r "$lockfile" ]] ; then
+    PROCCESS="$(cat $lockfile)"
+else
+    PROCCESS=" "
+fi
+if (ps up $PROCCESS) 1>/dev/null 2>&1 ; then
+    el_error "$(basename $0) already running"
+    exit
+else
+    echo $$ > "$lockfile"
+fi
+
+# traps needs to be after the lock verification, in order to not remove it when we are already running
+trap "exit_ok" EXIT
+trap "exit_error" 1 3 5 6 14 15 ERR TERM
+
+# SET the lock file
+echo "$$" > "$lockfile"
+
+
+# end lock system }}}
+
+main(){
+    # pre {{{
+
+    # never run on live mode
+    if grep -qs "boot=live" /proc/cmdline ; then
+        exit
+    fi
+
+    # FIXME: confs in /etc
+    #news_history="$HOME/.config/$(basename $0)/news-history.txt"
+    #if ! [[ -e "$news_history" ]] ; then
+        #mkdir -p "$( dirname "$news_history" )"
+    #fi
+
+    # }}}
+
+    for arg in "$@"
+    do
+        case "$arg" in
+            --delayed)
+                is_delayed=1
+                shift
+                ;;
+        esac
+    done
+
+    if ((is_delayed)) ; then
+        el_debug "delayed 20 seconds"
+        sleep 30
+    fi
+
+    sudo elive-upgrader-root
+
+}
+
+#
+#  MAIN
+#
+main "$@"
+
+# vim: set foldmethod=marker :
