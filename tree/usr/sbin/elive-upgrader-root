@@ -71,7 +71,7 @@ main(){
     #fi
 
     # test
-    zenity --info --text="Hello world, im $(whoami) as $UID living in $HOME"
+    #zenity --info --text="Hello world, im $(whoami) as $UID living in $HOME"
 
 }
 
