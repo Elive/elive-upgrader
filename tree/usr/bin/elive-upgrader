@@ -42,10 +42,6 @@ echo "$$" > "$lockfile"
 main(){
     # pre {{{
 
-    # never run on live mode
-    if grep -qs "boot=live" /proc/cmdline ; then
-        exit
-    fi
 
     # FIXME: confs in /etc
     #news_history="$HOME/.config/$(basename $0)/news-history.txt"
@@ -54,6 +50,28 @@ main(){
     #fi
 
     # }}}
+    # never run on live mode {{{
+    if grep -qs "boot=live" /proc/cmdline ; then
+        exit
+    fi
+
+    # }}}
+    # TODO:
+    # - package changelog version based in isos (start value), important
+    # - disable in live mode
+    # - upgrade package first
+    # - silent upgrades
+    # - ask for upgrade desktop (will require to reboot and a initrd hook? for that we will need a daemon too)
+    #   - nope, we have e17-conf that is always asked to upgrade when desktop starts
+    # - migration hooks like in mkdeb
+    # - notification system / ask if upgrade / changelog list
+    #   - based on elive version iso
+    #   - packages-list to install include with a diff or something
+    # - E conf upgrader? (diff something)
+    # - what if new packages / packages to remove? what if startup applications to add?
+    # - lock unable to shutdown while upgrading, or terminal stuff
+
+    set -x
 
     for arg in "$@"
     do
@@ -68,6 +86,13 @@ main(){
     if ((is_delayed)) ; then
         el_debug "delayed 20 seconds"
         sleep 30
+    fi
+
+    if el_package_newer_check elive-upgrader ; then
+        #if zenity --question --text="$( eval_gettext "There's updates for your Elive, do you want to update it?" )" ; then
+            #foo
+        #fi
+        timeout 240 sudo elive-upgrader-root --update-upgrader
     fi
 
     sudo elive-upgrader-root
