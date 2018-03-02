@@ -8,7 +8,6 @@ export TEXTDOMAIN
 
 # Lock system (good one) {{{
 lockfile="/tmp/.$(basename $0)-${USER}.lock"
-#set -x
 
 exit_ok(){
     rm -f "$lockfile"
@@ -50,9 +49,19 @@ main(){
     #fi
 
     # }}}
-    # never run on live mode {{{
+    # never run... checks {{{
     if grep -qs "boot=live" /proc/cmdline ; then
         exit
+    fi
+
+    # only run if first user
+    if ! grep -qs "^first-user: $USER\$" /etc/elive-version ; then
+        exit
+    fi
+
+    # TODO: disable in the future, new users could not have this enabled, or add them into the user-manager?
+    if ! grep -qs "^%sudo.*NOPASSWD.*elive-upgrader-root" /etc/sudoers.d/privileges_upgrader || ! groups | grep -qs "sudo" ; then
+        el_error "user is not in privileges_upgrader"
     fi
 
     # }}}
@@ -71,7 +80,6 @@ main(){
     # - what if new packages / packages to remove? what if startup applications to add?
     # - lock unable to shutdown while upgrading, or terminal stuff
 
-    set -x
 
     for arg in "$@"
     do
@@ -85,19 +93,16 @@ main(){
 
     if ((is_delayed)) ; then
         el_debug "delayed 20 seconds"
-        sleep 30
+        sleep 20
     fi
 
-    #if el_package_newer_check elive-upgrader ; then
-        #if zenity --question --text="$( eval_gettext "There's updates for your Elive, do you want to update it?" )" ; then
-            #foo
-        #fi
-        timeout 240 sudo elive-upgrader-root --update-upgrader
-    #fi
+
+    # update tool first (if)
+    sudo elive-upgrader-root --update-upgrader
 
 
-
-    #sudo elive-upgrader-root
+    # TODO: run hooks, for root and for user, and save version used
+    #sudo elive-upgrader-root --upgrade
 
 }
 
