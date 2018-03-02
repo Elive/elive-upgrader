@@ -40,13 +40,23 @@ echo "$$" > "$lockfile"
 # end lock system }}}
 
 update_upgrader(){
-    #if ! timeout 240 apt-get update ; then
-        #el_error "problem updating package lists $(timeout 200 apt-get update)"
-    #fi
-    #if ! timeout 240 apt-get install -y elive-upgrader ; then
-        #el_error "problem updating package lists $(timeout 200 apt-get install -y elive-upgrader )"
-    #fi
-    el_package_update_last_version -c "elive-upgrader"
+    if el_package_update_last_version -c "elive-upgrader" ; then
+        if ! timeout 240 apt-get -f install ; then
+            el_error "problem with apt-get -f install: $(timeout 200 apt-get -f install )"
+        fi
+        if ! timeout 240 apt-get update ; then
+            if ! timeout 480 apt-get update ; then
+                el_error "problem updating package lists: $(timeout 200 apt-get update)"
+            fi
+        fi
+        if ! timeout 240 apt-get install -y elive-upgrader ; then
+            el_error "problem upgrading elive-upgrader: $(timeout 200 apt-get install -y elive-upgrader )"
+        fi
+    else
+        el_debug "no new version of elive-ugprader found"
+    fi
+
+    #DISPLAY="" el_package_update_last_version -c "elive-upgrader"
 }
 
 main(){
