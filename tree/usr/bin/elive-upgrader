@@ -88,14 +88,14 @@ main(){
         sleep 30
     fi
 
-    if el_package_newer_check elive-upgrader ; then
+    #if el_package_newer_check elive-upgrader ; then
         #if zenity --question --text="$( eval_gettext "There's updates for your Elive, do you want to update it?" )" ; then
             #foo
         #fi
         timeout 240 sudo elive-upgrader-root --update-upgrader
-    fi
+    #fi
 
-    sudo elive-upgrader-root
+    #sudo elive-upgrader-root
 
 }
 
