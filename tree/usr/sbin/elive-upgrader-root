@@ -75,6 +75,23 @@ main(){
 
     # }}}
 
+    # get versions {{{
+    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+    version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
+    version_last_hook="$( find /usr/lib/elive-upgrader/hooks/ -type d -mindepth 1 -maxdepth 1 | sort -n | tail -1 )"
+    read -r version_elive <<< "$version_elive"
+    read -r version_upgrader <<< "$version_upgrader"
+
+    # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
+    if [[ -z "$version_upgrader" ]] ; then
+        version_upgrader="$version_elive"
+        echo -e "elive-fixes: $version_upgrader" >> /etc/elive-version
+
+        exit
+    fi
+
+    # - # get versions }}}
+
     for arg in "$@"
     do
         case "$arg" in
@@ -88,16 +105,24 @@ main(){
         esac
     done
 
-    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
-    version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes-version:" | awk '{print $2}' )"
-    read -r version_elive <<< "$version_elive"
-    read -r version_upgrader <<< "$version_upgrader"
 
+    # migration upgrade cases (auto hooks): {{{
+    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
+        while read -ru 3 version
+        do
+            if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
+                echo "$version"
 
-    if [[ -z "$version_upgrader" ]] ; then
-        version_upgrader="$version_elive"
-        echo -e "elive-fixes-version: $version_upgrader" >> /etc/elive-version
+                # if returns success hooking the script, update version in control file for each loop upgraded
+                #if true ; then
+                    # after to have finished, update the controls to the last version that we know:
+                    #sed -i "/^mkdeb_version=/s/^.*$/mkdeb_version=\"${mkdeb_version}\"/" "${MKDEB_ID_VERSION_d}/control.sh"
+                #fi
+            fi
+        done 3<<< "$( find /usr/lib/elive-upgrader/hooks/ -type d -mindepth 1 -maxdepth 1 | sort -n )"
     fi
+
+    # }}}
 
     #if ((is_delayed)) ; then
         #el_debug "delayed 20 seconds"

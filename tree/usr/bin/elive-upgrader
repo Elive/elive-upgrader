@@ -103,9 +103,21 @@ main(){
     # update tool first (if)
     sudo elive-upgrader-root --update
 
+    # get versions
+    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+    version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
+    read -r version_elive <<< "$version_elive"
+    read -r version_upgrader <<< "$version_upgrader"
+
+    # we should always have the version updated or there's nothing to do here
+    #if [[ -z "$version_upgrader" ]] || [[ -z "$version_elive" ]] ; then
+        #exit
+    #fi
 
     # TODO: run hooks, for root and for user, and save version used
     sudo elive-upgrader-root
+
+    # we need our own version_upgrader version conf for the loop
 
 }
 
