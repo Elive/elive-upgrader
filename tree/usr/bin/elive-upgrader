@@ -73,6 +73,9 @@ main(){
     # - ask for upgrade desktop (will require to reboot and a initrd hook? for that we will need a daemon too)
     #   - nope, we have e17-conf that is always asked to upgrade when desktop starts
     # - migration hooks like in mkdeb
+    #     silent/gui
+    #       root / user
+    #       so: first run silent as root, then silent as user, then gui as root, and gui as user
     # - notification system / ask if upgrade / changelog list
     #   - based on elive version iso
     #   - packages-list to install include with a diff or something
@@ -98,11 +101,11 @@ main(){
 
 
     # update tool first (if)
-    sudo elive-upgrader-root --update-upgrader
+    sudo elive-upgrader-root --update
 
 
     # TODO: run hooks, for root and for user, and save version used
-    #sudo elive-upgrader-root --upgrade
+    sudo elive-upgrader-root
 
 }
 
