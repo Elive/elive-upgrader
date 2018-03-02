@@ -66,6 +66,8 @@ update_upgrader(){
 main(){
     # pre {{{
 
+    hooks_d="/usr/lib/elive-upgrader/hooks"
+
 
     # }}}
     # never run on live mode {{{
@@ -78,7 +80,7 @@ main(){
     # get versions {{{
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
-    version_last_hook="$( find /usr/lib/elive-upgrader/hooks/ -type d -mindepth 1 -maxdepth 1 | sort -n | tail -1 )"
+    version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n | tail -1 )"
     read -r version_elive <<< "$version_elive"
     read -r version_upgrader <<< "$version_upgrader"
 
@@ -110,8 +112,18 @@ main(){
     if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
         while read -ru 3 version
         do
+            [[ -z "$version" ]] && continue
+
             if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
-                echo "$version"
+                el_info "version: $version"
+
+                while read -ru 3 script
+                do
+                    if [[ -x "$script" ]] ; then
+                        el_info "running $script :"
+                        "$script"
+                    fi
+                done 3<<< "$( find "${hooks_d}/root" -mindepth 1 -maxdepth 1 -type f )"
 
                 # if returns success hooking the script, update version in control file for each loop upgraded
                 #if true ; then
@@ -119,7 +131,7 @@ main(){
                     #sed -i "/^mkdeb_version=/s/^.*$/mkdeb_version=\"${mkdeb_version}\"/" "${MKDEB_ID_VERSION_d}/control.sh"
                 #fi
             fi
-        done 3<<< "$( find /usr/lib/elive-upgrader/hooks/ -type d -mindepth 1 -maxdepth 1 | sort -n )"
+        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
     fi
 
     # }}}
