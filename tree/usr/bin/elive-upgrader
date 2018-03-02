@@ -95,6 +95,7 @@ main(){
         timeout 240 sudo elive-upgrader-root --update-upgrader
     #fi
 
+
     #sudo elive-upgrader-root
 
 }
