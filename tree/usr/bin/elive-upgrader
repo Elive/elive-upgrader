@@ -164,8 +164,6 @@ main(){
 
     # }}}
 
-    # we need our own version_upgrader version conf for the loop
-
 }
 
 #
