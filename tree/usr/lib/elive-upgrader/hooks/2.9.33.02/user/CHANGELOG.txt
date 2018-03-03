@@ -1,7 +1,0 @@
-second changelog FOR YUSER, major upgrades yeppeeeeeeee
-so what about double lines?
-
-another section
-
-this is a newline: \n foo bar
-this is a BR: <BR> foo bar
