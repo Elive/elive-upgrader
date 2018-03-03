@@ -115,13 +115,19 @@ main(){
             if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
                 el_info "elive-upgrader: hook version: $version"
 
-                while read -ru 3 script
+                while read -ru 3 file
                 do
-                    if [[ -x "$script" ]] ; then
-                        el_info "running $script :"
-                        if ! "$script" ; then
-                            el_error "failed ${script}: $( "$script" )"
+                    # files
+                    if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
+                        el_info "running script: $file"
+                        if ! "$file" ; then
+                            el_error "failed ${file}: $( "$file" )"
                         fi
+                    fi
+
+                    # changelog
+                    if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
+                        changelog="${changelog}\n\n$(cat "$file" )"
                     fi
                 done 3<<< "$( find "${hooks_d}/${version}/root" -mindepth 1 -maxdepth 1 -type f )"
 
@@ -130,6 +136,15 @@ main(){
                 version_upgrader="$version"
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
+    fi
+
+    # changelog to show?
+    if [[ -n "$changelog" ]] ; then
+        local message_upgraded
+        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with the next fixes:" )" "" )"
+
+        echo -e "${message_upgraded}\n\n$changelog" | zenity --text-info --title="$message_upgraded"
+        unset changelog
     fi
 
     # }}}
