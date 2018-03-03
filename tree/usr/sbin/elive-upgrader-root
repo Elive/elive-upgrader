@@ -121,15 +121,15 @@ main(){
                 do
                     if [[ -x "$script" ]] ; then
                         el_info "running $script :"
-                        "$script"
+                        if ! "$script" ; then
+                            el_error "failed ${script}: $( "$script" )"
+                        fi
                     fi
-                done 3<<< "$( find "${hooks_d}/root" -mindepth 1 -maxdepth 1 -type f )"
+                done 3<<< "$( find "${hooks_d}/${version}/root" -mindepth 1 -maxdepth 1 -type f )"
 
-                # if returns success hooking the script, update version in control file for each loop upgraded
-                #if true ; then
-                    # after to have finished, update the controls to the last version that we know:
-                    #sed -i "/^mkdeb_version=/s/^.*$/mkdeb_version=\"${mkdeb_version}\"/" "${MKDEB_ID_VERSION_d}/control.sh"
-                #fi
+                # update version, to know that we have run the hooks until here
+                sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
+                version_upgrader="$version"
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
     fi

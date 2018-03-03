@@ -2,8 +2,8 @@
 source /usr/lib/elive-tools/functions
 
 
-echo "$(date -s)|$(pwd)|$(basename $0)|user:${USER}|display:${DISPLAY}" >> /tmp/logs.txt
+echo "$(date +%s)|$(pwd)|$0|user:${USER}|display:${DISPLAY}" >> /tmp/logs.txt
 
-zenity --info --text="$(date -s)|$(pwd)|$(basename $0)|user:${USER}|display:${DISPLAY}"
+zenity --info --text="$(date +%s)|$(pwd)|$0|user:${USER}|display:${DISPLAY}"
 
 
