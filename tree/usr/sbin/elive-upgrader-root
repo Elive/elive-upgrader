@@ -41,17 +41,17 @@ echo "$$" > "$lockfile"
 
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
-        if ! apt-get -f install ; then
+        if ! timeout 240 apt-get -f install ; then
             el_error "problem with apt-get -f install: $(apt-get -f install )"
             exit 1
         fi
-        if ! apt-get update ; then
-            if ! apt-get update ; then
+        if ! timeout 240 apt-get update ; then
+            if ! apt-get 360 update ; then
                 el_error "problem updating package lists: $(apt-get update)"
                 exit 1
             fi
         fi
-        if ! DEBIAN_FRONTEND=noninteractive apt-get install -q -y elive-upgrader ; then
+        if ! timeout 240 DEBIAN_FRONTEND=noninteractive apt-get install -q -y elive-upgrader ; then
             el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader )"
             exit 1
         fi

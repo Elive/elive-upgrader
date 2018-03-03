@@ -91,8 +91,7 @@ main(){
 
 
     # update tool first (if)
-    # we need to set the timeout here, not in the root script or apt-get can hang
-    sudo timeout 360 elive-upgrader-root --update
+    sudo elive-upgrader-root --update
 
     # hooks: root
     sudo elive-upgrader-root
