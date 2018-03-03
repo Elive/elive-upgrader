@@ -91,7 +91,7 @@ main(){
 
 
     # update tool first (if)
-    sudo elive-upgrader-root --update
+    sudo timeout 360 elive-upgrader-root --update
 
     # hooks: root
     sudo elive-upgrader-root
