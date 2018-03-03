@@ -41,18 +41,18 @@ echo "$$" > "$lockfile"
 
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
-        if ! timeout 240 /usr/bin/apt-get -f install ; then
-            el_error "problem with apt-get -f install: $(timeout 200 /usr/bin/apt-get -f install )"
+        if ! timeout 240 apt-get -f install ; then
+            el_error "problem with apt-get -f install: $(timeout 200 apt-get -f install )"
             exit 1
         fi
-        if ! timeout 240 /usr/bin/apt-get update ; then
-            if ! timeout 480 /usr/bin/apt-get update ; then
-                el_error "problem updating package lists: $(timeout 200 /usr/bin/apt-get update)"
+        if ! timeout 240 apt-get update ; then
+            if ! timeout 480 apt-get update ; then
+                el_error "problem updating package lists: $(timeout 200 apt-get update)"
                 exit 1
             fi
         fi
-        if ! timeout 240 /usr/bin/apt-get install -y elive-upgrader ; then
-            el_error "problem upgrading elive-upgrader: $(timeout 200 /usr/bin/apt-get install -y elive-upgrader )"
+        if ! timeout 240 DEBIAN_FRONTEND=NONINTERACTIVE apt-get install -q -y elive-upgrader ; then
+            el_error "problem upgrading elive-upgrader: $(timeout 200 apt-get install -y elive-upgrader )"
             exit 1
         fi
     else
