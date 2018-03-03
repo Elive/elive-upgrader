@@ -3,8 +3,8 @@ SOURCE="$0"
 source /usr/lib/elive-tools/functions
 el_make_environment
 . gettext.sh
-TEXTDOMAIN="elive-upgrader"
-export TEXTDOMAIN
+#TEXTDOMAIN="elive-upgrader"
+#export TEXTDOMAIN
 
 # Lock system (good one) {{{
 lockfile="/tmp/.$(basename $0)-${USER}.lock"
@@ -128,18 +128,26 @@ main(){
 
                 while read -ru 3 file
                 do
-                    # files
-                    if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
-                        el_info "running script: $file"
-                        if ! "$file" ; then
-                            el_error "failed ${file}: $( "$file" )"
-                        fi
-                    fi
-
-                    # changelog
-                    if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
-                        changelog="${changelog}\n\n$(cat "$file" )"
-                    fi
+                    case "$file" in
+                        *.sh)
+                            # script
+                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
+                                el_info "running script: $file"
+                                if ! "$file" ; then
+                                    el_error "failed ${file}: $( "$file" )"
+                                fi
+                            fi
+                            ;;
+                        *CHANGELOG.txt)
+                            # changelog
+                            if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
+                                changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                            fi
+                            ;;
+                        *)
+                            el_error "elive-upgrader: filetype unknown: $file"
+                            ;;
+                    esac
                 done 3<<< "$( find "${hooks_d}/${version}/user" -mindepth 1 -maxdepth 1 -type f )"
 
                 # update version, to know that we have run the hooks until here
@@ -154,7 +162,7 @@ main(){
         local message_upgraded
         message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with the next fixes:" )" "" )"
 
-        echo -e "${message_upgraded}\n\n$changelog" | zenity --text-info --title="$message_upgraded"
+        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
         unset changelog
     fi
 

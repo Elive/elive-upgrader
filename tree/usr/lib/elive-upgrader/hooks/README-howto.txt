@@ -10,4 +10,4 @@ Dirs structure:
 
     FILE TYPES:
         xxxxx.sh:       script to run (optional)
-        CHANGELOG.txt:  a changelog to tell the user what has been upgraded/fixed (optional)
+        CHANGELOG.txt:  a changelog to tell the user what has been upgraded/fixed (optional), only plain text is possible for now
