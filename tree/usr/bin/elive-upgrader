@@ -67,16 +67,9 @@ main(){
 
     # }}}
     # TODO:
-    # - package changelog version based in isos (start value), important
-    # - disable in live mode
-    # - upgrade package first
-    # - ask for upgrade desktop (will require to reboot and a initrd hook? for that we will need a daemon too)
-    #   - nope, we have e17-conf that is always asked to upgrade when desktop starts
-    # - migration hooks like in mkdeb
-    # - notification system / ask if upgrade / changelog list
-    #   - based on elive version iso
     #   - packages-list to install include with a diff or something
-    # - E conf upgrader? (diff something)
+    # - E conf upgrader? (diff something?)
+    #     - we can run the enlightenment-remote too
     # - what if new packages / packages to remove? what if startup applications to add?
     # - lock unable to shutdown while upgrading, or terminal stuff
 
@@ -141,7 +134,9 @@ main(){
                         *CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
-                                changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                # update: user don't needs to see any version number here
+                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                changelog="${changelog}\n\n$(cat "$file" )"
                             fi
                             ;;
                         *)
@@ -160,7 +155,7 @@ main(){
     # changelog to show?
     if [[ -n "$changelog" ]] ; then
         local message_upgraded
-        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with the next fixes:" )" "" )"
+        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
 
         echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
         unset changelog
