@@ -51,7 +51,7 @@ update_upgrader(){
                 exit 1
             fi
         fi
-        if ! timeout 240 DEBIAN_FRONTEND=noninteractive apt-get install -q -y elive-upgrader ; then
+        if ! timeout 240 TERM="" DISPLAY="" DEBIAN_FRONTEND=noninteractive apt-get install -q -y elive-upgrader ; then
             el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader )"
             exit 1
         fi
