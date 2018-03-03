@@ -88,8 +88,6 @@ main(){
     if [[ -z "$version_upgrader" ]] ; then
         version_upgrader="$version_elive"
         echo -e "elive-fixes: $version_upgrader" >> /etc/elive-version
-
-        exit
     fi
 
     # - # get versions }}}
@@ -115,7 +113,7 @@ main(){
             [[ -z "$version" ]] && continue
 
             if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
-                el_info "version: $version"
+                el_info "elive-upgrader: hook version: $version"
 
                 while read -ru 3 script
                 do
