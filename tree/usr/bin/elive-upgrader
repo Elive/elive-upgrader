@@ -40,6 +40,8 @@ echo "$$" > "$lockfile"
 
 main(){
     # pre {{{
+    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+    read -r version_elive <<< "$version_elive"
 
     hooks_d="/usr/lib/elive-upgrader/hooks"
 
@@ -66,12 +68,15 @@ main(){
     fi
 
     # }}}
+
     # TODO:
     #   - packages-list to install include with a diff or something
     # - E conf upgrader? (diff something?)
     #     - we can run the enlightenment-remote too
     # - what if new packages / packages to remove? what if startup applications to add?
+    #   - parse a list of packages to add, then a list of packages to remove, and in the end ... (what if conflicts? like adding a package that has a file added that was in another package first), we should do that interactively so that the user can say Yes or No in the install of packages for security reasons? (but we should have it already tested)
     # - lock unable to shutdown while upgrading, or terminal stuff
+    #   - add a flag in /tmp/ and a daemon to check for that file and wait if stills open (and add a message to show/tell about that)
 
 
     for arg in "$@"
@@ -96,73 +101,12 @@ main(){
     # hooks: root
     sudo elive-upgrader-root
 
+    # always update before to run (if the package has been updated we want to fetch new code too)
+    source /usr/lib/elive-ugprader/functions.sh
+
     # hooks: user
-    # migration upgrade cases (auto hooks): {{{
+    run_hooks "user"
 
-    # get versions
-    el_config_get "version_upgrader"
-    if [[ -z "$version_upgrader" ]] ; then
-        # reference to start from the version of elive built
-        version_upgrader="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
-        read -r version_upgrader <<< "$version_upgrader"
-        el_config_save "version_upgrader"
-    fi
-
-    version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n | tail -1 )"
-
-
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
-        while read -ru 3 version
-        do
-            [[ -z "$version" ]] && continue
-
-            if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
-                el_info "elive-upgrader: hook version: $version"
-
-                while read -ru 3 file
-                do
-                    case "$file" in
-                        *.sh)
-                            # script
-                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
-                                el_info "running script: $file"
-                                if ! "$file" ; then
-                                    el_error "failed ${file}: $( "$file" )"
-                                fi
-                            fi
-                            ;;
-                        *CHANGELOG.txt)
-                            # changelog
-                            if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
-                                # update: user don't needs to see any version number here
-                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                changelog="${changelog}\n\n$(cat "$file" )"
-                            fi
-                            ;;
-                        *)
-                            el_error "elive-upgrader: filetype unknown: $file"
-                            ;;
-                    esac
-                done 3<<< "$( find "${hooks_d}/${version}/user" -mindepth 1 -maxdepth 1 -type f )"
-
-                # update version, to know that we have run the hooks until here
-                version_upgrader="$version"
-                el_config_save "version_upgrader"
-            fi
-        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
-    fi
-
-    # changelog to show?
-    if [[ -n "$changelog" ]] ; then
-        local message_upgraded
-        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
-
-        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
-        unset changelog
-    fi
-
-
-    # }}}
 }
 
 #

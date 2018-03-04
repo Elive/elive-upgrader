@@ -65,9 +65,10 @@ update_upgrader(){
 
 main(){
     # pre {{{
+    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+    read -r version_elive <<< "$version_elive"
 
     hooks_d="/usr/lib/elive-upgrader/hooks"
-
 
     # }}}
     # never run on live mode {{{
@@ -77,20 +78,6 @@ main(){
 
     # }}}
 
-    # get versions {{{
-    version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
-    version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
-    version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n | tail -1 )"
-    read -r version_elive <<< "$version_elive"
-    read -r version_upgrader <<< "$version_upgrader"
-
-    # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
-    if [[ -z "$version_upgrader" ]] ; then
-        version_upgrader="$version_elive"
-        echo -e "elive-fixes: $version_upgrader" >> /etc/elive-version
-    fi
-
-    # - # get versions }}}
 
     for arg in "$@"
     do
@@ -106,66 +93,11 @@ main(){
     done
 
 
-    # migration upgrade cases (auto hooks): {{{
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
-        while read -ru 3 version
-        do
-            [[ -z "$version" ]] && continue
+    # always update before to run (if the package has been updated we want to fetch new code too)
+    source /usr/lib/elive-ugprader/functions.sh
 
-            if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
-                el_info "elive-upgrader: hook version: $version"
-
-                while read -ru 3 file
-                do
-                    case "$file" in
-                        *.sh)
-                            # script
-                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
-                                el_info "running script: $file"
-                                if ! "$file" ; then
-                                    el_error "failed ${file}: $( "$file" )"
-                                fi
-                            fi
-                            ;;
-                        *CHANGELOG.txt)
-                            # changelog
-                            if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
-                                # update: user don't needs to see any version number here
-                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                changelog="${changelog}\n\n$(cat "$file" )"
-                            fi
-                            ;;
-                        *)
-                            el_error "elive-upgrader: filetype unknown: $file"
-                            ;;
-                    esac
-                done 3<<< "$( find "${hooks_d}/${version}/root" -mindepth 1 -maxdepth 1 -type f )"
-
-                # update version, to know that we have run the hooks until here
-                sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
-                version_upgrader="$version"
-            fi
-        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
-    fi
-
-    # changelog to show?
-    if [[ -n "$changelog" ]] ; then
-        local message_upgraded
-        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
-
-        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
-        unset changelog
-    fi
-
-    # }}}
-
-    #if ((is_delayed)) ; then
-        #el_debug "delayed 20 seconds"
-        #sleep 20
-    #fi
-
-    # test
-    #zenity --info --text="Hello world, im $(whoami) as $UID living in $HOME"
+    # hooks: root
+    run_hooks "root"
 
 }
 
