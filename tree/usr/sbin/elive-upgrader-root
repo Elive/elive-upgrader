@@ -94,7 +94,7 @@ main(){
 
 
     # always update before to run (if the package has been updated we want to fetch new code too)
-    source /usr/lib/elive-ugprader/functions.sh
+    source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
     run_hooks "root"
