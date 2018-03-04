@@ -60,7 +60,7 @@ update_upgrader(){
         exit 0
     fi
 
-    #DISPLAY="" el_package_update_last_version -c "elive-upgrader"
+    exit 0
 }
 
 main(){
