@@ -106,6 +106,11 @@ run_hooks(){
 
         echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
         unset changelog
+
+        if zenity --question --text="$( eval_gettext "Donate in order to keep supporting updates and fixes?" )" ; then
+            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
+        fi
+
     fi
 }
 
