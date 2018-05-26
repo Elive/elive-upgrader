@@ -2,3 +2,5 @@
 elive-tools
 # fix for the configurator:
 elive-sounds
+# make elive-upgrader run every day
+elive-desktop-wrapper

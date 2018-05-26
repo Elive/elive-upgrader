@@ -90,15 +90,19 @@ run_hooks(){
                             # note: upgrade is the same as install
                             for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
-                                el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                if [[ -n "$package" ]] ; then
+                                    el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                fi
                             done
                             ;;
                         */packages-to-remove.txt)
                             # note: upgrade is the same as install
                             for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
-                                el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
-                                el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
+                                if [[ -n "$package" ]] ; then
+                                    el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                    el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
+                                fi
                             done
                             ;;
                         *)
