@@ -173,22 +173,17 @@ run_hooks(){
 
     # changelog to show?
     if [[ -n "$changelog" ]] ; then
+        local message_upgraded
+        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
 
-        if [[ "$mode" = "root" ]] ; then
-            el_error "changelog found for root hooks, but only the ones for user are shown, write changelogs only for users instead"
-        else
-            local message_upgraded
-            message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
+        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
+        unset changelog
 
-            echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
-            unset changelog
-
-            if zenity --question --text="$( eval_gettext "Donate in order to keep supporting updates and fixes?" )" ; then
-                web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
-            fi
+        if zenity --question --text="$( eval_gettext "Donate to this amazing project in order to keep supporting updates and fixes?" )" ; then
+            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
         fi
-
     fi
+
 }
 
 
