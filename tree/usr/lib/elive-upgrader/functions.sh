@@ -62,6 +62,8 @@ run_hooks(){
 
                 while read -ru 3 file
                 do
+                    [[ -z "$file" ]] && continue
+
                     case "$file" in
                         *.sh)
                             # script
@@ -99,7 +101,7 @@ run_hooks(){
                             el_error "elive-upgrader: filetype unknown: $file"
                             ;;
                     esac
-                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f )"
+                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null )"
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$mode" = "root" ]] ; then
