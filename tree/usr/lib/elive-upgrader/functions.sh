@@ -130,7 +130,8 @@ run_hooks(){
             fi
 
             # fix
-            if ! timeout 1200 bash -c "DEBIAN_FRONTEND=noninteractive apt-get -f install" ; then
+            # note: NEVER use timeout so it hangs apt-get
+            if ! DEBIAN_FRONTEND=noninteractive apt-get -f install ; then
                 el_error "problem with apt-get -f install"
             fi
 
@@ -143,7 +144,7 @@ run_hooks(){
             if [[ -n "$packages_to_install" ]] ; then
                 # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
-                if timeout 4000 bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -y ${packages_to_install}" ; then
+                if DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" -y ${packages_to_install} ; then
                     el_info "installed packages: ${packages_to_install}"
                 else
                     el_warning "failed to install all packages in one shot: ${packages_to_install}, trying with each one"
@@ -151,7 +152,7 @@ run_hooks(){
                     # try with each one
                     for package in "${packages_to_install}"
                     do
-                        if timeout 3000 bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -y ${package}" ; then
+                        if DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" -y ${package} ; then
                             el_info "install one-to-one package: $package"
                         else
                             el_error "problem with apt-get install -y $package"
