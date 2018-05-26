@@ -1,0 +1,4 @@
+# fix for timeout & apt-get
+elive-tools
+# fix for the configurator:
+elive-sounds
