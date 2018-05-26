@@ -150,7 +150,7 @@ run_hooks(){
                     el_warning "failed to install all packages in one shot: ${packages_to_install}, trying with each one"
 
                     # try with each one
-                    for package in "${packages_to_install}"
+                    for package in ${packages_to_install}
                     do
                         if DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" -y ${package} ; then
                             el_info "install one-to-one package: $package"
