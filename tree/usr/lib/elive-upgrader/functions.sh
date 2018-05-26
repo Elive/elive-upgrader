@@ -53,13 +53,17 @@ run_hooks(){
     esac
 
     if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
+
+        # loop in version dirs
         while read -ru 3 version
         do
             [[ -z "$version" ]] && continue
 
+            # only if was not run yet
             if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
                 el_info "elive-upgrader: hook version: $version"
 
+                # loop in every hook for this version
                 while read -ru 3 file
                 do
                     [[ -z "$file" ]] && continue
@@ -165,14 +169,19 @@ run_hooks(){
 
     # changelog to show?
     if [[ -n "$changelog" ]] ; then
-        local message_upgraded
-        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
 
-        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
-        unset changelog
+        if [[ "$mode" = "root" ]] ; then
+            el_error "changelog found for root hooks, but only the ones for user are shown, write changelogs only for users instead"
+        else
+            local message_upgraded
+            message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
 
-        if zenity --question --text="$( eval_gettext "Donate in order to keep supporting updates and fixes?" )" ; then
-            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
+            echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
+            unset changelog
+
+            if zenity --question --text="$( eval_gettext "Donate in order to keep supporting updates and fixes?" )" ; then
+                web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
+            fi
         fi
 
     fi
