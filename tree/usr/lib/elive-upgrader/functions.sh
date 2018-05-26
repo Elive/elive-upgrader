@@ -74,7 +74,7 @@ run_hooks(){
                                 fi
                             fi
                             ;;
-                        *CHANGELOG.txt)
+                        */CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
                                 # update: user don't needs to see any version number here
@@ -82,16 +82,16 @@ run_hooks(){
                                 changelog="${changelog}\n\n$(cat "$file" )"
                             fi
                             ;;
-                        packages-to-install.txt)
+                        */packages-to-install.txt)
                             # note: upgrade is the same as install
-                            for package in $( cat packages-to-install.txt | grep -v "^#" | tr ' ' '\n' )
+                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
                                 el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
                             done
                             ;;
-                        packages-to-remove.txt)
+                        */packages-to-remove.txt)
                             # note: upgrade is the same as install
-                            for package in $( cat packages-to-remove.txt | grep -v "^#" | tr ' ' '\n' )
+                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
                                 el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
                                 el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
