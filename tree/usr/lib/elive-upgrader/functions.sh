@@ -80,6 +80,21 @@ run_hooks(){
                                 changelog="${changelog}\n\n$(cat "$file" )"
                             fi
                             ;;
+                        packages-to-install.txt)
+                            # note: upgrade is the same as install
+                            for package in $( cat packages-to-install.txt | grep -v "^#" | tr ' ' '\n' )
+                            do
+                                el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                            done
+                            ;;
+                        packages-to-remove.txt)
+                            # note: upgrade is the same as install
+                            for package in $( cat packages-to-remove.txt | grep -v "^#" | tr ' ' '\n' )
+                            do
+                                el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
+                            done
+                            ;;
                         *)
                             el_error "elive-upgrader: filetype unknown: $file"
                             ;;
@@ -97,6 +112,52 @@ run_hooks(){
                 fi
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
+    fi
+
+    # update possible packages
+    if [[ "$mode" = "root" ]] ; then
+        if [[ -n "$packages_to_install" ]] || [[ -n "$packages_to_remove" ]] ; then
+
+            # clenaups
+            packages_to_remove="$( echo "${packages_to_remove[@]}" )"
+            packages_to_install="$( echo "${packages_to_install[@]}" )"
+
+            # update
+            if ! is_quiet=1 el_aptget_update ; then
+                el_error "problem with el_aptget_update"
+            fi
+
+            # fix
+            if ! timeout 1200 bash -c "DEBIAN_FRONTEND=noninteractive apt-get -f install" ; then
+                el_error "problem with apt-get -f install"
+            fi
+
+            # remove
+            if [[ -n "$packages_to_remove" ]] ; then
+                el_warning "removing packages not implemented yet, it will requrie the user confirmation to make sure that the system is not break?"
+            fi
+
+            # install
+            if [[ -n "$packages_to_install" ]] ; then
+                # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
+                # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
+                if timeout 4000 bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -y ${packages_to_install}" ; then
+                    el_info "installed packages: ${packages_to_install}"
+                else
+                    el_warning "failed to install all packages in one shot: ${packages_to_install}, trying with each one"
+
+                    # try with each one
+                    for package in "${packages_to_install}"
+                    do
+                        if timeout 3000 bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -y ${package}" ; then
+                            el_info "install one-to-one package: $package"
+                        else
+                            el_error "problem with apt-get install -y $package"
+                        fi
+                    done
+                fi
+            fi
+        fi
     fi
 
     # changelog to show?
