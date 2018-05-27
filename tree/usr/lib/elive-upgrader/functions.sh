@@ -139,6 +139,8 @@ run_hooks(){
 
             # fix
             # note: NEVER use timeout so it hangs apt-get
+            # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
+
             if ! DEBIAN_FRONTEND=noninteractive apt-get -f install ; then
                 el_error "problem with apt-get -f install"
             fi

@@ -42,17 +42,17 @@ echo "$$" > "$lockfile"
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
         if ! timeout 900 apt-get -f install ; then
-            el_error "problem with apt-get -f install: $(apt-get -f install )"
+            el_error "problem with apt-get -f install: $(apt-get -f install 2>&1 )"
             exit 1
         fi
         if ! timeout 1200 apt-get update ; then
-            if ! apt-get 360 update ; then
-                el_error "problem updating package lists: $(apt-get update)"
+            if ! apt-get update ; then
+                el_error "problem updating package lists: $(apt-get update 2>&1 )"
                 exit 1
             fi
         fi
         if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
-            el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader )"
+            el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
             exit 1
         fi
     else
