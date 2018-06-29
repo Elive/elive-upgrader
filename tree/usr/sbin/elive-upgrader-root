@@ -81,14 +81,14 @@ upgrade_system(){
 
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
-        timeout 10 tmux-attach-jobs elive-upgrader test "touch '/tmp/.elive-upgrading'" 1>/dev/null
+        timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null
         sleep 1 ; sync
     fi
     # run it, undetached or direct if we don't have tmux feature
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
-        tmux-attach-jobs elive-upgrader upgrading "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"All Done. Close the terminal\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
@@ -96,7 +96,7 @@ upgrade_system(){
             urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader"
         fi
     else
-        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"All Done. Close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
     fi
 
     # remove flag
