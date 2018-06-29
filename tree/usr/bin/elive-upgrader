@@ -87,6 +87,10 @@ main(){
                 is_delayed=1
                 shift
                 ;;
+            -u|--ugprade)
+                sudo elive-upgrader-root --upgrade
+                exit
+                ;;
         esac
     done
 
@@ -95,12 +99,18 @@ main(){
         sleep 20
     fi
 
+    # source functions
+    source /usr/lib/elive-upgrader/functions.sh
 
     # update tool first (if)
-    sudo elive-upgrader-root --update
+    sudo elive-upgrader-root --update-tool
 
     # hooks: root
-    sudo elive-upgrader-root
+    sudo elive-upgrader-root --hooks-root
+
+    # verify if enough time passed to check for upgrades and ask the user if ugprade the system
+    #upgrade_system_delayed # XXX disabled until betatested enough
+
 
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh

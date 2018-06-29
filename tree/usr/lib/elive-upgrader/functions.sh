@@ -4,6 +4,38 @@
 #el_make_environment
 #. gettext.sh
 
+upgrade_system_delayed(){
+    local timestamp limit_time_seconds num_updates
+    timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
+    if ! [[ -d "$( dirname "$timestamp" )" ]] ; then
+        mkdir -p "$( dirname "$timestamp" )"
+        touch "$timestamp"
+    fi
+
+    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)
+    #limit_time_seconds="1209600" # 14 days
+    #limit_time_seconds="604800" # one week
+    #limit_time_seconds="518400" # 6 days
+    limit_time_seconds="6" # tests
+
+    if [[ "$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )" -gt "$limit_time_seconds" ]] ; then
+        # get number of available updates
+        num_updates="$( sudo elive-upgrader-root --updates-available )"
+
+        if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
+            # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
+            if zenity --question --text="${num_updates} $( eval_gettext "Updates available found. Do you want to upgrade your Elive?" )" ; then
+                el_notify_user "Elive Updates" "$( eval_gettext "Follow the instructions in the terminal" )"
+
+                sudo elive-upgrader-root --upgrade
+            fi
+        fi
+
+        # always mark/park until the next month, we dont want to run apt-get update at every start
+        touch "$timestamp"
+    fi
+}
+
 #===  FUNCTION  ================================================================
 #          NAME:  run_hooks
 #   DESCRIPTION:  run the hooks up to the last version ran

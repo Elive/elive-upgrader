@@ -3,8 +3,8 @@ SOURCE="$0"
 source /usr/lib/elive-tools/functions
 el_make_environment
 . gettext.sh
-#TEXTDOMAIN="elive-upgrader"
-#export TEXTDOMAIN
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
 
 # Lock system (good one) {{{
 lockfile="/tmp/.$(basename $0)-${USER}.lock"
@@ -38,6 +38,75 @@ echo "$$" > "$lockfile"
 
 
 # end lock system }}}
+
+hooks_root(){
+    # always update before to run (if the package has been updated we want to fetch new code too)
+    source /usr/lib/elive-upgrader/functions.sh
+
+    # hooks: root
+    run_hooks "root"
+}
+
+
+updates_available_show(){
+    local number
+    # update
+    if ! is_quiet=1 el_aptget_update ; then
+        el_error "problem with el_aptget_update"
+    fi
+
+    number="$( LC_ALL="$EL_LC_EN" apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+
+    if [[ -n "$number" ]] && echo "$number" | grep -qs "^[[:digit:]]" ; then
+        echo "$number"
+        return 0
+    else
+        return 1
+    fi
+}
+
+upgrade_system(){
+    if ! timeout 1200 apt-get update ; then
+        if ! apt-get update ; then
+            el_error "problem updating package lists: $(apt-get update 2>&1 )"
+            exit 1
+        fi
+    fi
+
+    # check
+    if ! updates_available_show 1>/dev/null 2>&1 ; then
+        el_info "$( eval_gettext "no updates available" )"
+        return
+    fi
+
+    zenity --info --text="this is a window test (root access X11), delete it after you know that it worked"
+
+    # test if we can run in a detached mode, so the user can close terminal without problems
+    if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
+        timeout 10 tmux-attach-jobs elive-upgrader test "touch '/tmp/.elive-upgrading'" 1>/dev/null
+        sleep 1 ; sync
+    fi
+    # run it, undetached or direct if we don't have tmux feature
+    if [[ -e "/tmp/.elive-upgrading" ]] ; then
+        rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
+
+        local message_close_terminal
+        message_close_terminal="$( printf "$( eval_gettext "All is done, you can close the terminal" )" "" )"
+
+        tmux-attach-jobs elive-upgrader upgrading "bash -c 'unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade' ; echo ; echo ; echo \"$message_close_terminal\" '" 1>/dev/null
+        sleep 2 ; sync
+
+        # visualize tasks if we have it already not opened
+        if ! LC_ALL="$EL_LC_EN" ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+            urxvt -e bash -c "unset TMUX ; tmux attach -t eliveinstaller"
+        fi
+    else
+        urxvt -e bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade ; echo ; echo ; echo \"$message_close_terminal\" " 1>/dev/null
+    fi
+
+    # remove flag
+    rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
+}
 
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
@@ -86,18 +155,21 @@ main(){
                 #is_delayed=1
                 #shift
                 #;;
-            --update)
+            --update|--update-tool)
+                # TODO: delete the deprecated first paramter "--update" in the future
                 update_upgrader
+                ;;
+            --hooks-root)
+                hooks_root
+                ;;
+            --upgrade)
+                upgrade_system
+                ;;
+            --updates-available)
+                updates_available_show
                 ;;
         esac
     done
-
-
-    # always update before to run (if the package has been updated we want to fetch new code too)
-    source /usr/lib/elive-upgrader/functions.sh
-
-    # hooks: root
-    run_hooks "root"
 
 }
 
