@@ -12,7 +12,7 @@ upgrade_system_delayed(){
         touch "$timestamp"
     fi
 
-    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)
+    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)  # monthly is the best option for now, to not annoy much the user with popups and updates are not so important
     #limit_time_seconds="1209600" # 14 days
     #limit_time_seconds="604800" # one week
     #limit_time_seconds="518400" # 6 days
@@ -25,6 +25,8 @@ upgrade_system_delayed(){
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
             if zenity --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
+
+                zenity --info --text="$( eval_gettext "Please follow the instructions in the terminal, and type what will ask you." )"
                 sudo elive-upgrader-root --upgrade
             fi
         fi
