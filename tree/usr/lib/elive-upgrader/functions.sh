@@ -24,7 +24,7 @@ upgrade_system_delayed(){
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
-            if zenity --question --text="${num_updates} $( eval_gettext "Updates available found. Do you want to upgrade your Elive?" )" ; then
+            if zenity --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
                 el_notify_user "Elive Updates" "$( eval_gettext "Follow the instructions in the terminal" )"
 
                 sudo elive-upgrader-root --upgrade
