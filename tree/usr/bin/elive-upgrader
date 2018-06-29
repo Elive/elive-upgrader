@@ -109,7 +109,7 @@ main(){
     sudo elive-upgrader-root --hooks-root
 
     # verify if enough time passed to check for upgrades and ask the user if ugprade the system
-    #upgrade_system_delayed # XXX disabled until betatested enough
+    upgrade_system_delayed
 
 
     # always update before to run (if the package has been updated we want to fetch new code too)
