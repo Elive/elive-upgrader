@@ -1,8 +1,10 @@
 #!/bin/bash
-#SOURCE="$0"
+SOURCE="$0"
 #source /usr/lib/elive-tools/functions
 #el_make_environment
-#. gettext.sh
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
 
 upgrade_system_delayed(){
     local timestamp limit_time_seconds num_updates
