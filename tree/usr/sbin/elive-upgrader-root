@@ -80,6 +80,8 @@ upgrade_system(){
     fi
 
     zenity --info --text="this is a window test (root access X11), delete it after you know that it worked"
+    el_notify_user "Elive Updates" "$( eval_gettext "Follow the instructions in the terminal" )"
+
 
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
@@ -93,12 +95,12 @@ upgrade_system(){
         local message_close_terminal
         message_close_terminal="$( printf "$( eval_gettext "All is done, you can close the terminal" )" "" )"
 
-        tmux-attach-jobs elive-upgrader upgrading "bash -c 'unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade' ; echo ; echo ; echo \"$message_close_terminal\" '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader upgrading "bash -c 'unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade ; echo ; echo ; echo \"$message_close_terminal\" '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
         if ! LC_ALL="$EL_LC_EN" ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
-            urxvt -e bash -c "unset TMUX ; tmux attach -t eliveinstaller"
+            urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader"
         fi
     else
         urxvt -e bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade ; echo ; echo ; echo \"$message_close_terminal\" " 1>/dev/null
