@@ -66,6 +66,7 @@ updates_available_show(){
 }
 
 upgrade_system(){
+    local is_upgraded
     if ! timeout 1200 apt-get update ; then
         if ! apt-get update ; then
             el_error "problem updating package lists: $(apt-get update 2>&1 )"
@@ -94,9 +95,17 @@ upgrade_system(){
         # visualize tasks if we have it already not opened
         if ! LC_ALL="$EL_LC_EN" ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
             urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader"
+            is_upgraded=1
         fi
     else
         urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
+        is_upgraded=1
+    fi
+
+    if ((is_upgraded)) ; then
+        if zenity --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes, you don't need to reboot but is possible that you can see more changes if you do it. Do you want to donate to this amazing project in order to make it keep it progressing?" )" ; then
+            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
+        fi
     fi
 
     # remove flag
