@@ -1,0 +1,7 @@
+e17-conf
+elive-daemons
+elive-desktop-applications
+elive-desktop-wrapper
+elive-upgrader
+elive-tools
+gnome-media
