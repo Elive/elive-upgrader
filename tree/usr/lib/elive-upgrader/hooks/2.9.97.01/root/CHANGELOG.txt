@@ -1,0 +1,1 @@
+Improved support for multiple screens, with an own Elive tool, restart your E17 (desktop) configuration from the Applications -> Preferences to enjoy it!
