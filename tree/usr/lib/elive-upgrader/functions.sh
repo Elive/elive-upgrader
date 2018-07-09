@@ -6,6 +6,13 @@ SOURCE="$0"
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
+DEBIAN_VERSION="$( tail -1 /etc/debian_version )"
+if dpkg --compare-versions "$DEBIAN_VERSION" gt 8 ; then
+    APTGET_OPTIONS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confnew' -y --allow-downgrades"
+else
+    APTGET_OPTIONS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confnew' -y --force-yes"
+fi
+
 upgrade_system_delayed(){
     local timestamp limit_time_seconds num_updates
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
@@ -189,18 +196,18 @@ run_hooks(){
             if [[ -n "$packages_to_install" ]] ; then
                 # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
-                if DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" -y ${packages_to_install} ; then
+                if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
                     el_info "installed packages: ${packages_to_install}"
                 else
-                    el_warning "failed to install all packages in one shot: ${packages_to_install}, trying with each one"
+                    el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
 
                     # try with each one
                     for package in ${packages_to_install}
                     do
-                        if DEBIAN_FRONTEND=noninteractive apt-get install -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confnew" -y ${package} ; then
-                            el_info "install one-to-one package: $package"
+                        if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
+                            el_debug "installed one-to-one package: $package"
                         else
-                            el_error "problem with apt-get install -y $package"
+                            el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
                         fi
                     done
                 fi

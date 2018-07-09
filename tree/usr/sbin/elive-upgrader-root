@@ -124,7 +124,7 @@ update_upgrader(){
                 exit 1
             fi
         fi
-        if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
+        if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
             el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
             exit 1
         fi
