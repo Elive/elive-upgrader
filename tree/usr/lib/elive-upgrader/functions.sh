@@ -8,9 +8,9 @@ export TEXTDOMAIN
 
 DEBIAN_VERSION="$( tail -1 /etc/debian_version )"
 if dpkg --compare-versions "$DEBIAN_VERSION" gt 8 ; then
-    APTGET_OPTIONS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confnew' -y --allow-downgrades"
+    APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
 else
-    APTGET_OPTIONS="-o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confnew' -y --force-yes"
+    APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --force-yes"
 fi
 
 upgrade_system_delayed(){
