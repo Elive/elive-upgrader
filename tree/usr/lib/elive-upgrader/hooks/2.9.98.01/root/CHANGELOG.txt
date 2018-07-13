@@ -1,0 +1,4 @@
+Menus: improved organization for your applications menus
+
+Handy Screenshot features: Use now the 'Impr/Prt Scr.' key to capture a screenshot and have it saved to your clipboard, so you can paste it with Ctrl + V anywhere. Combine it with Shift to capture a region of your screen if you drag your mouse or an entire window if you click on it - (requires restart your desktop configurations)
+

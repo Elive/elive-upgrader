@@ -1,0 +1,5 @@
+e17-conf
+e17-menus
+elive-tools
+scrot
+elive-help
