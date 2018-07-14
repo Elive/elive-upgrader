@@ -3,3 +3,5 @@ e17-menus
 elive-tools
 scrot
 elive-help
+elive-desktop-applications
+usb-bootable-elive
