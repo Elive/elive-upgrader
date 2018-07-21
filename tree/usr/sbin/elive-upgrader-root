@@ -145,9 +145,10 @@ main(){
 
     # }}}
     # never run on live mode {{{
-    if grep -qs "boot=live" /proc/cmdline ; then
-        exit
-    fi
+    # managed already from the main script
+    #if grep -qs "boot=live" /proc/cmdline ; then
+        #exit
+    #fi
 
     # }}}
 
