@@ -59,15 +59,18 @@ main(){
         # we are in persistence?
         if grep -qs "persistence" /proc/cmdline && [[ -s /tmp/.persistence-space-free-at-boot ]] ; then
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
-                if [[ "$use_upgrader_in_live" = "no" ]] ; then
-                    exit
-                else
+
+                if [[ -z "$use_upgrader_in_live" ]] ; then
                     if zenity --question --text="$( eval_gettext "Do you want to use the updater tool in Live mode? This will feature updated packages in your Persistence saved sessions." )" ; then
                         use_upgrader_in_live="yes"
                     else
                         use_upgrader_in_live="no"
                     fi
                     el_config_save "use_upgrader_in_live"
+                else
+                    if [[ "$use_upgrader_in_live" = "no" ]] ; then
+                        exit
+                    fi
                 fi
             else
                 # not enough free space, dont use upgrader
