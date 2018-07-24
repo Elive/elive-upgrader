@@ -61,7 +61,7 @@ main(){
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
 
                 if [[ -z "$use_upgrader_in_live" ]] ; then
-                    if zenity --question --text="$( eval_gettext "Do you want to use the updater tool in Live mode? This will feature updated packages in your Persistence saved sessions." )" ; then
+                    if zenity --question --text="$( eval_gettext "Do you want to have automatic updates? This will feature updated packages in your Persistence saved sessions." )" ; then
                         use_upgrader_in_live="yes"
                     else
                         use_upgrader_in_live="no"
