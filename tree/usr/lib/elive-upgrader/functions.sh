@@ -237,6 +237,9 @@ run_hooks(){
         if zenity --question --text="$( eval_gettext "Donate to this amazing project in order to keep supporting updates and fixes?" )" ; then
             web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
         fi
+
+        el_mark_state "system-upgraded" 2>/dev/null || true
+
     fi
 
 }
