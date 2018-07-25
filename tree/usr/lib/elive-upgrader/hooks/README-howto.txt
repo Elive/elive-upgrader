@@ -1,3 +1,5 @@
+Elive / Development notes:
+
 These dirs reffers to hooks to run when there's fixes needed to do in an installed system of Elive
 
 Dirs structure:
@@ -11,3 +13,8 @@ Dirs structure:
     FILE TYPES:
         xxxxx.sh:       script to run (optional)
         CHANGELOG.txt:  a changelog to tell the user what has been upgraded/fixed (optional), only plain text is possible for now
+
+
+How to know what changed from the last version:
+- check the packages-list from the isos build
+- boot a previous version of elive and run "apug" to list what upgrades
