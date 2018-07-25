@@ -200,7 +200,7 @@ run_hooks(){
 
             # remove
             if [[ -n "$packages_to_remove" ]] ; then
-                el_warning "removing packages not implemented yet, it will requrie the user confirmation to make sure that the system is not break?"
+                el_warning "removing packages not implemented yet; note: it will requrie the user confirmation to make sure that the system is not break?"
             fi
 
             # install
@@ -233,12 +233,11 @@ run_hooks(){
 
         echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
         unset changelog
+        el_mark_state "upgraded" 2>/dev/null || true
 
         if zenity --question --text="$( eval_gettext "Donate to this amazing project in order to keep supporting updates and fixes?" )" ; then
             web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
         fi
-
-        el_mark_state "system-upgraded" 2>/dev/null || true
 
     fi
 
