@@ -128,8 +128,20 @@ run_hooks(){
                                 changelog="${changelog}\n\n$(cat "$file" )"
                             fi
                             ;;
+                        */packages-to-upgrade.txt)
+                            # only installs (update) if they are already installed
+                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
+                            do
+                                if [[ -n "$package" ]] ; then
+                                    # only if is already installed
+                                    if COLUMNS=1000 dpkg -l | grep -E "^(hi|ii)" | awk '{print $2}' | sed -e 's|:.*||g' | grep -qs "^${package}$" ; then
+                                        el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                    fi
+                                fi
+                            done
+                            ;;
                         */packages-to-install.txt)
-                            # note: upgrade is the same as install
+                            # installs them
                             for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
                                 if [[ -n "$package" ]] ; then
@@ -138,7 +150,6 @@ run_hooks(){
                             done
                             ;;
                         */packages-to-remove.txt)
-                            # note: upgrade is the same as install
                             for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                             do
                                 if [[ -n "$package" ]] ; then
