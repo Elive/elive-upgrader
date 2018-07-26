@@ -6,15 +6,14 @@ Performance: automatic "full power" when connected to AC and switch to "powersav
 
 Theme Desktop: a few improved visuals
 
-
 Menus: better organized, improved some launchers
 
 Bar: A few changes if your default icons bar when having a new desktop configuration
 
-Note: it is suggested to RESTART to a new desktop configuration if you want to benefit all these changes
+Note: A reboot is suggested, and also to reset to a new desktop configuration if you want to benefit all these changes
 
 
-EXTRA:
+EXTRA (live mode):
 
 Persistence: enourmeous improvements for hardware-based profiles, so that you can run your encrypted USB with Elive in Live mode that can work anywhere without conflicting with the drivers, saving profiles per machine and reciclating installed drivers when needed (this feature is not available here, requires download 2.9.99) - more improvements for persistence in: encryption & performances, statistics, optional auto updates
 
