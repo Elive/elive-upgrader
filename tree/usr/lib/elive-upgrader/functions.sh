@@ -210,17 +210,39 @@ run_hooks(){
                 if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
                     el_info "installed packages: ${packages_to_install}"
                 else
-                    el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
+                    # update
+                    sleep 5
+                    if ! is_quiet=1 el_aptget_update ; then
+                        el_error "problem with el_aptget_update"
+                    fi
 
-                    # try with each one
-                    for package in ${packages_to_install}
-                    do
-                        if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
-                            el_debug "installed one-to-one package: $package"
-                        else
-                            el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
-                        fi
-                    done
+                    # try again
+                    if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
+                        el_info "installed packages: ${packages_to_install}"
+                    else
+                        el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
+
+                        # try with each one
+                        for package in ${packages_to_install}
+                        do
+                            if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
+                                el_debug "installed one-to-one package: $package"
+                            else
+                                # update
+                                sleep 4
+                                if ! is_quiet=1 el_aptget_update ; then
+                                    el_error "problem with el_aptget_update"
+                                fi
+
+                                # try again
+                                if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
+                                    el_debug "installed one-to-one package: $package"
+                                else
+                                    el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                fi
+                            fi
+                        done
+                    fi
                 fi
             fi
         fi
