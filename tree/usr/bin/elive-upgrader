@@ -87,9 +87,10 @@ main(){
         exit
     fi
 
-    # TODO: disable in the future, new users could not have this enabled, or add them into the user-manager?
+    # just a check to make sure that it work
     if ! grep -qs "^%sudo.*NOPASSWD.*elive-upgrader-root" /etc/sudoers.d/privileges_upgrader || ! groups | grep -qs "sudo" ; then
         el_error "user is not in privileges_upgrader"
+        exit
     fi
 
     # }}}
