@@ -1,0 +1,14 @@
+eltrans
+elive-sounds
+elive-daemons
+elive-desktop-applications
+elive-help
+elive-news
+elive-tools
+eltrans
+e17-menus
+e17-stable e17
+e17-stable-data e17-data
+e17-theme-elive-light
+elive-desktop-wrapper
+elive-skel-default-all
