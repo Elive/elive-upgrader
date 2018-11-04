@@ -120,6 +120,12 @@ main(){
                 sudo elive-upgrader-root --upgrade
                 exit
                 ;;
+            -s|--simulate)
+                # simulates the normal run / start from the daemon mode
+                export EL_DEBUG=3
+                export is_simulate=1
+                true
+                ;;
         esac
     done
 
@@ -132,12 +138,15 @@ main(){
     source /usr/lib/elive-upgrader/functions.sh
 
     # update tool first (if)
+    el_debug "going to: update-tool"
     sudo elive-upgrader-root --update-tool
 
     # hooks: root
+    el_debug "going to: hooks root"
     sudo elive-upgrader-root --hooks-root
 
     # verify if enough time passed to check for upgrades and ask the user if ugprade the system
+    el_debug "going to: upgrade full system (delayed, if enough time passed)"
     upgrade_system_delayed
 
 
@@ -145,6 +154,7 @@ main(){
     source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: user
+    el_debug "going to: hooks user"
     run_hooks "user"
 
 }

@@ -62,6 +62,7 @@ run_hooks(){
     mode="$1"
     el_check_variables "mode"
 
+    el_debug "running hooks in mode $mode"
     # }}}
 
     case "$mode" in
@@ -95,6 +96,8 @@ run_hooks(){
             ;;
     esac
 
+    el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook"
+
     if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
 
         # loop in version dirs
@@ -110,6 +113,8 @@ run_hooks(){
                 while read -ru 3 file
                 do
                     [[ -z "$file" ]] && continue
+
+                    el_debug "hook: $file"
 
                     case "$file" in
                         *.sh)
@@ -201,15 +206,18 @@ run_hooks(){
 
             # remove
             if [[ -n "$packages_to_remove" ]] ; then
+                el_debug "packages wanted to remove: $packages_to_remove"
                 el_warning "removing packages not implemented yet; note: it will requrie the user confirmation to make sure that the system is not break?"
             fi
 
             # install
             if [[ -n "$packages_to_install" ]] ; then
+                el_debug "packages wanted to install: $packages_to_install"
                 # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
+                killall apt-get 2>/dev/null 1>&2 || true
                 if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
-                    el_info "installed packages: ${packages_to_install}"
+                    el_info "installed packages"
                 else
                     # update
                     sleep 5
@@ -253,6 +261,8 @@ run_hooks(){
     if [[ -n "$changelog" ]] ; then
         local message_upgraded
         message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
+
+        el_debug "changelog:\n$changelog"
 
         echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
         unset changelog
