@@ -1,0 +1,7 @@
+Updated FLASH plugin for browsers (tested on: opera, firefox, chrome)
+
+Multiple improvements and fixes for:
+- autodetection of time and language updated to new code in order to work back
+- brightness auto off
+- hotkeys PDF launcher in the bar
+- small fixes for multiple files converter (audio & images) for the filemanager (thunar)

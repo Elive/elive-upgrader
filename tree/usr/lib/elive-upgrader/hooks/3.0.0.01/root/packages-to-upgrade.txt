@@ -1,0 +1,10 @@
+google-chrome-stable
+flashplugin-nonfree-static
+pepperflashplugin-nonfree-static
+elive-tools
+e17-conf
+e17-menus
+e17-stable
+elive-desktop-applications
+thunar-audio-converter
+thunar-image-resizer
