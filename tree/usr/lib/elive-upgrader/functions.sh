@@ -69,7 +69,7 @@ run_hooks(){
         root)
             # get versions {{{
             version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
             read -r version_upgrader <<< "$version_upgrader"
 
             # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
@@ -90,15 +90,15 @@ run_hooks(){
                 el_config_save "version_upgrader"
             fi
 
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
 
             #}}}
             ;;
     esac
 
 
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "lt" "$version_upgrader" ; then
-        el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook (bigger, so running it)"
+    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
+        el_debug "version upgrader was $version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
 
         # loop in version dirs
         while read -ru 3 version
@@ -180,9 +180,9 @@ run_hooks(){
                     el_config_save "version_upgrader"
                 fi
             fi
-        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
+        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
     else
-        el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook (lower, ignoring)"
+        el_debug "version upgrader was $version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
     fi
 
     # update possible packages
