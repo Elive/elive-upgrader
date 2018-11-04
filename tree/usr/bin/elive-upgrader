@@ -55,7 +55,9 @@ main(){
     # never run... checks {{{
     el_config_get
 
+    # persistence upgrade {{{
     if grep -qs "boot=live" /proc/cmdline ; then
+
         # we are in persistence?
         if grep -qs "persistence" /proc/cmdline && [[ -s /tmp/.persistence-space-free-at-boot ]] ; then
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
@@ -81,6 +83,7 @@ main(){
             exit
         fi
     fi
+    # }}}
 
     # only run if first user
     if ! grep -qs "^first-user: $USER\$" /etc/elive-version ; then

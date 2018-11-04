@@ -12,9 +12,29 @@ lockfile="/tmp/.$(basename $0)-${USER}.lock"
 
 exit_ok(){
     rm -f "$lockfile"
+
+    #killall apt-get 2>/dev/null 1>&2 || true
+    tmux kill-window -t Upgrade
+
+    #while read -ru 3 line
+    #do
+        #[[ -z "$line" ]] && continue
+        #kill "$line" 2>/dev/null 1>&2 || true
+    #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
 }
 exit_error(){
     rm -f "$lockfile"
+
+    tmux kill-window -t Upgrade
+    #tmux kill-session -t elive-upgrader
+
+    #killall apt-get 2>/dev/null 1>&2 || true
+
+    #while read -ru 3 line
+    #do
+        #[[ -z "$line" ]] && continue
+        #kill "$line" 2>/dev/null 1>&2 || true
+    #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
 }
 
 if [[ -r "$lockfile" ]] ; then
@@ -89,7 +109,7 @@ upgrade_system(){
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
-        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'timeout 14400 apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
@@ -98,7 +118,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "timeout 14400 apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 

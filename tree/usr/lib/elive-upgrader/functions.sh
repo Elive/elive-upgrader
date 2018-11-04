@@ -31,12 +31,13 @@ upgrade_system_delayed(){
     if [[ "$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )" -gt "$limit_time_seconds" ]] ; then
         # get number of available updates
         num_updates="$( sudo elive-upgrader-root --updates-available )"
+        el_debug "upgrades found: $num_updates"
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
             if zenity --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
 
-                zenity --info --text="$( eval_gettext "Please follow the instructions in the terminal, and type what will ask you." )"
+                zenity --info --text="$( eval_gettext "Please follow the instructions in the terminal, and answer the questions." )"
                 sudo elive-upgrader-root --upgrade
             fi
         fi
