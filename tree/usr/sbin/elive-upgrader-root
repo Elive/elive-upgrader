@@ -87,7 +87,7 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
-    if ! timeout 1200 apt-get update ; then
+    if ! apt-get update ; then
         if ! apt-get update ; then
             el_error "problem updating package lists: $(apt-get update 2>&1 )"
             exit 1
@@ -109,7 +109,7 @@ upgrade_system(){
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
-        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'timeout 14400 apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
@@ -118,7 +118,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "timeout 14400 apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 
@@ -134,17 +134,17 @@ upgrade_system(){
 
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
-        if ! timeout 900 apt-get -f install ; then
+        if ! apt-get -f install ; then
             el_error "problem with apt-get -f install: $(apt-get -f install 2>&1 )"
             exit 1
         fi
-        if ! timeout 1200 apt-get update ; then
+        if ! apt-get update ; then
             if ! apt-get update ; then
                 el_error "problem updating package lists: $(apt-get update 2>&1 )"
                 exit 1
             fi
         fi
-        if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
+        if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
             el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
             exit 1
         fi
