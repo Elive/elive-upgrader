@@ -14,7 +14,7 @@ exit_ok(){
     rm -f "$lockfile"
 
     #killall apt-get 2>/dev/null 1>&2 || true
-    tmux kill-window -t Upgrade
+    tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
 
     #while read -ru 3 line
     #do
@@ -25,8 +25,8 @@ exit_ok(){
 exit_error(){
     rm -f "$lockfile"
 
-    tmux kill-window -t Upgrade
     #tmux kill-session -t elive-upgrader
+    tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
 
     #killall apt-get 2>/dev/null 1>&2 || true
 
