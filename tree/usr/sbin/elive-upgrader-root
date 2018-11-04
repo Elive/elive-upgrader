@@ -109,6 +109,7 @@ upgrade_system(){
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
+        # IMPORTANT: do not use timeout, it will block apt-get
         tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
