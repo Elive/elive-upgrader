@@ -96,9 +96,9 @@ run_hooks(){
             ;;
     esac
 
-    el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook"
 
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
+    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "lt" "$version_upgrader" ; then
+        el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook (bigger, so running it)"
 
         # loop in version dirs
         while read -ru 3 version
@@ -181,6 +181,8 @@ run_hooks(){
                 fi
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -n )"
+    else
+        el_debug "version upgrader is $version_upgrader and last hook was $version_last_hook (lower, ignoring)"
     fi
 
     # update possible packages
