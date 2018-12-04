@@ -1,0 +1,1 @@
+Improved internal volumes manager to fix a small issue when starting the desktop with wrongly set volumes raised
