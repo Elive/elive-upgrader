@@ -1,1 +1,1 @@
-Improved internal volumes manager to fix a small issue when starting the desktop with wrongly set volumes raised
+Improved the Elive internal audio volume controller, to fix a small but annoying issue where the desktop started with the audio volumes wrongly raised
