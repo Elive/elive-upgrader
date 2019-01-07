@@ -1,0 +1,1 @@
+PDF shrinker: (did you know that you can make smaller your PDF files right clicking on them? how many painful experiences we had in those uncompetent government websites which doesn't allows uploads of more than 1 MB !) - this feature now allows you to select the resizing compression values to have a more precise quality VS compression result!
