@@ -110,7 +110,7 @@ upgrade_system(){
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
         # IMPORTANT: do not use timeout, it will block apt-get
-        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal now\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo \"You can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
@@ -119,7 +119,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"Yepeee, new yummy Elive improvements around. You can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"You can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 
