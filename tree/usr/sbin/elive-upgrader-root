@@ -124,7 +124,7 @@ upgrade_system(){
     fi
 
     if ((is_upgraded)) ; then
-        if zenity --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes, you don't need to reboot but is possible that you can see more changes if you do it. Do you want to donate to this amazing project in order to make it keep it progressing?" )" ; then
+        if zenity --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes. Do you want to donate to this amazing project in order to keep it progressing?" )" ; then
             web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
         fi
     fi
