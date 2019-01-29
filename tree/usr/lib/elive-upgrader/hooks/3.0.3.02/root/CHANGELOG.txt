@@ -1,0 +1,1 @@
+Elive automatically configures the timezone hour based in the location of your IP, when you move to a new location it is automatically updated just like your advanced phones does. But for these users that wants to configure the timezone (or if was wrongly detected) they can do it themselves now thanks to an extra configurator added in the Applications menu.
