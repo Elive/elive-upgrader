@@ -1,0 +1,1 @@
+There was a problem with the repositories which could not be used due to a wrong cache. You have it fixed now and you can use apt-get or your package manager to install software at your wish. This problem has been solved thanks to Vicente Esteve which reported the issue in the Elive Forums!
