@@ -22,7 +22,7 @@ upgrade_system_delayed(){
     fi
 
     # TODO: change it to monthly
-    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)  # monthly is the best option for now, to not annoy much the user with popups and updates are not so important, so will have from time to time some yummy improvements (also not much suggestions of desktop ugprades, etc)
+    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)  # monthly is the best option for now, to not annoy much the user with popups and updates are not so important, so will have from time to time some yummy improvements (also not much suggestions of desktop upgrades, etc)
     limit_time_seconds="1209600" # 14 days
     #limit_time_seconds="604800" # one week
     #limit_time_seconds="518400" # 6 days

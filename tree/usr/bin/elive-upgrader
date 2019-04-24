@@ -116,7 +116,7 @@ main(){
                 is_delayed=1
                 shift
                 ;;
-            -u|--ugprade)
+            -u|--upgrade)
                 sudo elive-upgrader-root --upgrade
                 exit
                 ;;
@@ -145,7 +145,7 @@ main(){
     el_debug "going to: hooks root"
     sudo elive-upgrader-root --hooks-root
 
-    # verify if enough time passed to check for upgrades and ask the user if ugprade the system
+    # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
     upgrade_system_delayed
 
