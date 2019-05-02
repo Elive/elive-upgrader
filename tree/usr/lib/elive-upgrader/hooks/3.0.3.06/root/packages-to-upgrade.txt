@@ -1,0 +1,6 @@
+elive-desktop-wrapper
+elive-tools
+elive-ugprader
+elive-daemons
+elive-desktop-applications
+
