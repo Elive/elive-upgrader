@@ -62,15 +62,15 @@ main(){
         if grep -qs "persistence" /proc/cmdline && [[ -s /tmp/.persistence-space-free-at-boot ]] ; then
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
 
-                if [[ -z "$use_upgrader_in_live" ]] ; then
+                if [[ -z "$conf_use_upgrader_in_live" ]] ; then
                     if zenity --question --text="$( eval_gettext "Do you want to have automatic updates? This will feature updated packages in your Persistence saved sessions." )" ; then
-                        use_upgrader_in_live="yes"
+                        conf_use_upgrader_in_live="yes"
                     else
-                        use_upgrader_in_live="no"
+                        conf_use_upgrader_in_live="no"
                     fi
-                    el_config_save "use_upgrader_in_live"
+                    el_config_save "conf_use_upgrader_in_live"
                 else
-                    if [[ "$use_upgrader_in_live" = "no" ]] ; then
+                    if [[ "$conf_use_upgrader_in_live" = "no" ]] ; then
                         exit
                     fi
                 fi

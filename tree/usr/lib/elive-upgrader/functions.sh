@@ -68,26 +68,26 @@ run_hooks(){
     case "$mode" in
         root)
             # get versions {{{
-            version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
+            conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
             version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
-            read -r version_upgrader <<< "$version_upgrader"
+            read -r conf_version_upgrader <<< "$conf_version_upgrader"
 
             # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
-            if [[ -z "$version_upgrader" ]] ; then
-                version_upgrader="$version_elive"
-                echo -e "elive-fixes: $version_upgrader" >> /etc/elive-version
+            if [[ -z "$conf_version_upgrader" ]] ; then
+                conf_version_upgrader="$version_elive"
+                echo -e "elive-fixes: $conf_version_upgrader" >> /etc/elive-version
             fi
 
             # - # get versions }}}
             ;;
         user)
             # get versions {{{
-            el_config_get "version_upgrader"
-            if [[ -z "$version_upgrader" ]] ; then
+            el_config_get "conf_version_upgrader"
+            if [[ -z "$conf_version_upgrader" ]] ; then
                 # reference to start from the version of elive built
-                version_upgrader="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
-                read -r version_upgrader <<< "$version_upgrader"
-                el_config_save "version_upgrader"
+                conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+                read -r conf_version_upgrader <<< "$conf_version_upgrader"
+                el_config_save "conf_version_upgrader"
             fi
 
             version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
@@ -97,8 +97,8 @@ run_hooks(){
     esac
 
 
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$version_upgrader" ; then
-        el_debug "version upgrader was $version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
+    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
+        el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
 
         # loop in version dirs
         while read -ru 3 version
@@ -106,7 +106,7 @@ run_hooks(){
             [[ -z "$version" ]] && continue
 
             # only if was not run yet
-            if LC_ALL=C dpkg --compare-versions "$version" "gt" "$version_upgrader" ; then
+            if LC_ALL=C dpkg --compare-versions "$version" "gt" "$conf_version_upgrader" ; then
                 el_info "elive-upgrader: hook version: $version"
 
                 # loop in every hook for this version
@@ -173,16 +173,16 @@ run_hooks(){
                 # update version, to know that we have run the hooks until here
                 if [[ "$mode" = "root" ]] ; then
                     sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
-                    version_upgrader="$version"
+                    conf_version_upgrader="$version"
                 fi
                 if [[ "$mode" = "user" ]] ; then
-                    version_upgrader="$version"
-                    el_config_save "version_upgrader"
+                    conf_version_upgrader="$version"
+                    el_config_save "conf_version_upgrader"
                 fi
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
     else
-        el_debug "version upgrader was $version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
+        el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
     fi
 
     # update possible packages
