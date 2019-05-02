@@ -3,4 +3,8 @@ elive-tools
 elive-ugprader
 elive-daemons
 elive-desktop-applications
-
+elive-daemons
+elive-help
+elive-news
+elive-nurse
+elive-sounds
