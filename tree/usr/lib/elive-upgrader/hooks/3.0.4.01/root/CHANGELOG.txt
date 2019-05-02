@@ -1,0 +1,1 @@
+Too many changes has been included recently with the release of 3.0.4, which caused a few issues to appear, all of them should have been fixed now with this update but if you see anything not working as expected please report it to our Elive forums or Bugs website :)
