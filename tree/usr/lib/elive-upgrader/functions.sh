@@ -168,7 +168,7 @@ run_hooks(){
                             el_error "elive-upgrader: filetype unknown: $file"
                             ;;
                     esac
-                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null )"
+                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$mode" = "root" ]] ; then

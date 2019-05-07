@@ -135,20 +135,35 @@ upgrade_system(){
 
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
-        if ! apt-get -f install ; then
-            el_error "problem with apt-get -f install: $(apt-get -f install 2>&1 )"
-            exit 1
-        fi
+        # update packages lists
         if ! apt-get update ; then
             if ! apt-get update ; then
                 el_error "problem updating package lists: $(apt-get update 2>&1 )"
                 exit 1
             fi
         fi
-        if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
-            el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
-            exit 1
+
+        # verify apt status
+        if apt-get -f install ; then
+            if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
+                el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
+                exit 1
+            fi
+        else
+            # apt status is wrong, force manual update of elive-upgrader
+            el_warning "problem with apt-get -f install: $(apt-get -f install 2>&1 ) : Trying to update elive-ugprader anyways with dpkg -x"
+
+            apt-get clean
+            apt-get update
+            apt-get install -d -y elive-upgrader
+            dpkg -i "$( find /var/cache/apt/archives/ -type f -iname elive-upgrader_'*'deb | sort -V | tail -1 )"
+
+            if ! apt-get -f install ; then
+                el_error "problem with apt-get -f install: $(apt-get -f install 2>&1 )"
+                exit 1
+            fi
         fi
+
     else
         el_debug "no new version of elive-upgrader found"
         exit 0
