@@ -168,7 +168,7 @@ update_upgrader(){
     if ! apt-get -f install ; then
         apt-get clean
         apt-get update
-        apt-get dist-upgrade -y
+        apt-get dist-upgrade -y --force-yes
 
         if ! apt-get -f install ; then
             zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
