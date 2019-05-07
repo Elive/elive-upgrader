@@ -158,22 +158,23 @@ update_upgrader(){
             apt-get install -d -y elive-upgrader
 
             dpkg -i "$( find /var/cache/apt/archives/ -type f -iname elive-upgrader_'*'deb | sort -V | tail -1 )"
-
-
-            if ! apt-get -f install ; then
-                apt-get dist-upgrade -y
-
-                if ! apt-get -f install ; then
-                    zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
-                    el_error "Problem with apt-get -f install (reported): $(apt-get -f install 2>&1 )"
-                    exit 1
-                fi
-            fi
         fi
 
     else
         el_debug "no new version of elive-upgrader found"
-        exit 0
+    fi
+
+    # check apt status no matter what
+    if ! apt-get -f install ; then
+        apt-get clean
+        apt-get update
+        apt-get dist-upgrade -y
+
+        if ! apt-get -f install ; then
+            zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
+            el_error "Problem with apt-get -f install (reported): $(apt-get -f install 2>&1 )"
+            exit 1
+        fi
     fi
 
     exit 0
