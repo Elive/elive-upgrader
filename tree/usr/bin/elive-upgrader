@@ -43,7 +43,22 @@ main(){
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     read -r version_elive <<< "$version_elive"
 
-    hooks_d="/usr/lib/elive-upgrader/hooks"
+    # distro version
+    case "$( cat /etc/debian_version )" in
+        10.*|"buster"*)
+            is_buster=1
+            hooks_d="/usr/lib/elive-upgrader/hooks-buster"
+            ;;
+        7.*|"wheezy"*)
+            is_wheezy=1
+            hooks_d="/usr/lib/elive-upgrader/hooks"
+            ;;
+        *)
+            el_error "debian version unknown: $(cat /etc/debian_version)"
+            # fallback:
+            hooks_d="/usr/lib/elive-upgrader/hooks"
+            ;;
+    esac
 
     # FIXME: confs in /etc
     #news_history="$HOME/.config/$(basename $0)/news-history.txt"
