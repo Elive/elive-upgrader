@@ -1,0 +1,4 @@
+elive-daemons
+usb-bootable-elive
+elive-tools
+elive-desktop-wrapper

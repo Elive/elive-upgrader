@@ -1,0 +1,3 @@
+Small issue fixed in the 'usb-bootable-elive' tool, now you can record your USB's without problem
+
+Hard disk health reporter feature (new): improved detection of disks to be included in the check
