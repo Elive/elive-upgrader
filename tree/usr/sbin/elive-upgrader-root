@@ -88,10 +88,8 @@ updates_available_show(){
 upgrade_system(){
     local is_upgraded
     if ! apt-get update -q=2 ; then
-        if ! apt-get update -q=2 ; then
-            el_error "problem updating package lists: $(apt-get update 2>&1 )"
-            exit 1
-        fi
+        # do not exit if fails, sometimes we have unworking repos but apt update works
+        apt-get update -q=2
     fi
 
     # check
@@ -137,10 +135,7 @@ update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
         # update packages lists
         if ! apt-get update -q=2 ; then
-            if ! apt-get update -q=2 ; then
-                el_error "problem updating package lists: $(apt-get update 2>&1 )"
-                exit 1
-            fi
+            apt-get update -q=2
         fi
 
         # verify apt status
