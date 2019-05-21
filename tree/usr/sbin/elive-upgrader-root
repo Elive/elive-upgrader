@@ -212,6 +212,10 @@ main(){
             --updates-available)
                 updates_available_show
                 ;;
+            --ping)
+                echo "pong"
+                exit
+                ;;
         esac
     done
 
