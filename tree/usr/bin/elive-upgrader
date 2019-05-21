@@ -107,8 +107,11 @@ main(){
 
     # just a check to make sure that it work
     if ! grep -qs "^%sudo.*NOPASSWD.*elive-upgrader-root" /etc/sudoers.d/privileges_upgrader || ! groups | grep -qs "sudo" ; then
-        el_error "user is not in privileges_upgrader"
-        exit
+        # new structure check too:
+        if ! grep -qs "^${USER}.*NOPASSWD.*elive-upgrader-root" /etc/sudoers.d/* ; then
+            el_error "user is not in privileges_upgrader"
+            exit
+        fi
     fi
 
     # }}}
