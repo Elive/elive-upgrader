@@ -1,0 +1,4 @@
+grub2-common
+usb-bootable-elive
+elive-daemons
+elive-desktop-applications
