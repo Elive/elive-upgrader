@@ -122,7 +122,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo \"You can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 
