@@ -75,7 +75,7 @@ updates_available_show(){
         el_error "problem with el_aptget_update"
     fi
 
-    number="$( LC_ALL="$EL_LC_EN" apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+    number="$( LC_ALL="$EL_LC_EN" apt_get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
 
     if [[ -n "$number" ]] && echo "$number" | grep -qs "^[[:digit:]]" ; then
         echo "$number"
@@ -87,9 +87,9 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
-    if ! apt-get update -q=2 ; then
+    if ! apt_get update -q=2 ; then
         # do not exit if fails, sometimes we have unworking repos but apt update works
-        apt-get update -q=2
+        apt_get update -q=2
     fi
 
     # check
@@ -103,6 +103,10 @@ upgrade_system(){
         timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null
         sleep 1 ; sync
     fi
+
+    # wait unlock
+    apt_get check 1>/dev/null
+
     # run it, undetached or direct if we don't have tmux feature
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
@@ -134,12 +138,15 @@ upgrade_system(){
 update_upgrader(){
     if el_package_update_last_version -c "elive-upgrader" ; then
         # update packages lists
-        if ! apt-get update -q=2 ; then
-            apt-get update -q=2
+        if ! apt_get update -q=2 ; then
+            apt_get update -q=2
         fi
 
+        # wait unlock
+        apt_get check 1>/dev/null
+
         # verify apt status
-        if apt-get -f install -q=2 ; then
+        if apt_get -f install -q=2 ; then
             if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
                 el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
                 exit 1
@@ -148,9 +155,9 @@ update_upgrader(){
             # apt status is wrong, force manual update of elive-upgrader
             el_warning "problem with apt-get -f install: $(apt-get -f install 2>&1 ) : Trying to update elive-ugprader anyways with dpkg -x"
 
-            apt-get clean
-            apt-get update -q=2
-            apt-get install -d -y elive-upgrader
+            apt_get clean
+            apt_get update -q=2
+            apt_get install -d -y elive-upgrader
 
             dpkg -i "$( find /var/cache/apt/archives/ -type f -iname elive-upgrader_'*'deb | sort -V | tail -1 )"
         fi
@@ -160,12 +167,12 @@ update_upgrader(){
     fi
 
     # check apt status no matter what
-    if ! apt-get -f install -q=2 ; then
-        apt-get clean
-        apt-get update -q=2
-        apt-get dist-upgrade -y --force-yes
+    if ! apt_get -f install -q=2 ; then
+        apt_get clean
+        apt_get update -q=2
+        apt_get dist-upgrade -y --force-yes
 
-        if ! apt-get -f install ; then
+        if ! apt_get -f install ; then
             zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
             el_error "Problem with apt-get -f install (reported): $(apt-get -f install 2>&1 )"
             exit 1

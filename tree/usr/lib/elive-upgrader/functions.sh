@@ -21,6 +21,32 @@ case "$( cat /etc/debian_version )" in
         ;;
 esac
 
+# function replacement for apt-get calls with a wait for unlock apt before to run
+apt_get(){
+    local is_waiting i
+    i=0
+
+    tput sc
+    while fuser /var/lib/dpkg/lock /var/lib/apt/lists/lock  >/dev/null 2>&1 ; do
+        case $(($i % 4)) in
+            0 ) j="-" ;;
+            1 ) j="\\" ;;
+            2 ) j="|" ;;
+            3 ) j="/" ;;
+        esac
+        tput rc
+        echo -en "\r[$j] Waiting for other software managers to finish..."
+        is_waiting=1
+
+        sleep 0.5
+        ((i=i+1))
+    done
+
+    # run what we want
+    apt-get "$@"
+}
+
+
 upgrade_system_delayed(){
     local timestamp limit_time_seconds num_updates
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
@@ -211,9 +237,9 @@ run_hooks(){
 
             # fix
             # note: NEVER use timeout so it hangs apt-get
-            # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
+            # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt_get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
 
-            if ! DEBIAN_FRONTEND=noninteractive apt-get -f install ; then
+            if ! DEBIAN_FRONTEND=noninteractive apt_get -f install ; then
                 el_error "problem with apt-get -f install"
             fi
 
@@ -229,7 +255,7 @@ run_hooks(){
                 # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
                 killall apt-get 2>/dev/null 1>&2 || true
-                if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
+                if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
                     el_info "installed packages"
                 else
                     # update
@@ -239,7 +265,7 @@ run_hooks(){
                     fi
 
                     # try again
-                    if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${packages_to_install} ; then
+                    if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
                         el_info "installed packages: ${packages_to_install}"
                     else
                         el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
@@ -247,7 +273,7 @@ run_hooks(){
                         # try with each one
                         for package in ${packages_to_install}
                         do
-                            if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
+                            if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} ; then
                                 el_debug "installed one-to-one package: $package"
                             else
                                 # update
@@ -257,10 +283,10 @@ run_hooks(){
                                 fi
 
                                 # try again
-                                if DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} ; then
+                                if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} ; then
                                     el_debug "installed one-to-one package: $package"
                                 else
-                                    el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done
