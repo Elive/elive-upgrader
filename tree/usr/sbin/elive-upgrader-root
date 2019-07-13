@@ -136,52 +136,62 @@ upgrade_system(){
     rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 }
 
-update_upgrader(){
-    if el_package_update_last_version -c "elive-upgrader" ; then
-        # update packages lists
-        if ! apt_get update -q=2 ; then
-            apt_get update -q=2
-        fi
 
-        # wait unlock
-        apt_get check 1>/dev/null
-
-        # verify apt status
-        if apt_get -y -f install -q=2 ; then
-            if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
-                el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
-                exit 1
-            fi
-        else
-            # apt status is wrong, force manual update of elive-upgrader
-            el_warning "problem with apt-get -y -f install: $(apt-get -y -f install 2>&1 ) : Trying to update elive-ugprader anyways with dpkg -x"
-
-            apt_get clean
-            apt_get update -q=2
-            apt_get install -d -y elive-upgrader
-
-            dpkg -i "$( find /var/cache/apt/archives/ -type f -iname elive-upgrader_'*'deb | sort -V | tail -1 )"
-        fi
-
+# improved and much more reliable updater (will still works even if apt is broken or repos changed etc)
+update_upgrader_fast(){
+    if el_package_upgrade_fast 320 normal "elive-upgrader" "$elinst_package_name" ; then
+        el_debug "elive-upgrader: updated successfully"
     else
-        el_debug "no new version of elive-upgrader found"
+        el_warning "unable to update elive-upgrader package from 'el_package_upgrade_fast' "
     fi
-
-    # check apt status no matter what
-    if ! apt_get -y -f install -q=2 ; then
-        apt_get clean
-        apt_get update -q=2
-        apt_get dist-upgrade -y --force-yes
-
-        if ! apt_get -y -f install ; then
-            zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
-            el_error "Problem with apt-get -y -f install (reported): $(apt-get -y -f install 2>&1 )"
-            exit 1
-        fi
-    fi
-
-    exit 0
 }
+# old version, deprecated, less reliable, do not use it
+#update_upgrader(){
+    #if el_package_update_last_version -c "elive-upgrader" ; then
+        ## update packages lists
+        #if ! apt_get update -q=2 ; then
+            #apt_get update -q=2
+        #fi
+
+        ## wait unlock
+        #apt_get check 1>/dev/null
+
+        ## verify apt status
+        #if apt_get -y -f install -q=2 ; then
+            #if ! bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt-get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y --force-yes elive-upgrader" ; then
+                #el_error "problem upgrading elive-upgrader: $(apt-get install -y elive-upgrader 2>&1 )"
+                #exit 1
+            #fi
+        #else
+            ## apt status is wrong, force manual update of elive-upgrader
+            #el_warning "problem with apt-get -y -f install: $(apt-get -y -f install 2>&1 ) : Trying to update elive-ugprader anyways with dpkg -x"
+
+            #apt_get clean
+            #apt_get update -q=2
+            #apt_get install -d -y elive-upgrader
+
+            #dpkg -i "$( find /var/cache/apt/archives/ -type f -iname elive-upgrader_'*'deb | sort -V | tail -1 )"
+        #fi
+
+    #else
+        #el_debug "no new version of elive-upgrader found"
+    #fi
+
+    ## check apt status no matter what
+    #if ! apt_get -y -f install -q=2 ; then
+        #apt_get clean
+        #apt_get update -q=2
+        #apt_get dist-upgrade -y --force-yes
+
+        #if ! apt_get -y -f install ; then
+            #zenity --error --text="$( eval_gettext "Seems like you have a broken state of your packages. Check our Elive Forums for a solution if you are unable to solve it yourself. Showing the result of the command:" ) apug"
+            #el_error "Problem with apt-get -y -f install (reported): $(apt-get -y -f install 2>&1 )"
+            #exit 1
+        #fi
+    #fi
+
+    #exit 0
+#}
 
 main(){
     # pre {{{
@@ -209,7 +219,8 @@ main(){
                 #;;
             --update|--update-tool)
                 # TODO: delete the deprecated first paramter "--update" in the future
-                update_upgrader
+                #update_upgrader
+                update_upgrader_fast
                 ;;
             --hooks-root)
                 hooks_root
