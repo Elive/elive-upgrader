@@ -139,7 +139,7 @@ upgrade_system(){
 
 # improved and much more reliable updater (will still works even if apt is broken or repos changed etc)
 update_upgrader_fast(){
-    if el_package_upgrade_fast 320 normal "elive-upgrader" "$elinst_package_name" ; then
+    if el_package_upgrade_fast 320 normal "elive-upgrader" ; then
         el_debug "elive-upgrader: updated successfully"
     else
         el_warning "unable to update elive-upgrader package from 'el_package_upgrade_fast' "
