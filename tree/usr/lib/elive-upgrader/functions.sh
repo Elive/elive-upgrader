@@ -231,8 +231,13 @@ run_hooks(){
             packages_to_install="$( echo "${packages_to_install[@]}" )"
 
             # update
+            killall apt-get 2>/dev/null 1>&2 || true
+            sync
             if ! is_quiet=1 el_aptget_update ; then
-                el_error "problem with el_aptget_update"
+                sleep 20
+                if ! is_quiet=1 el_aptget_update ; then
+                    el_error "problem with el_aptget_update"
+                fi
             fi
 
             # fix
