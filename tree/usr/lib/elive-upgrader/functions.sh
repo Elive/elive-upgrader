@@ -311,7 +311,7 @@ run_hooks(){
 
         el_debug "changelog:\n$changelog"
 
-        echo -e "${message_upgraded}$changelog" | zenity --text-info --title="Elive System Updated"
+        echo -e "${message_upgraded}$changelog" | zenity --height=400 --text-info --title="Elive System Updated"
         unset changelog
         el_mark_state "upgraded" 2>/dev/null || true
 
