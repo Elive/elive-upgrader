@@ -1,0 +1,6 @@
+elive-daemons
+elive-desktop-applications
+elive-skel-default-all
+elive-tools
+e16
+e16-data
