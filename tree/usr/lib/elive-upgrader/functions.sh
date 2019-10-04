@@ -11,13 +11,16 @@ case "$( cat /etc/debian_version )" in
     10.*|"buster"*)
         is_buster=1
         APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks-buster"
         ;;
     7.*|"wheezy"*)
         is_wheezy=1
         APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --force-yes"
+        hooks_d="/usr/lib/elive-upgrader/hooks"
         ;;
     *)
         APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks"
         ;;
 esac
 
