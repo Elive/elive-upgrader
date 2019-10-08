@@ -1,0 +1,5 @@
+elive-daemons
+elive-desktop-applications
+gnome-icon-theme
+elive-skel-default-all
+elive-tools
