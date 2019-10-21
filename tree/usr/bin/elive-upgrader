@@ -152,6 +152,12 @@ main(){
         sleep 20
     fi
 
+    # first, verify if we have internet
+    if ! el_verify_internet ; then
+        NOREPORTS=1 el_warning "no internet found, ignoring"
+        exit 1
+    fi
+
     # source functions
     source /usr/lib/elive-upgrader/functions.sh
 
