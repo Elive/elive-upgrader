@@ -60,6 +60,22 @@ echo "$$" > "$lockfile"
 
 # end lock system }}}
 
+# run fixes for apt in case we have lead to broken states
+apt_fixes(){
+    # always update before to run (if the package has been updated we want to fetch new code too)
+    source /usr/lib/elive-upgrader/functions.sh
+
+    if ! apt_get -y -f install -q=2 ; then
+        el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( apt-get -y -f install 2>&1 )"
+
+        # try to reconfigure packages now
+        if dpkg --configure -a ; then
+            apt_get -y -f instal -q=2
+        else
+            el_error "$(basename $0) in ${FUNCNAME} with dpkg --configure -a:\n$( dpkg --configure -a  2>&1 )"
+        fi
+    fi
+}
 hooks_root(){
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh
@@ -230,6 +246,9 @@ main(){
                 ;;
             --updates-available)
                 updates_available_show
+                ;;
+            --fix)
+                apt_fixes
                 ;;
             --ping)
                 echo "pong"
