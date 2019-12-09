@@ -66,13 +66,18 @@ apt_fixes(){
     source /usr/lib/elive-upgrader/functions.sh
 
     if ! apt_get -y -f install -q=2 ; then
-        el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( apt-get -y -f install 2>&1 )"
+        sleep 20
 
-        # try to reconfigure packages now
-        if dpkg --configure -a ; then
-            apt_get -y -f instal -q=2
-        else
-            el_error "$(basename $0) in ${FUNCNAME} with dpkg --configure -a:\n$( dpkg --configure -a  2>&1 )"
+        if ! apt_get -y -f install -q=2 ; then
+
+            # try to reconfigure packages now
+            if dpkg --configure -a ; then
+                if ! apt_get -y -f instal -q=2 ; then
+                    el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( apt-get -y -f install 2>&1 )"
+                fi
+            else
+                el_error "$(basename $0) in ${FUNCNAME} with dpkg --configure -a:\n$( dpkg --configure -a  2>&1 )"
+            fi
         fi
     fi
 }
