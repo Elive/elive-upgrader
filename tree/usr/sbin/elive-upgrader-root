@@ -92,8 +92,12 @@ hooks_root(){
 
 updates_available_show(){
     local number
+
+    # wait unlock
+    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
+
     # update
-    if ! is_quiet=1 el_aptget_update ; then
+    if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
         el_error "problem with el_aptget_update"
     fi
 
@@ -120,14 +124,14 @@ upgrade_system(){
         return
     fi
 
+    # wait unlock
+    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
+
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
         timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null
         sleep 1 ; sync
     fi
-
-    # wait unlock
-    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
 
     # run it, undetached or direct if we don't have tmux feature
     if [[ -e "/tmp/.elive-upgrading" ]] ; then

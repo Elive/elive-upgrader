@@ -77,7 +77,7 @@ upgrade_system_delayed(){
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
             if zenity --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
 
-                zenity --info --text="$( eval_gettext "Follow the instructions on the terminal when will appear, answering the questions." )"
+                zenity --info --text="$( eval_gettext "Follow the instructions on the terminal when will appear, answering the questions. It's suggested to verify that the upgrade will not remove a needed package of your system." )"
                 sudo elive-upgrader-root --upgrade
             fi
         fi
