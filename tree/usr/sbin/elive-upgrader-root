@@ -65,15 +65,15 @@ apt_fixes(){
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh
 
-    if ! apt_get -y -f install -q=2 ; then
+    if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f install -q=2 ; then
         sleep 20
 
-        if ! apt_get -y -f install -q=2 ; then
+        if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f install -q=2 ; then
 
             # try to reconfigure packages now
             if dpkg --configure -a ; then
-                if ! apt_get -y -f instal -q=2 ; then
-                    el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( apt-get -y -f install 2>&1 )"
+                if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f instal -q=2 ; then
+                    el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 )"
                 fi
             else
                 el_error "$(basename $0) in ${FUNCNAME} with dpkg --configure -a:\n$( dpkg --configure -a  2>&1 )"
@@ -97,7 +97,7 @@ updates_available_show(){
         el_error "problem with el_aptget_update"
     fi
 
-    number="$( LC_ALL="$EL_LC_EN" apt_get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+    number="$( LC_ALL="$EL_LC_EN" DEBIAN_FRONTEND=noninteractive apt_get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
 
     if [[ -n "$number" ]] && echo "$number" | grep -qs "^[[:digit:]]" ; then
         echo "$number"
@@ -109,9 +109,9 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
-    if ! apt_get update -q=2 ; then
+    if ! DEBIAN_FRONTEND=noninteractive apt_get update -q=2 ; then
         # do not exit if fails, sometimes we have unworking repos but apt update works
-        apt_get update -q=2
+        DEBIAN_FRONTEND=noninteractive apt_get update -q=2
     fi
 
     # check
@@ -127,14 +127,14 @@ upgrade_system(){
     fi
 
     # wait unlock
-    apt_get check 1>/dev/null
+    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
 
     # run it, undetached or direct if we don't have tmux feature
     if [[ -e "/tmp/.elive-upgrading" ]] ; then
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
         # IMPORTANT: do not use timeout, it will block apt-get
-        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal now\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 2 ; sync
 
         # visualize tasks if we have it already not opened
@@ -143,7 +143,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 
