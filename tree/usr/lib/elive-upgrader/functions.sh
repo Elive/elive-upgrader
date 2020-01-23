@@ -182,7 +182,7 @@ run_hooks(){
                                 if [[ -n "$package" ]] ; then
                                     # only if is already installed
                                     if COLUMNS=1000 dpkg -l | grep -E "^(hi|ii)" | awk '{print $2}' | sed -e 's|:.*||g' | grep -qs "^${package}$" ; then
-                                        el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                        el_array_member_add "$package" "${packages_to_upgrade[@]}" ; packages_to_upgrade=("${_out[@]}")
                                     fi
                                 fi
                             done
@@ -228,11 +228,12 @@ run_hooks(){
 
     # update possible packages
     if [[ "$mode" = "root" ]] ; then
-        if [[ -n "$packages_to_install" ]] || [[ -n "$packages_to_remove" ]] ; then
+        if [[ -n "$packages_to_install" ]] || [[ -n "$packages_to_remove" ]] || [[ -n "$packages_to_upgrade" ]] ; then
 
             # clenaups
             packages_to_remove="$( echo "${packages_to_remove[@]}" )"
             packages_to_install="$( echo "${packages_to_install[@]}" )"
+            packages_to_upgrade="$( echo "${packages_to_upgrade[@]}" )"
 
             # update
             killall apt-get 2>/dev/null 1>&2 || true
@@ -296,6 +297,54 @@ run_hooks(){
                                     el_debug "installed one-to-one package: $package"
                                 else
                                     el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                fi
+                            fi
+                        done
+                    fi
+                fi
+            fi
+            # upgrade
+            if [[ -n "$packages_to_upgrade" ]] ; then
+                el_debug "packages wanted to upgrade: $packages_to_upgrade"
+
+                # first make sure that we clean it
+                if ! DEBIAN_FRONTEND=noninteractive apt_get clean ; then
+                    el_error "cleaning apt cache packages"
+                fi
+
+                killall apt-get 2>/dev/null 1>&2 || true
+                if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
+                    el_info "upgraded packages"
+                else
+                    # update
+                    sleep 5
+                    if ! is_quiet=1 el_aptget_update ; then
+                        el_error "problem with el_aptget_update"
+                    fi
+
+                    # try again
+                    if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
+                        el_info "upgraded packages: ${packages_to_upgrade}"
+                    else
+                        el_warning "failed to upgrade all packages in one shot: '${packages_to_upgrade}', trying with each one..."
+
+                        # try with each one
+                        for package in ${packages_to_upgrade}
+                        do
+                            if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
+                                el_debug "upgraded one-to-one package: $package"
+                            else
+                                # update
+                                sleep 4
+                                if ! is_quiet=1 el_aptget_update ; then
+                                    el_error "problem with el_aptget_update"
+                                fi
+
+                                # try again
+                                if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
+                                    el_debug "upgraded one-to-one package: $package"
+                                else
+                                    el_error "problem upgrading package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done
