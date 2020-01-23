@@ -1,0 +1,3 @@
+thunar
+thunar-data
+libthunarx-3-0

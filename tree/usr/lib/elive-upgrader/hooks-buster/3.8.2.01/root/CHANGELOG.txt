@@ -1,0 +1,1 @@
+Filemanager: Thunar: fixed the issue that shows notifications endlessly
