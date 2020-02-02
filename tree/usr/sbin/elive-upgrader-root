@@ -62,6 +62,7 @@ echo "$$" > "$lockfile"
 
 # run fixes for apt in case we have lead to broken states
 apt_fixes(){
+    local is_failed
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh
 
@@ -74,11 +75,19 @@ apt_fixes(){
             if dpkg --configure -a ; then
                 if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f instal -q=2 ; then
                     el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 )"
+                    is_failed=1
                 fi
             else
                 el_error "$(basename $0) in ${FUNCNAME} with dpkg --configure -a:\n$( dpkg --configure -a  2>&1 )"
+                is_failed=1
             fi
         fi
+    fi
+
+    if ((is_failed)) ; then
+        local message_failed
+        message_failed="$( printf "$( eval_gettext "Seems like you have a broken state of your packages. Please open a terminal and run the command '%s'. If you cannot solve the issue you can try to reinstall your Elive system, the installer features an upgrade mode." )" "apif" )"
+        zenity --error --text="$message_failed"
     fi
 }
 hooks_root(){
