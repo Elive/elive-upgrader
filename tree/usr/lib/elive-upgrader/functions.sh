@@ -46,7 +46,7 @@ apt_get(){
     done
 
     # run what we want
-    apt-get "$@"
+    TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
 }
 
 
@@ -249,7 +249,7 @@ run_hooks(){
             # note: NEVER use timeout so it hangs apt-get
             # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt_get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
 
-            if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f install ; then
+            if ! apt_get -y -f install ; then
                 el_error "problem with apt-get -y -f install"
             fi
 
@@ -265,7 +265,7 @@ run_hooks(){
                 # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
                 killall apt-get 2>/dev/null 1>&2 || true
-                if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
+                if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
                     el_info "installed packages"
                 else
                     # update
@@ -275,7 +275,7 @@ run_hooks(){
                     fi
 
                     # try again
-                    if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
+                    if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
                         el_info "installed packages: ${packages_to_install}"
                     else
                         el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
@@ -283,7 +283,7 @@ run_hooks(){
                         # try with each one
                         for package in ${packages_to_install}
                         do
-                            if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} ; then
+                            if apt_get install $APTGET_OPTIONS ${package} ; then
                                 el_debug "installed one-to-one package: $package"
                             else
                                 # update
@@ -293,10 +293,10 @@ run_hooks(){
                                 fi
 
                                 # try again
-                                if DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} ; then
+                                if apt_get install $APTGET_OPTIONS ${package} ; then
                                     el_debug "installed one-to-one package: $package"
                                 else
-                                    el_error "problem installing package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt_get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem installing package ${package}:  $( TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done
@@ -308,12 +308,12 @@ run_hooks(){
                 el_debug "packages wanted to upgrade: $packages_to_upgrade"
 
                 # first make sure that we clean it
-                if ! DEBIAN_FRONTEND=noninteractive apt_get clean ; then
+                if ! apt_get clean ; then
                     el_error "cleaning apt cache packages"
                 fi
 
                 killall apt-get 2>/dev/null 1>&2 || true
-                if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
+                if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
                     el_info "upgraded packages"
                 else
                     # update
@@ -323,7 +323,7 @@ run_hooks(){
                     fi
 
                     # try again
-                    if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
+                    if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
                         el_info "upgraded packages: ${packages_to_upgrade}"
                     else
                         el_warning "failed to upgrade all packages in one shot: '${packages_to_upgrade}', trying with each one..."
@@ -331,7 +331,7 @@ run_hooks(){
                         # try with each one
                         for package in ${packages_to_upgrade}
                         do
-                            if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
+                            if apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
                                 el_debug "upgraded one-to-one package: $package"
                             else
                                 # update
@@ -341,10 +341,10 @@ run_hooks(){
                                 fi
 
                                 # try again
-                                if DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
+                                if apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
                                     el_debug "upgraded one-to-one package: $package"
                                 else
-                                    el_error "problem upgrading package ${package}:  $( DEBIAN_FRONTEND=noninteractive apt_get install --reinstall $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem upgrading package ${package}:  $( TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt_get install --reinstall $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done

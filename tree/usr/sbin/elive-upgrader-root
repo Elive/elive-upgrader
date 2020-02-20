@@ -66,14 +66,14 @@ apt_fixes(){
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh
 
-    if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f install -q=2 ; then
+    if ! apt_get -y -f install -q=2 ; then
         sleep 20
 
-        if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f install -q=2 ; then
+        if ! apt_get -y -f install -q=2 ; then
 
             # try to reconfigure packages now
             if dpkg --configure -a ; then
-                if ! DEBIAN_FRONTEND=noninteractive apt_get -y -f instal -q=2 ; then
+                if ! apt_get -y -f instal -q=2 ; then
                     el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( DEBIAN_FRONTEND=noninteractive apt-get -y -f install 2>&1 )"
                     is_failed=1
                 fi
@@ -103,14 +103,14 @@ updates_available_show(){
     local number
 
     # wait unlock
-    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
+    apt_get check 1>/dev/null
 
     # update
     if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
         el_error "problem with el_aptget_update"
     fi
 
-    number="$( LC_ALL="$EL_LC_EN" DEBIAN_FRONTEND=noninteractive apt_get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+    number="$( LC_ALL="$EL_LC_EN" TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
 
     if [[ -n "$number" ]] && echo "$number" | grep -qs "^[[:digit:]]" ; then
         echo "$number"
@@ -122,9 +122,9 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
-    if ! DEBIAN_FRONTEND=noninteractive apt_get update -q=2 ; then
+    if ! apt_get update -q=2 ; then
         # do not exit if fails, sometimes we have unworking repos but apt update works
-        DEBIAN_FRONTEND=noninteractive apt_get update -q=2
+        apt_get update -q=2
     fi
 
     # check
@@ -134,7 +134,7 @@ upgrade_system(){
     fi
 
     # wait unlock
-    DEBIAN_FRONTEND=noninteractive apt_get check 1>/dev/null
+    apt_get check 1>/dev/null
 
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
