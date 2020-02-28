@@ -107,7 +107,10 @@ updates_available_show(){
 
     # update
     if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
-        el_error "problem with el_aptget_update"
+        sleep 5
+        if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
+            el_error "problem with el_aptget_update"
+        fi
     fi
 
     number="$( LC_ALL="$EL_LC_EN" TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
