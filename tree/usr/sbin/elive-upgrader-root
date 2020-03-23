@@ -113,7 +113,7 @@ updates_available_show(){
         fi
     fi
 
-    number="$( LC_ALL="$EL_LC_EN" TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+    number="$( LC_ALL="$EL_LC_EN" TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -u upgrade --assume-no --show-upgraded | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
 
     if [[ -n "$number" ]] && echo "$number" | grep -qs "^[[:digit:]]" ; then
         echo "$number"

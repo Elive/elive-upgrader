@@ -46,7 +46,7 @@ apt_get(){
     done
 
     # run what we want
-    TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
+    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
 }
 
 
@@ -296,7 +296,7 @@ run_hooks(){
                                 if apt_get install $APTGET_OPTIONS ${package} ; then
                                     el_debug "installed one-to-one package: $package"
                                 else
-                                    el_error "problem installing package ${package}:  $( TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem installing package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done
@@ -344,7 +344,7 @@ run_hooks(){
                                 if apt_get install --reinstall $APTGET_OPTIONS ${package} ; then
                                     el_debug "upgraded one-to-one package: $package"
                                 else
-                                    el_error "problem upgrading package ${package}:  $( TERM=screen-256color DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt_get install --reinstall $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem upgrading package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt_get install --reinstall $APTGET_OPTIONS ${package} 2>&1 )"
                                 fi
                             fi
                         done
