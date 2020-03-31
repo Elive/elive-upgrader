@@ -1,5 +1,5 @@
 #!/bin/bash
-SOURCE="$0"
+#SOURCE="$0"
 #source /usr/lib/elive-tools/functions
 #el_make_environment
 . gettext.sh
