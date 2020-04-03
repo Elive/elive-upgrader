@@ -1,0 +1,6 @@
+user can run dmesg now
+
+updated code in internal elive tools
+
+introducing elive-pm tool: the correct way to suspend / hibernate / shutdown / lock your computer, already integrated in E16
+

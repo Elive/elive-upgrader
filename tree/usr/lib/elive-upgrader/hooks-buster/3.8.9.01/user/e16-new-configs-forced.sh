@@ -1,0 +1,10 @@
+#!/bin/bash
+source /usr/lib/elive-tools/functions
+
+$guitool --info --text="New settings have been made available for your E16 desktop, including the elive-pm integration for power management. An upgrade to your desktop is suggested. Doing so will restart your desktop settings to a new provided conf by Elive. You can always find your previous configurations into the directory:  ~/.e16.old/"
+
+if $guitool --question --text="Upgrade to a new desktop configuration?" ; then
+    /usr/bin/e17-restart-and-remove-conf-file-WARNING-dont-complain
+fi
+
+
