@@ -357,7 +357,7 @@ main(){
             --updates-available)
                 updates_available_show
                 ;;
-            --upgrade-firmwares)
+            --upgrade-firmwares|--upgrade-firmware)
                 upgrade_firmwares
                 ;;
             --fix)
