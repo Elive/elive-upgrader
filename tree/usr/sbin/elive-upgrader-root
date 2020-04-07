@@ -207,6 +207,8 @@ upgrade_firmwares(){
 
         if LC_ALL="$EL_LC_EN" fwupdmgr get-updates | grep -qs "^Update Name:" ; then
 
+            el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
+
             # notify
             $guitool --info --text="$( eval_gettext "Firmware updates have been found for your hardware." )"
 
