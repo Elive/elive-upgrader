@@ -192,6 +192,11 @@ upgrade_firmwares(){
         fi
     fi
 
+    if ! el_dependencies_check "fwupdmgr" ; then
+        el_info "fwupdmgr is not installed, ignoring firmware-upgrading features..."
+        return
+    fi
+
     # - pre }}}
 
     if ((is_efi_booted)) ; then
