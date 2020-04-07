@@ -105,6 +105,7 @@ main(){
 
     # only run if first user
     if ! grep -qs "^first-user: $USER\$" /etc/elive-version ; then
+        el_debug "This user is not the first one installed on the system, exiting..."
         exit
     fi
 
