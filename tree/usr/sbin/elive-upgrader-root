@@ -243,7 +243,12 @@ upgrade_firmwares(){
 
             # ask to install
             if $guitool --question --text="$( eval_gettext "Do you want to install these firmware updates for your hardware?" )" ; then
-                fwupdmgr update
+                # ac power
+                if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" ; then
+                    $guitool --warning --text="$( eval_gettext "Important: Before continuing, connect your computer to power, or verify that you have at least enough battery for a 15 minute procedure." )"
+                fi
+
+                urxvt -e bash -c "fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
             else
                 # we should remember the selection of "no"? the normal is that the user should always want to update firmware, but maybe not the first time and probably the second one, so do not remember this choice and instead, ask the question in every full upgrade request
                 true
