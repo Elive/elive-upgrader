@@ -4,3 +4,4 @@ updated code in internal elive tools
 
 introducing the elive-pm tool: the elive way to correctly suspend / hibernate / shutdown / lock your computer, already integrated in your E16 desktop
 
+BIOS firmware updates: the Elive Upgrader tool now features updates and other hardware firmwares! (OMG OMG!), note that this feature only works on UEFI based installs, check our forums (Howto's sections) for more info :)
