@@ -76,12 +76,14 @@ upgrade_system_delayed(){
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
-            if zenity --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
+            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
 
-                zenity --info --text="$( eval_gettext "Follow the instructions on the terminal when will appear, answering the questions. It's suggested to verify that the upgrade will not remove a needed package of your system." )"
+                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when will appear, answering the questions. It's suggested to verify that the upgrade will not remove a needed package of your system." )"
                 sudo elive-upgrader-root --upgrade
             fi
         fi
+
+        sudo elive-upgrader-root --upgrade-firmwares
 
         # always mark/park until the next month, we dont want to run apt-get update at every start
         touch "$timestamp"
@@ -361,11 +363,11 @@ run_hooks(){
 
         el_debug "changelog:\n$changelog"
 
-        echo -e "${message_upgraded}$changelog" | zenity --height=400 --text-info --cancel-label="Done" --title="Elive System Updated"
+        echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated"
         unset changelog
         el_mark_state "upgraded" 2>/dev/null || true
 
-        if zenity --question --text="$( eval_gettext "Donate to this amazing project in order to keep supporting updates and fixes?" )" ; then
+        if $guitool  --question --text="$( eval_gettext "Donate to this amazing project in order to keep supporting updates and fixes?" )" ; then
             web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
         fi
 
