@@ -177,6 +177,7 @@ upgrade_system(){
     rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 }
 
+# upgrade bios firmwares
 upgrade_firmwares(){
     # pre {{{
 
@@ -202,8 +203,22 @@ upgrade_firmwares(){
     if ((is_efi_booted)) ; then
         # refresh packages lists:
         fwupdmgr refresh # 1>/dev/null  # requires 300 KB of internet
+
         # show updates:
-        fwupdmgr get-updates # 1>/dev/null
+        #fwupdmgr get-updates # 1>/dev/null
+
+        # see if we have already answered to not update firmwares
+        if [[ -n "$conf_firmwares_updates_available" ]] && ! ((is_force)) ; then
+            updates_list="$( fwupdmgr get-updates | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
+
+            # our updates available is the same as the one found when we answered to not update firmwares
+            if [[ "${updates_list}" = "$conf_firmwares_updates_available" ]] ; then
+                el_info "You selected to not upgrade firmwares the last time we asked you for this, for this number of updates, ignoring..."
+                el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
+                return
+            fi
+        fi
+
 
         if LC_ALL="$EL_LC_EN" fwupdmgr get-updates | grep -qs "^Update Name:" ; then
 
@@ -251,8 +266,11 @@ upgrade_firmwares(){
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
             else
                 # we should remember the selection of "no"? the normal is that the user should always want to update firmware, but maybe not the first time and probably the second one, so do not remember this choice and instead, ask the question in every full upgrade request
-                true
-                #updates_list="$( fwupdmgr get-updates | grep "^Update Version:" | sort -u )"
+                updates_list="$( fwupdmgr get-updates | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
+
+                # remember them to not ask them again
+                conf_firmwares_updates_available="$updates_list"
+                el_config_save "conf_firmwares_updates_available"
             fi
 
         fi
@@ -335,6 +353,7 @@ main(){
 
     # }}}
 
+    el_config_get
 
     for arg in "$@"
     do
@@ -366,6 +385,9 @@ main(){
             --ping)
                 echo "pong"
                 exit
+                ;;
+            --force)
+                is_force=1
                 ;;
         esac
     done
