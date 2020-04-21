@@ -164,8 +164,8 @@ main(){
     source /usr/lib/elive-upgrader/functions.sh
 
     # fixes first (if)
-    el_debug "going to: previous fixes"
-    sudo elive-upgrader-root --fix
+    #el_debug "going to: previous fixes"
+    #sudo elive-upgrader-root --fix
 
     # update tool first (if)
     el_debug "going to: update-tool"

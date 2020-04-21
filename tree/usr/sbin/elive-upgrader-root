@@ -290,7 +290,14 @@ update_upgrader_fast(){
     if el_package_upgrade_fast 320 normal "elive-upgrader" ; then
         el_debug "elive-upgrader: updated successfully"
     else
-        el_warning "unable to update elive-upgrader package from 'el_package_upgrade_fast' "
+        # try a possible fix first:
+        apt_fixes
+
+        if el_package_upgrade_fast 640 normal "elive-upgrader" ; then
+            el_debug "elive-upgrader: updated successfully"
+        else
+            el_warning "unable to update elive-upgrader package from 'el_package_upgrade_fast' "
+        fi
     fi
 }
 # old version, deprecated, less reliable, do not use it
