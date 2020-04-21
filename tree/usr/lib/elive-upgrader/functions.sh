@@ -237,6 +237,9 @@ run_hooks(){
             packages_to_install="$( echo "${packages_to_install[@]}" )"
             packages_to_upgrade="$( echo "${packages_to_upgrade[@]}" )"
 
+            # wait unlock
+            apt_get moo 1>/dev/null 2>&1
+
             # update
             killall apt-get 2>/dev/null 1>&2 || true
             sync

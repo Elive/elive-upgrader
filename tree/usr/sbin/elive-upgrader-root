@@ -68,10 +68,12 @@ apt_fixes(){
     source /usr/lib/elive-upgrader/functions.sh
 
     # wait unlock
-    apt_get check 1>/dev/null
+    apt_get moo 1>/dev/null 2>&1
 
     if ! apt_get -y -f install -q=2 ; then
         sleep 20
+        # check for good state
+        apt_get check 1>/dev/null
 
         if ! apt_get -y -f install -q=2 ; then
 
@@ -107,7 +109,7 @@ updates_available_show(){
     local number
 
     # wait unlock
-    apt_get check 1>/dev/null
+    apt_get moo 1>/dev/null 2>&1
 
     # update
     if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
@@ -129,7 +131,12 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
+
+    # wait unlock
+    apt_get moo 1>/dev/null 2>&1
+
     if ! apt_get update -q=2 ; then
+        apt_get check 1>/dev/null
         # do not exit if fails, sometimes we have unworking repos but apt update works
         apt_get update -q=2
     fi
@@ -139,9 +146,6 @@ upgrade_system(){
         el_info "$( eval_gettext "no updates available" )"
         return
     fi
-
-    # wait unlock
-    apt_get check 1>/dev/null
 
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
