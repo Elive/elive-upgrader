@@ -1,0 +1,5 @@
+fixed issue installing icon theme packages
+
+thunar improved code for mounting / unmounting disks
+
+(please use the forums if you see issues with the changes included in this update)

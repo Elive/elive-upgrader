@@ -1,0 +1,9 @@
+elive-tools
+hebernate
+elive-daemons
+eltrans
+usb-bootable-elive
+gnome-icon-theme
+thunar
+thunar-data
+libthunarx-3-0
