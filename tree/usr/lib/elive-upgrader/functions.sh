@@ -246,7 +246,11 @@ run_hooks(){
             if ! is_quiet=1 el_aptget_update ; then
                 sleep 20
                 if ! is_quiet=1 el_aptget_update ; then
-                    el_error "problem with el_aptget_update"
+                    if [[ "$UID" = 0 ]] ; then
+                        el_error "problem with el_aptget_update:\n$(apt-get update 2>&1)"
+                    else
+                        el_error "problem with el_aptget_update"
+                    fi
                 fi
             fi
 
@@ -255,7 +259,11 @@ run_hooks(){
             # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt_get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
 
             if ! apt_get -y -f install ; then
-                el_error "problem with apt-get -y -f install"
+                if [[ "$UID" = 0 ]] ; then
+                    el_error "problem with el_aptget_update:\n$(apt-get -y -f install 2>&1)"
+                else
+                    el_error "problem with apt-get -y -f install"
+                fi
             fi
 
             # remove
