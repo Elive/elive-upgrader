@@ -11,7 +11,7 @@ if pidof cairo-dock 1>/dev/null 2>&1 ; then
         cairo-dock &
 
         if [[ -x "$( which notify-send )" ]] ; then
-            el_notify "normal" "logo-elive" "Cairo Dock Icons" "Wohooo! Elive repaired your cairo-dock icons! :)"
+            el_notify "normal" "gwget" "Cairo Dock Icons" "Wohooo! Elive repaired your cairo-dock icons! :)"
         fi
     fi
 fi
