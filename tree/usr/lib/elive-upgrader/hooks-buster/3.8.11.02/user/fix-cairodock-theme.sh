@@ -1,8 +1,11 @@
 #!/bin/bash
 source /usr/lib/elive-tools/functions
 
+#XXX
 #XXX In fact it was not a bug, so this fix is useless, should be good!
+#XXX
 exit
+
 
 if pidof cairo-dock 1>/dev/null 2>&1 ; then
     if ! grep -qs "^default icon directory=gnome" "$HOME/.config/cairo-dock/current_theme/cairo-dock.conf" ; then
