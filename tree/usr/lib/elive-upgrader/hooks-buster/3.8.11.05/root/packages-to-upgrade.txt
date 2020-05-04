@@ -1,0 +1,8 @@
+elive-tools
+elive-daemons
+3g-dialer
+eliveremote
+elive-nurse
+applications-compatibility
+usb-bootable-elive
+
