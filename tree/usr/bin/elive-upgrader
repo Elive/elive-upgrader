@@ -151,8 +151,20 @@ main(){
 
     # wait 5 minutes that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
-        el_debug "delayed 300 seconds"
-        sleep 300
+        el_debug "delayed $(basename $0) 300 seconds"
+
+        # wait 5 minutes but in the case we are shutding down computer just exit from the tool inmediately
+        for i in $(seq 300)
+        do
+            if pidof elive-pm 1>/dev/null 2>&1 ; then
+                # if the elive-pm command is not simply the lock one:
+                if ! ps xk comm o comm,args | grep -qs "^elive-pm.*elive-pm lock" ; then
+                    exit
+                fi
+            fi
+
+            sleep 1
+        done
     fi
 
     # first, verify if we have internet
