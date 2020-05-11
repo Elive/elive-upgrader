@@ -1,1 +1,1 @@
-fixed a small issue in the shutdown that was waiting for elive-upgrader to finish
+fixed a small issue in the shutdown process that was waiting for a paused state of elive-upgrader (5 minutes paused)
