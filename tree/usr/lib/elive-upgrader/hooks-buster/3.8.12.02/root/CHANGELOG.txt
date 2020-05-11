@@ -1,0 +1,1 @@
+fixed a small issue in the shutdown that was waiting for elive-upgrader to finish
