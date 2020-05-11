@@ -156,7 +156,7 @@ main(){
         # wait 5 minutes but in the case we are shutding down computer just exit from the tool inmediately
         for i in $(seq 300)
         do
-            if pidof elive-pm 1>/dev/null 2>&1 ; then
+            if pidof -cxq elive-pm ; then
                 # if the elive-pm command is not simply the lock one:
                 if ! ps xk comm o comm,args | grep -qs "^elive-pm.*elive-pm lock" ; then
                     exit
