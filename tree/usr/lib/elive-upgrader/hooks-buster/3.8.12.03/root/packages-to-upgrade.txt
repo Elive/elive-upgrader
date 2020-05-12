@@ -1,0 +1,4 @@
+elive-tools
+elive-daemons
+hebernate
+elive-udev
