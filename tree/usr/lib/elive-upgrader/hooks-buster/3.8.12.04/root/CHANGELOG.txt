@@ -1,0 +1,1 @@
+fixed tmux conf for newer versions
