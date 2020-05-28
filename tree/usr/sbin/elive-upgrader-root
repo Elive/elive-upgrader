@@ -144,7 +144,7 @@ upgrade_system(){
     # check
     if ! updates_available_show 1>/dev/null 2>&1 ; then
         el_info "$( eval_gettext "no updates available" )"
-        return
+        return 0
     fi
 
     # test if we can run in a detached mode, so the user can close terminal without problems
@@ -199,7 +199,7 @@ upgrade_firmwares(){
 
     if ! el_dependencies_check "fwupdmgr" ; then
         el_info "fwupdmgr is not installed, ignoring firmware-upgrading features..."
-        return
+        return 0
     fi
 
     # - pre }}}
@@ -219,7 +219,7 @@ upgrade_firmwares(){
             if [[ "${updates_list}" = "$conf_firmwares_updates_available" ]] ; then
                 el_info "You selected to not upgrade firmwares the last time we asked you for this, for this number of updates, ignoring..."
                 el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
-                return
+                return 0
             fi
         fi
 

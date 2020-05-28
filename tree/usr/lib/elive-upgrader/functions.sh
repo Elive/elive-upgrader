@@ -100,7 +100,7 @@ run_hooks(){
     # pre {{{
     local mode
     el_debug
-    el_security_function_loop || return
+    el_security_function_loop || return 0
 
     mode="$1"
     el_check_variables "mode"
