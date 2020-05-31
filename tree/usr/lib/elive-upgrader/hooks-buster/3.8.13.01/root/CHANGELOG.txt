@@ -1,0 +1,1 @@
+BOOT MENU GRUB multiple improvements: Gigantly improved design with a slick looking. Much more intuitive listing of other operating systems with their colored logo on it. It will also save your LAST selected OS to boot from. No more annoying Submenu (everything on the same one). No more useless recovery entries. Wooohoooo! Reboot and be amazed :)
