@@ -14,6 +14,9 @@ GRUB_DEFAULT="saved"
 GRUB_SAVEDEFAULT="true"
 
 EOF
+
+    sed -i -e 's|^GRUB_GFXMODE=.*$|#&1|g' /etc/default/grub
+
 fi
 
 update-grub || true
