@@ -149,12 +149,12 @@ main(){
         esac
     done
 
-    # wait 5 minutes that the entire internet is set up and the timezones are correctly updated, we are not hurry
+    # wait 3 minutes that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
-        el_debug "delayed $(basename $0) 300 seconds"
+        el_debug "delayed $(basename $0) 180 seconds"
 
         # wait 5 minutes but in the case we are shutding down computer just exit from the tool inmediately
-        for i in $(seq 300)
+        for i in $(seq 180)
         do
             if pidof -cxq elive-pm ; then
                 # if the elive-pm command is not simply the lock one:
