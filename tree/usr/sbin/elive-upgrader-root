@@ -113,7 +113,7 @@ updates_available_show(){
 
     # update
     if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
-        sleep 5
+        sleep 10
         if ! is_quiet=1 el_aptget_update ; then
             el_error "problem with el_aptget_update\n$( apt-get update 2>&1 )"
         fi
