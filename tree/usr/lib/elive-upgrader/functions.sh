@@ -78,7 +78,7 @@ upgrade_system_delayed(){
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
             if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
 
-                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when will appear, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )"
+                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )"
                 sudo elive-upgrader-root --upgrade
             fi
         fi
@@ -378,7 +378,7 @@ run_hooks(){
         unset changelog
         el_mark_state "upgraded" 2>/dev/null || true
 
-        if $guitool  --question --text="$( eval_gettext "Donate to this amazing project in order to keep making updates and fixes?" )" ; then
+        if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
             web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
         fi
 
