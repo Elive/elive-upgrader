@@ -257,7 +257,7 @@ upgrade_firmwares(){
                         echo "        $line"
                         ;;
                 esac
-            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware Updates available:" )"
+            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )"
 
 
             # ask to install
