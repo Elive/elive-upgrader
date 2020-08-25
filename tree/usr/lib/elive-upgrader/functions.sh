@@ -76,7 +76,7 @@ upgrade_system_delayed(){
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
-            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your Elive?" )" ; then
+            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" ; then
 
                 $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )"
                 sudo elive-upgrader-root --upgrade
