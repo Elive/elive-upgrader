@@ -1,0 +1,1 @@
+Your E16 desktop is able to Suspend, Hibernate, and Lock now from its shutdown menu!
