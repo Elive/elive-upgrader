@@ -116,6 +116,7 @@ updates_available_show(){
         sleep 10
         if ! is_quiet=1 el_aptget_update ; then
             el_error "problem with el_aptget_update\n$( apt-get update 2>&1 )"
+            return 1
         fi
     fi
 
@@ -135,16 +136,18 @@ upgrade_system(){
     # wait unlock
     apt_get moo 1>/dev/null 2>&1
 
-    if ! apt_get update -q=2 ; then
-        apt_get check 1>/dev/null
-        # do not exit if fails, sometimes we have unworking repos but apt update works
-        apt_get update -q=2
-    fi
+    if ! ((is_update_ignored)) ; then
+        if ! apt_get update -q=2 ; then
+            apt_get check 1>/dev/null
+            # do not exit if fails, sometimes we have unworking repos but apt update works
+            apt_get update -q=2
+        fi
 
-    # check
-    if ! updates_available_show 1>/dev/null 2>&1 ; then
-        el_info "$( eval_gettext "No updates available" )"
-        return 0
+        # check
+        if ! updates_available_show 1>/dev/null 2>&1 ; then
+            el_info "$( eval_gettext "No updates available" )"
+            return 0
+        fi
     fi
 
     # test if we can run in a detached mode, so the user can close terminal without problems
@@ -378,6 +381,9 @@ main(){
                 ;;
             --upgrade-firmwares|--upgrade-firmware)
                 upgrade_firmwares
+                ;;
+            --noupdate|--no-update)
+                is_update_ignored=1
                 ;;
             --fix)
                 apt_fixes

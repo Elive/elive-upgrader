@@ -79,7 +79,8 @@ upgrade_system_delayed(){
             if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" ; then
 
                 $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )"
-                sudo elive-upgrader-root --upgrade
+                # note: --noupdate because when we did --upgdates-available before we already updated the packages list
+                sudo elive-upgrader-root --upgrade --noupdate
             fi
         fi
 
