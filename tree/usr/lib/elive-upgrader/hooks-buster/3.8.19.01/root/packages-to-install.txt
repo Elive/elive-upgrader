@@ -1,0 +1,2 @@
+xcursor-themes
+breeze-cursor-theme
