@@ -1,0 +1,1 @@
+Cairo-dock (your dock bar) now uses by default software rendering mode for stability reasons and better cpu usage, you may notice a difference in the visual effects but it stills eye-candy, in any case your suggestions are welcome in the forum :)
