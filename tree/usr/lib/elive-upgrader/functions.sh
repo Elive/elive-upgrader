@@ -141,6 +141,7 @@ run_hooks(){
     esac
 
 
+    # changes found
     if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
 
@@ -223,6 +224,25 @@ run_hooks(){
                     conf_version_upgrader="$version"
                     el_config_save "conf_version_upgrader"
                 fi
+
+                # tell the user the system has been updated:
+                hour="$(date +%k)"
+                if [[ "${hour}" -ge "21" ]] || [[ "$hour" -lt "8" ]] ; then
+                    el_explain 2 "ignoring reproduction of sound because we may be sleeping at this hour"
+                else
+                    # play updated song
+                    if [[ -s "/usr/share/eliveinstaller/data/1up.wav" ]] ; then
+                        if [[ -x "$(which paplay)" ]] ; then
+                            paplay "/usr/share/eliveinstaller/data/1up.wav" &
+                        else
+                            if [[ -x "$(which aplay)" ]] ; then
+                                aplay "/usr/share/eliveinstaller/data/1up.wav" &
+                            fi
+                        fi
+                    fi
+                fi
+                el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with latest fixes and features" )" 2>/dev/null
+
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
     else
