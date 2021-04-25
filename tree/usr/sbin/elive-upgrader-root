@@ -290,7 +290,10 @@ upgrade_firmwares(){
 
 # improved and much more reliable updater (will still works even if apt is broken or repos changed etc)
 update_upgrader_fast(){
-    el_package_upgrade_fast 480 normal "elive-upgrader"
+    if el_package_upgrade_fast 480 normal "elive-upgrader" ; then
+        el_debug "TOOL UPDATED"
+    fi
+
 }
 # old version, deprecated, less reliable, do not use it
 #update_upgrader(){
