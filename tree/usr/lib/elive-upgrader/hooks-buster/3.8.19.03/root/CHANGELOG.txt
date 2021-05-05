@@ -1,0 +1,1 @@
+You can now resize the fonts and elements of your desktop as your choice. For that, just go to your Settings applications and select the new 'Desktop Size'. This tool already calculates your optimal sizes based in your screen dimensions, DPI, and resolution, the 'auto' mode is directly run in Live mode to have by default a correctly sized desktop!
