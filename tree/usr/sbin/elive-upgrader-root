@@ -267,7 +267,7 @@ upgrade_firmwares(){
             if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your hardware?" )" ; then
                 # ac power
                 if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" ; then
-                    $guitool --warning --text="$( eval_gettext "Important: Before continuing, connect your computer to power, or verify that you have at least enough battery for a long procedure." )"
+                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not connected to the current. Connect it before continuing." )"
                 fi
 
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
