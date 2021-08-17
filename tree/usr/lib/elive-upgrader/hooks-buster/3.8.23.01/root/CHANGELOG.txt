@@ -1,0 +1,1 @@
+E16 menus are much improved, especially for the Settings and Administration categories, just like it was in the Stable version of Elive using E17. Now you can find much more easy the Configurators for your system and the Admin tools.
