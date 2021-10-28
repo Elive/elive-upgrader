@@ -91,6 +91,25 @@ upgrade_system_delayed(){
     fi
 }
 
+
+monthly_earnings_patreon_get(){
+    local value
+    value="$( timeout 15 curl -Ls --user-agent 'Mozilla/5.0'    'https://www.patreon.com/elive' | grep -i "earnings.*\$35.*per.*month" | sed -e 's|^.*">\$||g' -e 's|</h2.*$||' )"
+    if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
+        echo "$value"
+        return
+    fi
+
+    value="$( timeout 15 lynx -width=1024 -dump -connect_timeout=25 -accept_all_cookies -stderr="/dev/null" -useragent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.182 Safari/537.36' "https://www.patreon.com/elive" 2>/dev/null | grep -P "^\\$\d{1,4}\$" )"
+    if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
+        echo "$value"
+        return
+    fi
+
+    echo "(?)"
+    return
+}
+
 #===  FUNCTION  ================================================================
 #          NAME:  run_hooks
 #   DESCRIPTION:  run the hooks up to the last version ran
@@ -399,8 +418,15 @@ run_hooks(){
         unset changelog
         el_mark_state "upgraded" 2>/dev/null || true
 
-        if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool"
+        monthly_donations="$( monthly_earnings_patreon_get )"
+
+        local message_donate_to_continue
+        message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s usd / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
+
+        #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
+        if $guitool  --question --text="$message_donate_to_continue" ; then
+            #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
+            web-launcher "https://www.patreon.com/elive"
         fi
 
     fi

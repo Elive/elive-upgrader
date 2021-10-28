@@ -176,7 +176,16 @@ upgrade_system(){
 
     if ((is_upgraded)) ; then
         if $guitool --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes. Do you want to donate to this amazing project in order to keep it progressing?" )" ; then
-            web-launcher "http://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
+            web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
+        fi
+
+        monthly_donations="$( monthly_earnings_patreon_get )"
+        local message_donate_to_continue
+        message_donate_to_continue="$( printf "$( eval_gettext "Your Elive has been upgraded with improvements and fixes. But Elive is currently only sustained by %s usd / month. Would you like to contribute to this amazing project in order to keep it progressing?" )" "$monthly_donations" )"
+
+        #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
+        if $guitool  --question --text="$message_donate_to_continue" ; then
+            web-launcher "https://www.patreon.com/elive"
         fi
     fi
 
