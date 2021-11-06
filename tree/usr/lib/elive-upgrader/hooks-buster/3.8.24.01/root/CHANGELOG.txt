@@ -1,0 +1,2 @@
+* Fixed a small but important issue with how the arrays are managed in elive functions
+* Git commands now correctly returns their exit status

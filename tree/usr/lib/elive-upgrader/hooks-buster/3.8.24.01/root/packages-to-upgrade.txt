@@ -1,0 +1,4 @@
+elive-tools
+elive-daemons
+elive-skel-default-all
+zsh-elive
