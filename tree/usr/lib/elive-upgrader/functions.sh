@@ -94,13 +94,13 @@ upgrade_system_delayed(){
 
 monthly_earnings_patreon_get(){
     local value
-    value="$( timeout 15 curl -Ls --user-agent 'Mozilla/5.0'    'https://www.patreon.com/elive' | grep -i "earnings.*\$35.*per.*month" | sed -e 's|^.*">\$||g' -e 's|</h2.*$||' )"
+    value="$( timeout 15 curl -Ls --user-agent 'Mozilla/5.0'    'https://www.patreon.com/elive' | grep -i "earnings.*\$.*per.*month" | sed -e 's|^.*">\$||g' -e 's|</h2.*$||' )"
     if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
         echo "$value"
         return
     fi
 
-    value="$( timeout 15 lynx -width=1024 -dump -connect_timeout=25 -accept_all_cookies -stderr="/dev/null" -useragent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.182 Safari/537.36' "https://www.patreon.com/elive" 2>/dev/null | grep -P "^\\$\d{1,4}\$" )"
+    value="$( timeout 15 lynx -width=1024 -dump -connect_timeout=25 -accept_all_cookies -stderr="/dev/null" -useragent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.182 Safari/537.36' "https://www.patreon.com/elive" 2>/dev/null | grep -P "^\\$\d{1,4}\$" | sed -e 's|\$||g' )"
     if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
         echo "$value"
         return
