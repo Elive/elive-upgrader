@@ -1,1 +1,1 @@
-Important update to make your browsers run on RAM, which makes them faster and to save the lifespan or your SSD's or usb's with persistence, reboot your computer after the upgrade is finished
+Important update to make your browsers run on RAM, which makes them faster and to save the lifespan or your SSD's or usb's with persistence, REBOOT your computer after the upgrade is finished

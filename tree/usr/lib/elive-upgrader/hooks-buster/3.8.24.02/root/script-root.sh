@@ -11,10 +11,13 @@ main(){
     source /etc/adduser.conf || true
     [[ -z "$DHOME" ]] && DHOME=/home
 
-    for userfirst in $DHOME/*
+    for i in $DHOME/*
     do
+        [[ ! -d "$i" ]] && continue
+        user_first="$( basename "$i" )"
+
         if [[ -e "/etc/sudoers.d/sudo_nopasswd_generic_${user_first}" ]] ; then
-            echo "# profile-sync-daemon which we need (sometimes) for browsers requires privileges\n$user_first ALL=(ALL) NOPASSWD: /usr/bin/psd-overlay-helper" >> "/etc/sudoers.d/sudo_nopasswd_generic_${user_first}"
+            echo -e "# profile-sync-daemon which we need (sometimes) for browsers requires privileges\n$user_first   ALL=(ALL) NOPASSWD: /usr/bin/psd-overlay-helper\n" >> "/etc/sudoers.d/sudo_nopasswd_generic_${user_first}"
             chmod 0440 "/etc/sudoers.d/sudo_nopasswd_generic_${user_first}"
         fi
     done
