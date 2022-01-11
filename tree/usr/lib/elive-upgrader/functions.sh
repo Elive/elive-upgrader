@@ -8,6 +8,11 @@ export TEXTDOMAIN
 
 # distro version
 case "$( cat /etc/debian_version )" in
+    11.*|"bullseye"*)
+        is_bullseye=1
+        APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks-bullseye"
+        ;;
     10.*|"buster"*)
         is_buster=1
         APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"

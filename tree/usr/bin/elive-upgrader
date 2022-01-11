@@ -48,6 +48,10 @@ main(){
 
     # distro version
     case "$( cat /etc/debian_version )" in
+        11.*|"bullseye"*)
+            is_bullseye=1
+            hooks_d="/usr/lib/elive-upgrader/hooks-bullseye"
+            ;;
         10.*|"buster"*)
             is_buster=1
             hooks_d="/usr/lib/elive-upgrader/hooks-buster"
