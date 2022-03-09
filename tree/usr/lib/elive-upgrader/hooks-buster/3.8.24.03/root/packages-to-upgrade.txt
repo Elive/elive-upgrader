@@ -1,0 +1,8 @@
+vim-colorscheme-elive-molokai
+elive-tools
+elive-daemons
+elive-skel-default-all
+elive-desktop-applications
+elive-etc
+elive-help
+elive-news

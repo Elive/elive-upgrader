@@ -1,0 +1,1 @@
+If you are a VIM user, now your vim will show a much more vibrant and deliciously improved colorscheme when using on terminals
