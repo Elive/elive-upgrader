@@ -26,6 +26,6 @@ source /usr/lib/elive-tools/functions
 # add an e16 binding:
 if [[ -n "$EROOT" ]] ; then
     sed -i -e 's|^.*KeyDown.*CA.*Delete.*exec||g' ~/.e16/bindings.cfg
-    echo -e "KeyDown   CA   Delete                     exec ctrl-alt-supr" >> ~/.e16/bindings.cfg
+    echo -e "KeyDown   CA   Delete                     exec ctrl-alt-del" >> ~/.e16/bindings.cfg
     eesh restart
 fi
