@@ -81,9 +81,9 @@ upgrade_system_delayed(){
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
-            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" ; then
+            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
 
-                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )"
+                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )" 1>/dev/null 2>&1
                 # note: --noupdate because when we did --upgdates-available before we already updated the packages list
                 sudo elive-upgrader-root --upgrade --noupdate
             fi
@@ -419,7 +419,7 @@ run_hooks(){
 
         el_debug "changelog:\n$changelog"
 
-        echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated"
+        echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
         unset changelog
         el_mark_state "upgraded" 2>/dev/null || true
 
@@ -429,7 +429,7 @@ run_hooks(){
         message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s usd / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
 
         #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-        if $guitool  --question --text="$message_donate_to_continue" ; then
+        if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
             #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
             web-launcher "https://www.patreon.com/elive"
         fi

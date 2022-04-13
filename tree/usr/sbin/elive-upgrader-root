@@ -93,7 +93,7 @@ apt_fixes(){
     if ((is_failed)) ; then
         local message_failed
         message_failed="$( printf "$( eval_gettext "It seems like you have a broken state of your packages. Please open a terminal and run the command '%s'. If you cannot solve the issue you can try to reinstall your Elive system, the installer features an upgrade mode that will keep all of your files and information." )" "apif" )"
-        $guitool --error --text="$message_failed"
+        $guitool --error --text="$message_failed" 1>/dev/null 2>&1
     fi
 }
 hooks_root(){
@@ -175,7 +175,7 @@ upgrade_system(){
     fi
 
     if ((is_upgraded)) ; then
-        if $guitool --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes. Do you want to donate to this amazing project in order to keep it progressing?" )" ; then
+        if $guitool --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes. Do you want to donate to this amazing project in order to keep it progressing?" )" 1>/dev/null 2>&1 ; then
             web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
         fi
 
@@ -184,7 +184,7 @@ upgrade_system(){
         message_donate_to_continue="$( printf "$( eval_gettext "Your Elive has been upgraded with improvements and fixes. But Elive is currently only sustained by %s usd / month. Would you like to contribute to this amazing project in order to keep it progressing?" )" "$monthly_donations" )"
 
         #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-        if $guitool  --question --text="$message_donate_to_continue" ; then
+        if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
             web-launcher "https://www.patreon.com/elive"
         fi
     fi
@@ -241,7 +241,7 @@ upgrade_firmwares(){
             el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
 
             # notify
-            $guitool --info --text="$( eval_gettext "Firmware updates have been found for your hardware." )"
+            $guitool --info --text="$( eval_gettext "Firmware updates have been found for your hardware." )" 1>/dev/null 2>&1
 
             # display updates
             while read -ru 3 line
@@ -269,14 +269,14 @@ upgrade_firmwares(){
                         echo "        $line"
                         ;;
                 esac
-            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )"
+            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1
 
 
             # ask to install
-            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your hardware?" )" ; then
+            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your hardware?" )" 1>/dev/null 2>&1 ; then
                 # ac power
                 if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" ; then
-                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not connected to the current. Connect it before continuing." )"
+                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not connected to the current. Connect it before continuing." )" 1>/dev/null 2>&1
                 fi
 
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
