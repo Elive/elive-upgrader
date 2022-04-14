@@ -11,10 +11,7 @@ case "$( cat /etc/debian_version )" in
     11.*|"bullseye"*)
         is_bullseye=1
         APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
-        #hooks_d="/usr/lib/elive-upgrader/hooks-bullseye"
-        # XXX bullseye includes both upgrades from it and its previous version fixes
-        # FIXME: this can lead to bugs: what if we are including a fix for both distros at the same time? (different hooks, but run twice and maybe with different code)
-        hooks_d="/usr/lib/elive-upgrader/hooks-bullseye /usr/lib/elive-upgrader/hooks-buster"
+        hooks_d="/usr/lib/elive-upgrader/hooks-bullseye"
         ;;
     10.*|"buster"*)
         is_buster=1
@@ -140,7 +137,7 @@ run_hooks(){
         root)
             # get versions {{{
             conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
-            version_last_hook="$( find ${hooks_d} -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
             read -r conf_version_upgrader <<< "$conf_version_upgrader"
 
             # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
@@ -161,7 +158,7 @@ run_hooks(){
                 el_config_save "conf_version_upgrader"
             fi
 
-            version_last_hook="$( find ${hooks_d} -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
 
             #}}}
             ;;
@@ -240,7 +237,7 @@ run_hooks(){
                             el_error "elive-upgrader: filetype unknown: $file"
                             ;;
                     esac
-                done 3<<< "$( find ${hooks_d}/${version}/$mode -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
+                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$mode" = "root" ]] ; then
@@ -271,7 +268,7 @@ run_hooks(){
                 el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with latest fixes and features" )" 2>/dev/null
 
             fi
-        done 3<<< "$( find ${hooks_d} -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
+        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
     else
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
     fi
