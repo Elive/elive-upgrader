@@ -204,6 +204,8 @@ main(){
     el_debug "going to: hooks user"
     run_hooks "user"
 
+    el_info "$( eval_gettext "Your system is up to date" )"
+
 }
 
 #
