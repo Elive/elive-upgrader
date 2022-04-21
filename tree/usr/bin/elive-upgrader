@@ -114,8 +114,8 @@ main(){
     fi
 
     # just a check to make sure that it work
-    pong="$( sudo -n elive-upgrader-root --ping )"
-    if ! [[ "$pong" = "pong" ]] ; then
+    pong="$( timeout 10 sudo -n elive-upgrader-root --ping )"
+    if [[ "$pong" != "pong" ]] ; then
         el_error "user $USER has no 'sudo elive-upgrader-root --ping' privileges (without password)"
         exit 1
     fi
