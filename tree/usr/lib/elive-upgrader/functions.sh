@@ -265,7 +265,7 @@ run_hooks(){
                         fi
                     fi
                 fi
-                el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with latest fixes and features" )" 2>/dev/null
+                el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with the latest fixes and features!" )" 2>/dev/null
 
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
@@ -426,7 +426,7 @@ run_hooks(){
         monthly_donations="$( monthly_earnings_patreon_get )"
 
         local message_donate_to_continue
-        message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s usd / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
+        message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s USD / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
 
         #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
         if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
