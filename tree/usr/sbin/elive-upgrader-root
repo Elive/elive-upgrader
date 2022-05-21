@@ -175,7 +175,7 @@ upgrade_system(){
     fi
 
     if ((is_upgraded)) ; then
-        if $guitool --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes. Do you want to donate to this amazing project in order to keep it progressing?" )" 1>/dev/null 2>&1 ; then
+        if $guitool --question --text="$( eval_gettext "Your Elive has been upgraded with improvements and fixes! Do you want to donate to this amazing project in order to keep it progressing?" )" 1>/dev/null 2>&1 ; then
             web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool-fullupgrade"
         fi
 
@@ -241,7 +241,7 @@ upgrade_firmwares(){
             el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
 
             # notify
-            $guitool --info --text="$( eval_gettext "Firmware updates have been found for your hardware." )" 1>/dev/null 2>&1
+            $guitool --info --text="$( eval_gettext "Firmware updates have been found for your computer." )" 1>/dev/null 2>&1
 
             # display updates
             while read -ru 3 line
@@ -273,10 +273,10 @@ upgrade_firmwares(){
 
 
             # ask to install
-            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your hardware?" )" 1>/dev/null 2>&1 ; then
+            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your computer?" )" 1>/dev/null 2>&1 ; then
                 # ac power
                 if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" ; then
-                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not connected to the current. Connect it before continuing." )" 1>/dev/null 2>&1
+                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not plugged. Connect it before continuing." )" 1>/dev/null 2>&1
                 fi
 
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
