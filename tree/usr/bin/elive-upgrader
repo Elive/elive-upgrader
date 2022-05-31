@@ -144,11 +144,15 @@ main(){
                 sudo elive-upgrader-root --upgrade
                 exit
                 ;;
-            -s|--simulate)
-                # simulates the normal run / start from the daemon mode
-                export EL_DEBUG=3
-                export is_simulate=1
-                true
+            #-s|--simulate)
+                ## simulates the normal run / start from the daemon mode
+                #export EL_DEBUG=3
+                #export is_simulate=1
+                #true
+                #;;
+            -h|--help)
+                show_help
+                exit 1
                 ;;
         esac
     done

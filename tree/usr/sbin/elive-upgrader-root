@@ -384,6 +384,10 @@ main(){
             --force)
                 is_force=1
                 ;;
+            -h|--help)
+                show_help
+                exit 1
+                ;;
         esac
     done
 

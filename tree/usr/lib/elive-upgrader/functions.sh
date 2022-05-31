@@ -29,6 +29,17 @@ case "$( cat /etc/debian_version )" in
         ;;
 esac
 
+show_help(){
+    echo "Usage:
+elive-upgrader                                  upgrades your system with everything needed
+sudo elive-upgrader-root --update               update the tool itself
+sudo elive-upgrader-root --upgrade              full upgrade of the system
+sudo elive-upgrader-root --updates-available    show amount of available package updates
+sudo elive-upgrader-root --upgrade-firmware     updates your BIOS firmware (if any found)
+sudo elive-upgrader-root --fix                  fix a possible broken state of your packages
+"
+}
+
 # function replacement for apt-get calls with a wait for unlock apt before to run
 apt_get(){
     local is_waiting i
