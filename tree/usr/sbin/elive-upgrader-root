@@ -45,7 +45,7 @@ else
     PROCCESS=" "
 fi
 if (ps up $PROCCESS) 1>/dev/null 2>&1 ; then
-    el_error "$(basename $0) already running"
+    NOREPORTS=1 el_error "$(basename $0) already running"
     exit
 else
     echo $$ > "$lockfile"
@@ -115,7 +115,7 @@ updates_available_show(){
     if ! is_quiet=1 el_aptget_update 1>/dev/null 2>&1 ; then
         sleep 10
         if ! is_quiet=1 el_aptget_update ; then
-            el_error "problem with el_aptget_update\n$( apt-get update 2>&1 )"
+            NOREPORTS=1 el_error "problem with el_aptget_update\n$( apt-get update 2>&1 )"
             return 1
         fi
     fi

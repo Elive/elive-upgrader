@@ -40,31 +40,6 @@ sudo elive-upgrader-root --fix                  fix a possible broken state of y
 "
 }
 
-# function replacement for apt-get calls with a wait for unlock apt before to run
-apt_get(){
-    local is_waiting i
-    i=0
-
-    tput sc
-    while fuser /var/lib/dpkg/lock /var/lib/apt/lists/lock  >/dev/null 2>&1 ; do
-        case $(($i % 4)) in
-            0 ) j="-" ;;
-            1 ) j="\\" ;;
-            2 ) j="|" ;;
-            3 ) j="/" ;;
-        esac
-        tput rc
-        echo -en "\r[$j] Waiting for other software managers to finish..."
-        is_waiting=1
-
-        sleep 0.5
-        ((i=i+1))
-    done
-
-    # run what we want
-    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
-}
-
 
 upgrade_system_delayed(){
     local timestamp limit_time_seconds num_updates
@@ -303,9 +278,9 @@ run_hooks(){
                 sleep 20
                 if ! is_quiet=1 el_aptget_update ; then
                     if [[ "$UID" = 0 ]] ; then
-                        el_error "problem with el_aptget_update:\n$(apt-get update 2>&1)"
+                        NOREPORTS=1 el_error "problem with el_aptget_update:\n$(apt-get update 2>&1)"
                     else
-                        el_error "problem with el_aptget_update"
+                        NOREPORTS=1 el_error "problem with el_aptget_update"
                     fi
                 fi
             fi
@@ -316,9 +291,9 @@ run_hooks(){
 
             if ! apt_get -y -f install ; then
                 if [[ "$UID" = 0 ]] ; then
-                    el_error "problem with el_aptget_update:\n$(apt-get -y -f install 2>&1)"
+                    NOREPORTS=1 el_error "problem with el_aptget_update:\n$(apt-get -y -f install 2>&1)"
                 else
-                    el_error "problem with apt-get -y -f install"
+                    NOREPORTS=1 el_error "problem with apt-get -y -f install"
                 fi
             fi
 
@@ -340,14 +315,14 @@ run_hooks(){
                     # update
                     sleep 5
                     if ! is_quiet=1 el_aptget_update ; then
-                        el_error "problem with el_aptget_update"
+                        NOREPORTS=1 el_error "problem with el_aptget_update"
                     fi
 
                     # try again
                     if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
                         el_info "installed packages: ${packages_to_install}"
                     else
-                        el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
+                        NOREPORTS=1 el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
 
                         # try with each one
                         for package in ${packages_to_install}
@@ -358,7 +333,7 @@ run_hooks(){
                                 # update
                                 sleep 4
                                 if ! is_quiet=1 el_aptget_update ; then
-                                    el_error "problem with el_aptget_update"
+                                    NOREPORTS=1 el_error "problem with el_aptget_update"
                                 fi
 
                                 # try again
@@ -388,14 +363,14 @@ run_hooks(){
                     # update
                     sleep 5
                     if ! is_quiet=1 el_aptget_update ; then
-                        el_error "problem with el_aptget_update"
+                        NOREPORTS=1 el_error "problem with el_aptget_update"
                     fi
 
                     # try again
                     if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
                         el_info "upgraded packages: ${packages_to_upgrade}"
                     else
-                        el_warning "failed to upgrade all packages in one shot: '${packages_to_upgrade}', trying with each one..."
+                        NOREPORTS=1 el_warning "failed to upgrade all packages in one shot: '${packages_to_upgrade}', trying with each one..."
 
                         # try with each one
                         for package in ${packages_to_upgrade}
@@ -406,7 +381,7 @@ run_hooks(){
                                 # update
                                 sleep 4
                                 if ! is_quiet=1 el_aptget_update ; then
-                                    el_error "problem with el_aptget_update"
+                                    NOREPORTS=1 el_error "problem with el_aptget_update"
                                 fi
 
                                 # try again
@@ -447,6 +422,31 @@ run_hooks(){
 
     fi
 
+}
+
+# function replacement for apt-get calls with a wait for unlock apt before to run
+apt_get(){
+    local is_waiting i
+    i=0
+
+    tput sc
+    while fuser /var/lib/dpkg/lock /var/lib/apt/lists/lock  >/dev/null 2>&1 ; do
+        case $(($i % 4)) in
+            0 ) j="-" ;;
+            1 ) j="\\" ;;
+            2 ) j="|" ;;
+            3 ) j="/" ;;
+        esac
+        tput rc
+        echo -en "\r[$j] Waiting for other software managers to finish..."
+        is_waiting=1
+
+        sleep 0.5
+        ((i=i+1))
+    done
+
+    # run what we want
+    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
 }
 
 
