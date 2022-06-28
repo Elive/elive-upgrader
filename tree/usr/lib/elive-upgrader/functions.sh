@@ -297,57 +297,14 @@ run_hooks(){
                 fi
             fi
 
-            # remove
+            # remove {{{
             if [[ -n "$packages_to_remove" ]] ; then
                 el_debug "packages wanted to remove: $packages_to_remove"
                 el_warning "removing packages not implemented yet; note: it will requrie the user confirmation to make sure that the system is not break?"
             fi
 
-            # install
-            if [[ -n "$packages_to_install" ]] ; then
-                el_debug "packages wanted to install: $packages_to_install"
-                # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
-                # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
-                killall apt-get 2>/dev/null 1>&2 || true
-                if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
-                    el_info "installed packages"
-                else
-                    # update
-                    sleep 5
-                    if ! is_quiet=1 el_aptget_update ; then
-                        NOREPORTS=1 el_error "problem with el_aptget_update"
-                    fi
-
-                    # try again
-                    if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
-                        el_info "installed packages: ${packages_to_install}"
-                    else
-                        NOREPORTS=1 el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
-
-                        # try with each one
-                        for package in ${packages_to_install}
-                        do
-                            if apt_get install $APTGET_OPTIONS ${package} ; then
-                                el_debug "installed one-to-one package: $package"
-                            else
-                                # update
-                                sleep 4
-                                if ! is_quiet=1 el_aptget_update ; then
-                                    NOREPORTS=1 el_error "problem with el_aptget_update"
-                                fi
-
-                                # try again
-                                if apt_get install $APTGET_OPTIONS ${package} ; then
-                                    el_debug "installed one-to-one package: $package"
-                                else
-                                    el_error "problem installing package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
-                                fi
-                            fi
-                        done
-                    fi
-                fi
-            fi
-            # upgrade
+            # }}}
+            # upgrade {{{
             if [[ -n "$packages_to_upgrade" ]] ; then
                 el_debug "packages wanted to upgrade: $packages_to_upgrade"
 
@@ -395,6 +352,52 @@ run_hooks(){
                     fi
                 fi
             fi
+            # }}}
+            # install {{{
+            if [[ -n "$packages_to_install" ]] ; then
+                el_debug "packages wanted to install: $packages_to_install"
+                # TODO: ask for user confirmation and terminal showing? should be safer this way! like the installer mode does
+                # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
+                killall apt-get 2>/dev/null 1>&2 || true
+                if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
+                    el_info "installed packages"
+                else
+                    # update
+                    sleep 5
+                    if ! is_quiet=1 el_aptget_update ; then
+                        NOREPORTS=1 el_error "problem with el_aptget_update"
+                    fi
+
+                    # try again
+                    if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
+                        el_info "installed packages: ${packages_to_install}"
+                    else
+                        NOREPORTS=1 el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
+
+                        # try with each one
+                        for package in ${packages_to_install}
+                        do
+                            if apt_get install $APTGET_OPTIONS ${package} ; then
+                                el_debug "installed one-to-one package: $package"
+                            else
+                                # update
+                                sleep 4
+                                if ! is_quiet=1 el_aptget_update ; then
+                                    NOREPORTS=1 el_error "problem with el_aptget_update"
+                                fi
+
+                                # try again
+                                if apt_get install $APTGET_OPTIONS ${package} ; then
+                                    el_debug "installed one-to-one package: $package"
+                                else
+                                    el_error "problem installing package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                fi
+                            fi
+                        done
+                    fi
+                fi
+            fi
+            # }}}
         fi
     fi
 
