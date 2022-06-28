@@ -1,0 +1,5 @@
+elive-tools
+elive-daemons
+elive-skel-default-all
+elive-desktop-applications
+hebernate
