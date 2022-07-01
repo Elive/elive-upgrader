@@ -15,9 +15,9 @@ source /usr/lib/elive-tools/functions
 #fi
 
 
-#if ! grep -qs "Xcursor.theme" "~/.Xdefaults" ; then
-    #echo "Xcursor.theme: Breeze_Snow" >> "~/.Xdefaults"
-    #xrdb -merge "~/.Xdefaults"
+#if ! grep -qs "Xcursor.theme" ~/.Xdefaults ; then
+    #echo "Xcursor.theme: Breeze_Snow" >> ~/.Xdefaults
+    #xrdb -merge ~/.Xdefaults
     #sleep 2
 
     #eesh restart
