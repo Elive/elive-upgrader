@@ -144,7 +144,7 @@ upgrade_system(){
         fi
 
         # check
-        if ! updates_available_show 1>/dev/null 2>&1 ; then
+        if ! [[ "$( updates_available_show )" -gt 0 ]] ; then
             el_info "$( eval_gettext "No updates available" )"
             return 0
         fi
@@ -161,7 +161,7 @@ upgrade_system(){
         rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 
         # IMPORTANT: do not use timeout, it will block apt-get
-        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal now\" ; sleep 60 '" 1>/dev/null
+        tmux-attach-jobs elive-upgrader Upgrade "bash -c 'export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade ; apt-get autoremove -y ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal now\" ; sleep 60 '" 1>/dev/null
         sleep 1 ; sync
 
         # visualize tasks if we have it already not opened
@@ -170,7 +170,7 @@ upgrade_system(){
             is_upgraded=1
         fi
     else
-        urxvt -e bash -c "DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+        urxvt -e bash -c "export DEBIAN_FRONTEND=noninteractive ; apt-get dist-upgrade ; apt-get autoremove -y ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
         is_upgraded=1
     fi
 
