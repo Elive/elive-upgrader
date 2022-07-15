@@ -134,6 +134,7 @@ upgrade_system(){
     local is_upgraded
 
     # wait unlock
+    el_info "Updating APT lists..."
     apt_get moo 1>/dev/null 2>&1
 
     if ! ((is_update_ignored)) ; then
@@ -150,6 +151,7 @@ upgrade_system(){
         fi
     fi
 
+    el_info "Upgrading system..."
     # test if we can run in a detached mode, so the user can close terminal without problems
     if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
         timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null
@@ -187,6 +189,8 @@ upgrade_system(){
         if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
             web-launcher "https://www.patreon.com/elive"
         fi
+
+        el_info "Upgrade finished..."
     fi
 
     # remove flag

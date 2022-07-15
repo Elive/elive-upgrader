@@ -141,7 +141,7 @@ main(){
                 shift
                 ;;
             -u|--upgrade)
-                sudo elive-upgrader-root --upgrade
+                el_sudo elive-upgrader-root --upgrade
                 exit
                 ;;
             #-s|--simulate)
@@ -190,11 +190,11 @@ main(){
 
     # update tool first (if)
     el_debug "going to: update-tool"
-    sudo elive-upgrader-root --update-tool
+    el_sudo elive-upgrader-root --update-tool
 
     # hooks: root
     el_debug "going to: hooks root"
-    sudo elive-upgrader-root --hooks-root
+    el_sudo elive-upgrader-root --hooks-root
 
     # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
