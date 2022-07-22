@@ -62,6 +62,7 @@ main(){
             ;;
         *)
             el_error "debian version unknown: $(cat /etc/debian_version)"
+            el_error "TODO: new distro needs to be implemented correctly in all other tools, grep for is_bullseye to all source codes and update them"
             # fallback:
             hooks_d="/usr/lib/elive-upgrader/hooks"
             ;;
