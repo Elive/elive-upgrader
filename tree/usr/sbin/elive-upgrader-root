@@ -279,7 +279,7 @@ upgrade_firmwares(){
             # ask to install
             if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your computer?" )" 1>/dev/null 2>&1 ; then
                 # ac power
-                if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" ; then
+                if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" && laptop-detect ; then
                     $guitool --warning --text="$( eval_gettext "Important: Your computer is not plugged. Connect it before continuing." )" 1>/dev/null 2>&1
                 fi
 
