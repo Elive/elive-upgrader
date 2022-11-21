@@ -222,14 +222,14 @@ upgrade_firmwares(){
 
     if ((is_efi_booted)) ; then
         # refresh packages lists:
-        fwupdmgr refresh --force # 1>/dev/null  # requires 300 KB of internet
+        fwupdmgr refresh -y --force # 1>/dev/null  # requires 300 KB of internet
 
         # show updates:
         #fwupdmgr get-updates # 1>/dev/null
 
         # see if we have already answered to not update firmwares
         if [[ -n "$conf_firmwares_updates_available" ]] && ! ((is_force)) ; then
-            updates_list="$( fwupdmgr get-updates | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
+            updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
 
             # our updates available is the same as the one found when we answered to not update firmwares
             if [[ "${updates_list}" = "$conf_firmwares_updates_available" ]] ; then
@@ -240,7 +240,7 @@ upgrade_firmwares(){
         fi
 
 
-        if LC_ALL="$EL_LC_EN" fwupdmgr get-updates | grep -qs "^Update Name:" ; then
+        if LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force | grep -qs "^Update Name:" ; then
 
             el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
 
@@ -273,7 +273,7 @@ upgrade_firmwares(){
                         echo "        $line"
                         ;;
                 esac
-            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1
+            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1
 
 
             # ask to install
@@ -286,7 +286,7 @@ upgrade_firmwares(){
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
             else
                 # we should remember the selection of "no"? the normal is that the user should always want to update firmware, but maybe not the first time and probably the second one, so do not remember this choice and instead, ask the question in every full upgrade request
-                updates_list="$( fwupdmgr get-updates | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
+                updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
 
                 # remember them to not ask them again
                 conf_firmwares_updates_available="$updates_list"
