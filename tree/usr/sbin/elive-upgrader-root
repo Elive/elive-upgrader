@@ -240,7 +240,7 @@ upgrade_firmwares(){
         fi
 
 
-        if LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force | grep -qs "^Update Name:" ; then
+        if LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force | grep -qsE "(^Update Name:|New version:)" ; then
 
             el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
 
