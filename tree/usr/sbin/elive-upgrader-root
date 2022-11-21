@@ -222,7 +222,7 @@ upgrade_firmwares(){
 
     if ((is_efi_booted)) ; then
         # refresh packages lists:
-        fwupdmgr refresh # 1>/dev/null  # requires 300 KB of internet
+        fwupdmgr refresh --force # 1>/dev/null  # requires 300 KB of internet
 
         # show updates:
         #fwupdmgr get-updates # 1>/dev/null
