@@ -102,6 +102,53 @@ monthly_earnings_patreon_get(){
 }
 
 #===  FUNCTION  ================================================================
+#          NAME:  show_changelog
+#   DESCRIPTION:  show the changelog message
+#    PARAMETERS:  $1 = mode, $2 = message
+#       RETURNS:  -
+#===============================================================================
+show_changelog(){
+    # pre {{{
+    local message_upgraded changelog mode
+    message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
+
+    mode="$1"
+    shift
+    changelog="$1"
+    shift
+    # }}}
+
+    if [[ -z "$changelog" ]] || [[ -z "$mode" ]] ; then
+        return
+    fi
+
+    el_debug "changelog:\n$changelog"
+
+    echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    unset changelog
+
+    case "$mode" in
+        "normal")
+            el_mark_state "upgraded" 2>/dev/null || true
+
+            monthly_donations="$( monthly_earnings_patreon_get )"
+
+            local message_donate_to_continue
+            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s USD / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
+
+            #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
+            if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
+                #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
+                web-launcher "https://www.patreon.com/elive"
+            fi
+            ;;
+        "pre")
+            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "Please follow the updating instructions if any..." )"
+            ;;
+    esac
+}
+
+#===  FUNCTION  ================================================================
 #          NAME:  run_hooks
 #   DESCRIPTION:  run the hooks up to the last version ran
 #    PARAMETERS:  $1 = user|root mode
@@ -181,6 +228,16 @@ run_hooks(){
                                 fi
                             fi
                             ;;
+                        */pre-CHANGELOG.txt)
+                            # changelog
+                            if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
+                                # update: user don't needs to see any version number here
+                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
+                            fi
+
+                            show_changelog "pre" "$changelog"
+                            ;;
                         */CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
@@ -223,7 +280,10 @@ run_hooks(){
                             el_error "elive-upgrader: filetype unknown: $file"
                             ;;
                     esac
-                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
+
+                # sorted preference to run goes here:
+                #done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
+                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$mode" = "root" ]] ; then
@@ -402,28 +462,7 @@ run_hooks(){
     fi
 
     # changelog to show?
-    if [[ -n "$changelog" ]] ; then
-        local message_upgraded
-        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
-
-        el_debug "changelog:\n$changelog"
-
-        echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
-        unset changelog
-        el_mark_state "upgraded" 2>/dev/null || true
-
-        monthly_donations="$( monthly_earnings_patreon_get )"
-
-        local message_donate_to_continue
-        message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s USD / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
-
-        #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-        if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
-            #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
-            web-launcher "https://www.patreon.com/elive"
-        fi
-
-    fi
+    show_changelog "normal" "$changelog"
 
 }
 
