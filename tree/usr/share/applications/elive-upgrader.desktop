@@ -1,0 +1,14 @@
+[Desktop Entry]
+Encoding=UTF-8
+Version=1.0
+Type=Application
+Name=Elive upgrader
+Comment=Upgrade your Elive system
+#Categories=Elive
+Categories=System;
+#StartupNotify=true
+NoDisplay=false
+Icon=update-manager
+TryExec=elive-upgrader
+Exec=bash -c "EL_DEBUG=2 elive-upgrader --upgrade ; sleep 5"
+Terminal=true

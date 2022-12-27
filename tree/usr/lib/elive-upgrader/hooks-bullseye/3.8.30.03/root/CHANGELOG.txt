@@ -1,0 +1,9 @@
+More bullseye-backports packages enabled in your repositories, do a full upgrade and enjoy of newer and compatible appplications!
+
+FIXED connection to wifi networks using WPA3
+
+Multiple improvements in your e16 desktop
+
+Notifications system improved including actions
+
+And... Happy Holidays!

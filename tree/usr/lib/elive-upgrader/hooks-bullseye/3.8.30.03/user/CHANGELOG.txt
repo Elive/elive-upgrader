@@ -1,0 +1,6 @@
+More hotkeys added for your e16 desktop (requires to run "Restart to a New Desktop Configuration" from your applications menu, note that you will loose own defined desktop hotkeys and personal configurations, switching to a new clean one). You can alternatively use meld as:  meld /etc/skel/.e16 ~/.e16/
+
+Your launcher has deeply improved, open it using "Control + Space"
+
+You don't need to re-login in your desktop to enjoy some features like automated updates, elive news, auto reparation issues, checks, etc... they are now integrated with the crontab system, (you can optionally enable or disable these features in your startup applications)
+

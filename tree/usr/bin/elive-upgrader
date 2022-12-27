@@ -146,7 +146,6 @@ main(){
                 ;;
             -u|--upgrade)
                 el_sudo elive-upgrader-root --upgrade
-                exit
                 ;;
             #-s|--simulate)
                 ## simulates the normal run / start from the daemon mode
