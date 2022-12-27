@@ -129,7 +129,6 @@ monthly_earnings_patreon_get(){
 show_changelog(){
     # pre {{{
     local message_upgraded changelog mode
-    message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
 
     mode="$1"
     shift
@@ -143,7 +142,13 @@ show_changelog(){
 
     el_debug "changelog:\n$changelog"
 
-    echo -e "${message_upgraded}$changelog" | $guitool  --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    if [[ "$mode" = "normal" ]] ; then
+        message_upgraded="$( printf "$( eval_gettext "Your Elive has been upgraded with:" )" "" )"
+    else
+        message_upgraded=""
+    fi
+
+    echo -e "${message_upgraded}$changelog" | $guitool  --widt=610 --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
     unset changelog
 
     case "$mode" in
@@ -278,7 +283,7 @@ run_hooks(){
                                 changelog="${changelog}\n\n$(cat "$file" )"
                             fi
                             if [[ "$mode" = "user" ]] ; then
-                                el_warning "changelogs must be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
+                                el_warning "Warning: changelogs should be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
                             fi
                             ;;
                         */packages-to-upgrade.txt)
