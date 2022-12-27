@@ -1,4 +1,4 @@
-More bullseye-backports packages enabled in your repositories, do a full upgrade and enjoy of newer and compatible appplications!
+More backports available in your system, do a full upgrade and enjoy of newer and compatible appplications!
 
 FIXED connection to wifi networks using WPA3
 

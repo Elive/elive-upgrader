@@ -236,7 +236,7 @@ run_hooks(){
                                 pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
                             fi
 
-                            show_changelog "pre" "$changelog"
+                            show_changelog "pre" "$pre_changelog"
                             ;;
                         */CHANGELOG.txt)
                             # changelog
