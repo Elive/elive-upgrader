@@ -15,7 +15,7 @@ main(){
     # replace user bindings
     sed -i -e 's|kupfer|elive-launcher-app|g' ~/.e16/bindings.cfg
     if ! grep -qsE "space.*(kupfer|elive-launcher-app)" ~/.e16/bindings.cfg ; then
-        echo "KeyDown    C        space                 exec elive-launcher-app" >> ~/.e16/bindings.cfg
+        echo -e "KeyDown    C        space                 exec elive-launcher-app\n" >> ~/.e16/bindings.cfg
     fi
 
     #elive-launcher-app

@@ -41,6 +41,25 @@ sudo elive-upgrader-root --fix                  fix a possible broken state of y
 }
 
 
+notify_user_system_updated(){
+    hour="$(date +%k)"
+    if [[ "${hour}" -ge "21" ]] || [[ "$hour" -lt "8" ]] ; then
+        el_explain 2 "ignoring reproduction of sound because we may be sleeping at this hour"
+    else
+        # play updated song
+        if [[ -s "/usr/share/eliveinstaller/data/1up.wav" ]] ; then
+            if [[ -x "$(which paplay)" ]] ; then
+                paplay "/usr/share/eliveinstaller/data/1up.wav" &
+            else
+                if [[ -x "$(which aplay)" ]] ; then
+                    aplay "/usr/share/eliveinstaller/data/1up.wav" &
+                fi
+            fi
+        fi
+    fi
+    el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with the latest fixes and features!" )" 2>/dev/null
+}
+
 upgrade_system_delayed(){
     local timestamp limit_time_seconds num_updates
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
@@ -145,6 +164,9 @@ show_changelog(){
         "pre")
             el_notify normal logo-elive "Elive Updates" "$( eval_gettext "Please follow the updating instructions if any..." )"
             ;;
+        "post")
+            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "New features found" )"
+            ;;
     esac
 }
 
@@ -228,6 +250,16 @@ run_hooks(){
                                 fi
                             fi
                             ;;
+                        */post-CHANGELOG.txt)
+                            # changelog
+                            if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
+                                # update: user don't needs to see any version number here
+                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                post_changelog="${post_changelog}\n\n$(cat "$file" )"
+                            fi
+
+                            show_changelog "post" "$post_changelog"
+                            ;;
                         */pre-CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
@@ -244,6 +276,9 @@ run_hooks(){
                                 # update: user don't needs to see any version number here
                                 #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                 changelog="${changelog}\n\n$(cat "$file" )"
+                            fi
+                            if [[ "$mode" = "user" ]] ; then
+                                el_warning "changelogs must be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
                             fi
                             ;;
                         */packages-to-upgrade.txt)
@@ -296,22 +331,7 @@ run_hooks(){
                 fi
 
                 # tell the user the system has been updated:
-                hour="$(date +%k)"
-                if [[ "${hour}" -ge "21" ]] || [[ "$hour" -lt "8" ]] ; then
-                    el_explain 2 "ignoring reproduction of sound because we may be sleeping at this hour"
-                else
-                    # play updated song
-                    if [[ -s "/usr/share/eliveinstaller/data/1up.wav" ]] ; then
-                        if [[ -x "$(which paplay)" ]] ; then
-                            paplay "/usr/share/eliveinstaller/data/1up.wav" &
-                        else
-                            if [[ -x "$(which aplay)" ]] ; then
-                                aplay "/usr/share/eliveinstaller/data/1up.wav" &
-                            fi
-                        fi
-                    fi
-                fi
-                el_notify normal znes "Elive Updated" "$( eval_gettext "Your Elive has been updated with the latest fixes and features!" )" 2>/dev/null
+                notify_user_system_updated
 
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
