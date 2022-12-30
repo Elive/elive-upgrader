@@ -465,7 +465,7 @@ run_hooks(){
 
                     # try again
                     if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
-                        el_info "installed packages: ${packages_to_install}"
+                        el_info "installed packages:\n$( echo "${packages_to_install}" | tr ' ' '\n' | sort -u )"
                     else
                         NOREPORTS=1 el_warning "failed to install all packages in one shot: '${packages_to_install}', trying with each one..."
 
