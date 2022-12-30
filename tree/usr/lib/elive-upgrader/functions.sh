@@ -148,7 +148,7 @@ show_changelog(){
         message_upgraded=""
     fi
 
-    echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=470 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
     unset changelog
 
     case "$mode" in
@@ -260,7 +260,11 @@ run_hooks(){
                             if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
                                 # update: user don't needs to see any version number here
                                 #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                post_changelog="${post_changelog}\n\n$(cat "$file" )"
+                                if [[ -n "$post_changelog" ]] ; then
+                                    post_changelog="${post_changelog}\n\n$(cat "$file" )"
+                                else
+                                    post_changelog="$(cat "$file" )"
+                                fi
                             fi
 
                             show_changelog "post" "$post_changelog"
@@ -270,7 +274,11 @@ run_hooks(){
                             if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
                                 # update: user don't needs to see any version number here
                                 #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
+                                if [[ -n "$pre_changelog" ]] ; then
+                                    pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
+                                else
+                                    pre_changelog="$(cat "$file" )"
+                                fi
                             fi
 
                             show_changelog "pre" "$pre_changelog"
@@ -410,7 +418,7 @@ run_hooks(){
 
                     # try again
                     if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
-                        el_info "upgraded packages: ${packages_to_upgrade}"
+                        el_info "upgraded packages:\n$( echo "${packages_to_upgrade}" | tr ' ' '\n' | sort -u )"
                     else
                         NOREPORTS=1 el_warning "failed to upgrade all packages in one shot: '${packages_to_upgrade}', trying with each one..."
 
