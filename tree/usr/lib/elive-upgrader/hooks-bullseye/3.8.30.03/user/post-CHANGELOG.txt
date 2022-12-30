@@ -1,29 +1,30 @@
-Your Launcher has been replaced by a MUCH BETTER, deeply improved, and well Elive-featured system. There's some features included:
+Your LAUNCHER has been replaced by a MUCH BETTER, deeply improved, and well Elive-featured system. There's some features included:
 
+    - FIRST: press "ctrl" and "space" to launch it
     - use "g" to do a search in google ("d" to use ducky, "gi" for search in google images, etc)
     - use "f" to search your files (features fuzzy finding OMG amazing! )
-    - type "5m pizza cooked" to send you a notification in 5 minutes
+    - type "ti 5m pizza cooked" to send you a notification in 5 minutes
     - type "gb supermario" to search supermario named projects in github
     - type "em happy" to search an emoji and have it ready to paste it anywhere!
     - type "yt retrowave" to search retrowave results of youtube
     - type "kill" and the name of the process you want to see death
-    - type "download video" to download videos from ANY website (optionally includes subtitles, chapters, etc, OMG!)
-    - type "download song" to extract the audio from a video url (includes youtube playlists)
-    - search "brightness" to change the brightness of your screen and even your keyboard!
+    - type "download video URL" to download videos from ANY website (optionally includes subtitles, chapters, etc, OMG!)
+    - type "download song URL" to extract the audio from a video url (includes youtube playlists)
+    - search the "brightness" triggers to change the brightness of your screen and even your keyboard!
     - type "Elive Rating" to check the Elive rating among other distros
     - type "elforum wifi" to search wifi related topics on the Elive forum
-    - type "say hello" to say something in a retro-futuristic voice
-    - type "wiki elive" to search articles on wikipedia
-    - type "twitter elive" to search twitters about Elive (same with many other website, see the configuration)
-    - type "netflix" to search movies or documentaries on netflix
-    - type "gmail pizza dinner" to search in your gmail emails about a specific topic
-    - type "gmaps shambhala" to search a place in google maps
-    - type "icon twitter" to search for an icon, or "gif" to search animated gifs
-    - type "weather barcelone" to see the time in barcelona
     - type "elbugs" or "dbugs" to search elive or debian reported bugs for a specific issue
-    - type "spotify" other combos to search online music (youtube, soundcloud, bandcamp, etc)
+    - type "say hello" to say something in a retro-futuristic voice
+    - type "wiki elive" to search articles on Wikipedia
+    - type "twitter elive" to search twitters about Elive (same with many other website, see the configuration)
+    - type "netflix black mirror" to search movies or documentaries on netflix
+    - type "gmail pizza restaurant" to search in your gmail emails about a specific topic
+    - type "gmaps shambhala" to search a place in google maps
+    - type "icon twitter" to search for an icon, or use "gif" to search animated gifs
+    - type "weather barcelona" to see the time in barcelona
+    - type "spotify" or other combos to search online music (youtube, soundcloud, bandcamp, etc)
     - type "btcp" to check the bitcoin price
     - type "utc now" to show the actual time in UTC mode, or use specific dates to show its relative
-    - and much more... So make a photo from this on your phone! :)
+    - and much more... So make a photo of this message from your phone! :)
 
 
