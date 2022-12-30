@@ -415,7 +415,7 @@ run_hooks(){
 
                 killall apt-get 2>/dev/null 1>&2 || true
                 if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
-                    el_info "upgraded packages"
+                    el_info "upgraded packages:\n$( echo "${packages_to_upgrade}" | tr ' ' '\n' | sort -u )"
                 else
                     # update
                     sleep 5
@@ -460,7 +460,7 @@ run_hooks(){
                 # TODO: we should integrate all this in el_package_install feature, it smells like a rewrite for it
                 killall apt-get 2>/dev/null 1>&2 || true
                 if apt_get install $APTGET_OPTIONS ${packages_to_install} ; then
-                    el_info "installed packages"
+                    el_info "installed packages:\n$( echo "${packages_to_install}" | tr ' ' '\n' | sort -u )"
                 else
                     # update
                     sleep 5
