@@ -148,9 +148,21 @@ show_changelog(){
         message_upgraded=""
     fi
 
-    ( echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=470 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1 ) &
+    # pre messages?
+    case "$mode" in
+        "pre")
+            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "Please follow the updating instructions if any..." )"
+            ;;
+        "post")
+            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "New features found" )"
+            ;;
+    esac
+
+    # show changelog
+    echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=470 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
     unset changelog
 
+    # any next action after changelog?
     case "$mode" in
         "normal")
             el_mark_state "upgraded" 2>/dev/null || true
@@ -166,15 +178,8 @@ show_changelog(){
                 web-launcher "https://www.patreon.com/elive"
             fi
             ;;
-        "pre")
-            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "Please follow the updating instructions if any..." )"
-            ;;
-        "post")
-            el_notify normal logo-elive "Elive Updates" "$( eval_gettext "New features found" )"
-            ;;
     esac
 
-    wait
 }
 
 #===  FUNCTION  ================================================================
