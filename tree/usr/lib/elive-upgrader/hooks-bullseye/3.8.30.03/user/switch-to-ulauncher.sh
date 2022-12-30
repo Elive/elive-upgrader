@@ -21,9 +21,8 @@ main(){
     killall -q ulauncher
     eesh restart
 
-    #elive-launcher-app
-
-    # ask the user if wants to watch the video
+    # fix notification daemon
+    notification-daemon-restarter
 
 }
 
