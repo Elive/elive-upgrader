@@ -173,6 +173,8 @@ show_changelog(){
             el_notify normal logo-elive "Elive Updates" "$( eval_gettext "New features found" )"
             ;;
     esac
+
+    wait
 }
 
 #===  FUNCTION  ================================================================
