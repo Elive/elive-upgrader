@@ -8,4 +8,4 @@ Notifications system improved including now features like buttons
 
 E16: multiple implements and hotkeys added (requires to run "Restart to a New Desktop Configuration" from your applications menu, note that you will loose own defined desktop hotkeys and personal configurations, switching to a new clean one). You can alternatively use meld as:  meld /etc/skel/.e16 ~/.e16/
 
-And... Happy Holidays!
+And... Happy New Year!

@@ -148,7 +148,7 @@ show_changelog(){
         message_upgraded=""
     fi
 
-    echo -e "${message_upgraded}$changelog" | $guitool  --widt=610 --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=400 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
     unset changelog
 
     case "$mode" in
