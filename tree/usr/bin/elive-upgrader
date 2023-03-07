@@ -112,15 +112,17 @@ main(){
     # }}}
 
     # only run if first user
-    if ! grep -qs "^first-user: $USER\$" /etc/elive-version ; then
-        el_debug "This user is not the first one installed on the system, exiting..."
-        exit
-    fi
+    #if ! grep -qs "^first-user: $USER\$" /etc/elive-version ; then
+        #el_debug "This user is not the first one installed on the system, exiting..."
+        #exit
+    #fi
 
     # just a check to make sure that it work
     pong="$( timeout 10 sudo -n elive-upgrader-root --ping )"
     if [[ "$pong" != "pong" ]] ; then
-        el_error "user $USER has no 'sudo elive-upgrader-root --ping' privileges (without password)"
+        if grep -qs "^first-user: $USER\$" /etc/elive-version ; then
+            el_error "user $USER has no 'sudo elive-upgrader-root --ping' privileges (without password)"
+        fi
         exit 1
     fi
 
