@@ -378,7 +378,7 @@ main(){
     for arg in "$@"
     do
         case "$arg" in
-            --noupdate|--no-update)
+            --noaptupdate|--no-aptupdate)
                 is_update_ignored=1
                 ;;
             --ping)

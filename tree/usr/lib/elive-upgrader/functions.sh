@@ -40,6 +40,19 @@ sudo elive-upgrader-root --fix                  fix a possible broken state of y
 "
 }
 
+displaytime(){
+  local T=$1
+  local D=$((T/60/60/24))
+  local H=$((T/60/60%24))
+  local M=$((T/60%60))
+  local S=$((T%60))
+  (( $D > 0 )) && printf '%d days ' $D
+  (( $H > 0 )) && printf '%d hours ' $H
+  (( $M > 0 )) && printf '%d minutes ' $M
+  (( $D > 0 || $H > 0 || $M > 0 )) && printf 'and '
+  printf '%d and seconds\n' $S
+}
+
 
 notify_user_system_updated(){
     hour="$(date +%k)"
@@ -61,7 +74,7 @@ notify_user_system_updated(){
 }
 
 upgrade_system_delayed(){
-    local timestamp limit_time_seconds num_updates
+    local timestamp limit_time_seconds num_updates time_passed
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
     if ! [[ -d "$( dirname "$timestamp" )" ]] ; then
         mkdir -p "$( dirname "$timestamp" )"
@@ -78,8 +91,9 @@ upgrade_system_delayed(){
     #limit_time_seconds="604800" # one week
     #limit_time_seconds="518400" # 6 days
     #limit_time_seconds="6" # tests only!
+    time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
 
-    if [[ "$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )" -gt "$limit_time_seconds" ]] ; then
+    if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
         # get number of available updates
         num_updates="$( sudo elive-upgrader-root --updates-available )"
         el_debug "upgrades found: $num_updates"
@@ -89,15 +103,18 @@ upgrade_system_delayed(){
             if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
 
                 $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )" 1>/dev/null 2>&1
-                # note: --noupdate because when we did --upgdates-available before we already updated the packages list
-                sudo elive-upgrader-root --upgrade --noupdate
+                # note: --noaptupdate because when we did --upgdates-available before we already updated the packages list
+                sudo elive-upgrader-root --upgrade --noaptupdate
+
+                # upgrade firmwares too if the user wanted to upgrade his system
+                sudo elive-upgrader-root --upgrade-firmwares
             fi
         fi
 
-        sudo elive-upgrader-root --upgrade-firmwares
-
         # always mark/park until the next month, we dont want to run apt-get update at every start
         touch "$timestamp"
+    else
+        el_debug "Not enough time passed to run a full upgrade, minimum is '$( displaytime $limit_time_seconds )', passed time is $( displaytime $time_passed )"
     fi
 }
 
