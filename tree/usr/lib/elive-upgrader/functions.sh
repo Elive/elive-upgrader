@@ -507,7 +507,7 @@ run_hooks(){
                                 if apt_get install $APTGET_OPTIONS ${package} ; then
                                     el_debug "installed one-to-one package: $package"
                                 else
-                                    el_error "problem installing package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get install $APTGET_OPTIONS ${package} 2>&1 )"
+                                    el_error "problem installing package ${package}:  $( TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get $APTGET_OPTIONS install ${package} 2>&1 )"
                                 fi
                             fi
                         done
