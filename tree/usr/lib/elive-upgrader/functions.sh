@@ -91,7 +91,12 @@ upgrade_system_delayed(){
     #limit_time_seconds="604800" # one week
     #limit_time_seconds="518400" # 6 days
     #limit_time_seconds="6" # tests only!
-    time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
+    if [[ -e "$timestamp" ]] ; then
+        time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
+    else
+        touch "$timestamp"
+        time_passed="999999999999999999999999999"
+    fi
 
     if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
         # get number of available updates
