@@ -1,0 +1,14 @@
+elive-tools
+elive-daemons
+elive-desktop-applications
+elive-help
+elive-news
+elive-skel
+elive-skel-default-all
+elive-skel-retrowave-all
+elive-skel-default-e16
+elive-skel-retrowave-e16
+hebernate
+
+gnome-icon-theme
+
