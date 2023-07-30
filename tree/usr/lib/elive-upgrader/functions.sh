@@ -276,8 +276,17 @@ run_hooks(){
 
                     case "$file" in
                         *.sh)
+                            # DEPRECATED, do not use anymore
+                            if [[ -x "$file" ]] && [[ "$file" != *"post-"* ]] && [[ "$file" != *"pre-"* ]] ; then
+                                el_info "running script: $file"
+                                if ! "$file" ; then
+                                    el_error "failed ${file}: $( "$file" )"
+                                fi
+                            fi
+                            ;;
+                        */pre-*.sh)
                             # script
-                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
+                            if [[ -x "$file" ]] ; then
                                 el_info "running script: $file"
                                 if ! "$file" ; then
                                     el_error "failed ${file}: $( "$file" )"
@@ -286,7 +295,7 @@ run_hooks(){
                             ;;
                         */post-*.sh)
                             # script
-                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
+                            if [[ -x "$file" ]] ; then
                                 el_array_member_add "$file" "${scripts_post[@]}" ; scripts_post=("${_out[@]}")
                             fi
                             ;;
