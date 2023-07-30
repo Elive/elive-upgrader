@@ -125,21 +125,26 @@ upgrade_system_delayed(){
 
 
 monthly_earnings_patreon_get(){
-    local value
-    value="$( timeout 15 curl -Ls --user-agent 'Mozilla/5.0'    'https://www.patreon.com/elive' | grep -i "earnings.*\$.*per.*month" | sed -e 's|^.*">\$||g' -e 's|</h2.*$||' )"
-    if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
-        echo "$value"
+    local patreon_curl patreon_currency patreon_patrons patreon_curl patreon_pledge
+
+    patreon_curl="$( curl -m 20 -Ls --user-agent "Mozilla 5.0"  "https://www.patreon.com/elive/about" | grep -E "(patron_count|pledge_sum)" )"
+    patreon_currency="$( echo "$patreon_curl" | grep '"pledge_sum_currency":' | sed -e 's|^.*": ||g' -e 's|,$||g' -e 's|"||g' )"
+    read -r patreon_currency <<< "$patreon_currency"
+
+    if [[ -n "$patreon_currency" ]] ; then
+        patreon_patrons="$( echo "$patreon_curl" | grep '"patron_count":' | sed -e 's|^.*": ||g' -e 's|,$||g' )"
+        read -r patreon_patrons <<< "$patreon_patrons"
+        patreon_pledge="$( echo "$patreon_curl" | grep '"pledge_sum":' | sed -e 's|^.*": ||g' -e 's|,$||g' )"
+        read -r patreon_pledge <<< "$patreon_pledge"
+        # remove the two last numbers (decimals)
+        patreon_pledge="${patreon_pledge::-2}"
+        if [[ -z "$patreon_pledge" ]] || [[ -z "$patreon_patrons" ]] ; then
+            el_error "wrong data obtained from patreon curl:\n$patreon_curl"
+        fi
+
+        echo "$patreon_pledge $patreon_currency"
         return
     fi
-
-    value="$( timeout 15 lynx -width=1024 -dump -connect_timeout=25 -accept_all_cookies -stderr="/dev/null" -useragent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.182 Safari/537.36' "https://www.patreon.com/elive" 2>/dev/null | grep -P "^\\$\d{1,4}\$" | sed -e 's|\$||g' )"
-    if echo "$value" | grep -qs "^[[:digit:]].*[[:digit:]]$" ; then
-        echo "$value"
-        return
-    fi
-
-    echo "(?)"
-    return
 }
 
 #===  FUNCTION  ================================================================
@@ -192,7 +197,7 @@ show_changelog(){
             monthly_donations="$( monthly_earnings_patreon_get )"
 
             local message_donate_to_continue
-            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s USD / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
+            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained by %s / month. Would you like to contribute to this amazing project in order to continue making updates and fixes?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
             if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
