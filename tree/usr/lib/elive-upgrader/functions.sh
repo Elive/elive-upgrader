@@ -284,6 +284,12 @@ run_hooks(){
                                 fi
                             fi
                             ;;
+                        */post-*.sh)
+                            # script
+                            if [[ -x "$file" ]] && [[ "$file" = *".sh" ]] ; then
+                                el_array_member_add "$file" "${scripts_post[@]}" ; scripts_post=("${_out[@]}")
+                            fi
+                            ;;
                         */post-CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
@@ -522,6 +528,15 @@ run_hooks(){
             # }}}
         fi
     fi
+
+    # post scripts to run by root:
+    for file in "${script_root_post[@]}"
+    do
+        el_info "running script: $file"
+        if ! "$file" ; then
+            el_error "failed ${file}: $( "$file" )"
+        fi
+    done
 
     # changelog to show?
     show_changelog "normal" "$changelog"
