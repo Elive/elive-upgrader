@@ -212,7 +212,7 @@ show_changelog(){
 #===============================================================================
 run_hooks(){
     # pre {{{
-    local mode
+    local mode changelog post_changelog pre_changelog file 
     el_debug
     el_security_function_loop || return 0
 
@@ -294,7 +294,10 @@ run_hooks(){
                             # script
                             if [[ "$prepost" = "post" ]] ; then
                                 if [[ -x "$file" ]] ; then
-                                    el_array_member_add "$file" "${scripts_post[@]}" ; scripts_post=("${_out[@]}")
+                                    el_info "running script: $file"
+                                    if ! "$file" ; then
+                                        el_error "failed ${file}: $( "$file" )"
+                                    fi
                                 fi
                             fi
                             ;;
@@ -321,9 +324,10 @@ run_hooks(){
                                         post_changelog="$(cat "$file" )"
                                     fi
                                 fi
-                            fi
 
                             show_changelog "post" "$post_changelog"
+                            fi
+
                             ;;
                         */pre-CHANGELOG.txt)
                             # changelog
@@ -560,14 +564,6 @@ run_hooks(){
         fi
     fi
 
-    # post scripts to run by root:
-    for file in "${scripts_post[@]}"
-    do
-        el_info "running script: $file"
-        if ! "$file" ; then
-            el_error "failed ${file}: $( "$file" )"
-        fi
-    done
 
     # changelog to show?
     show_changelog "normal" "$changelog"
