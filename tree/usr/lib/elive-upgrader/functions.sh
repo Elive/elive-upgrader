@@ -191,7 +191,7 @@ show_changelog(){
 
     # any next action after changelog?
     case "$mode" in
-        "normal")
+        "post")
             el_mark_state "upgraded" 2>/dev/null || true
 
             monthly_donations="$( monthly_earnings_patreon_get )"
@@ -217,7 +217,7 @@ show_changelog(){
 #===============================================================================
 run_hooks(){
     # pre {{{
-    local mode changelog post_changelog pre_changelog file 
+    local mode changelog file
     el_debug
     el_security_function_loop || return 0
 
@@ -323,14 +323,13 @@ run_hooks(){
                                 if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                    if [[ -n "$post_changelog" ]] ; then
-                                        post_changelog="${post_changelog}\n\n$(cat "$file" )"
+                                    if [[ -n "$changelog" ]] ; then
+                                        changelog="${changelog}\n\n$(cat "$file" )"
                                     else
-                                        post_changelog="$(cat "$file" )"
+                                        changelog="$(cat "$file" )"
                                     fi
                                 fi
 
-                            show_changelog "post" "$post_changelog"
                             fi
 
                             ;;
@@ -340,27 +339,28 @@ run_hooks(){
                                 if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                    if [[ -n "$pre_changelog" ]] ; then
-                                        pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
+                                    if [[ -n "$changelog" ]] ; then
+                                        changelog="${changelog}\n\n$(cat "$file" )"
                                     else
-                                        pre_changelog="$(cat "$file" )"
+                                        changelog="$(cat "$file" )"
                                     fi
                                 fi
 
-                                show_changelog "pre" "$pre_changelog"
                             fi
                             ;;
 
                         # IMPORTANT: after the other ones
                         */CHANGELOG.txt)
                             # changelog
-                            if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
-                                # update: user don't needs to see any version number here
-                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                changelog="${changelog}\n\n$(cat "$file" )"
-                            fi
-                            if [[ "$mode" = "user" ]] ; then
-                                el_warning "Warning: changelogs should be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
+                            if [[ "$prepost" = "post" ]] ; then
+                                if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
+                                    # update: user don't needs to see any version number here
+                                    #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                    changelog="${changelog}\n\n$(cat "$file" )"
+                                fi
+                                if [[ "$mode" = "user" ]] ; then
+                                    el_warning "Warning: changelogs should be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
+                                fi
                             fi
                             ;;
                         */packages-to-upgrade.txt)
@@ -571,7 +571,7 @@ run_hooks(){
 
 
     # changelog to show?
-    show_changelog "normal" "$changelog"
+    show_changelog "$prepost" "$changelog"
 
 }
 
