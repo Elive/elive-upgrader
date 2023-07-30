@@ -279,15 +279,6 @@ run_hooks(){
                     el_debug "hook: $file"
 
                     case "$file" in
-                        *.sh)
-                            # DEPRECATED
-                            if [[ -x "$file" ]] && [[ "$file" != *"pre-"* ]] && [[ "$file" != *"post-"* ]] ; then
-                                el_info "running script: $file"
-                                if ! "$file" ; then
-                                    el_error "failed ${file}: $( "$file" )"
-                                fi
-                            fi
-                            ;;
                         */pre-*.sh)
                             # run script
                             if [[ "$prepost" = "pre" ]] ; then
@@ -307,6 +298,17 @@ run_hooks(){
                                 fi
                             fi
                             ;;
+                        # IMPORTANT: after the other ones
+                        *.sh)
+                            # DEPRECATED
+                            if [[ -x "$file" ]] && [[ "$file" != *"pre-"* ]] && [[ "$file" != *"post-"* ]] ; then
+                                el_info "running script: $file"
+                                if ! "$file" ; then
+                                    el_error "failed ${file}: $( "$file" )"
+                                fi
+                            fi
+                            ;;
+
                         */post-CHANGELOG.txt)
                             # changelog
                             if [[ "$prepost" = "post" ]] ; then
@@ -339,6 +341,8 @@ run_hooks(){
                                 show_changelog "pre" "$pre_changelog"
                             fi
                             ;;
+
+                        # IMPORTANT: after the other ones
                         */CHANGELOG.txt)
                             # changelog
                             if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
