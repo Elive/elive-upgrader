@@ -207,7 +207,7 @@ show_changelog(){
 #===  FUNCTION  ================================================================
 #          NAME:  run_hooks
 #   DESCRIPTION:  run the hooks up to the last version ran
-#    PARAMETERS:  $1 = user|root mode
+#    PARAMETERS:  $1 = user|root mode, $2 = pre|post
 #       RETURNS:  -
 #===============================================================================
 run_hooks(){
@@ -217,6 +217,10 @@ run_hooks(){
     el_security_function_loop || return 0
 
     mode="$1"
+    shift
+    prepost="$1"
+    shift
+
     el_check_variables "mode"
 
     el_debug "running hooks in mode $mode"
@@ -276,8 +280,8 @@ run_hooks(){
 
                     case "$file" in
                         *.sh)
-                            # DEPRECATED, do not use anymore
-                            if [[ -x "$file" ]] && [[ "$file" != *"post-"* ]] && [[ "$file" != *"pre-"* ]] ; then
+                            # DEPRECATED
+                            if [[ -x "$file" ]] && [[ "$file" != *"pre-"* ]] && [[ "$file" != *"post-"* ]] ; then
                                 el_info "running script: $file"
                                 if ! "$file" ; then
                                     el_error "failed ${file}: $( "$file" )"
@@ -285,29 +289,35 @@ run_hooks(){
                             fi
                             ;;
                         */pre-*.sh)
-                            # script
-                            if [[ -x "$file" ]] ; then
-                                el_info "running script: $file"
-                                if ! "$file" ; then
-                                    el_error "failed ${file}: $( "$file" )"
+                            # run script
+                            if [[ "$prepost" = "pre" ]] ; then
+                                if [[ -x "$file" ]] ; then
+                                    el_info "running script: $file"
+                                    if ! "$file" ; then
+                                        el_error "failed ${file}: $( "$file" )"
+                                    fi
                                 fi
                             fi
                             ;;
                         */post-*.sh)
                             # script
-                            if [[ -x "$file" ]] ; then
-                                el_array_member_add "$file" "${scripts_post[@]}" ; scripts_post=("${_out[@]}")
+                            if [[ "$prepost" = "post" ]] ; then
+                                if [[ -x "$file" ]] ; then
+                                    el_array_member_add "$file" "${scripts_post[@]}" ; scripts_post=("${_out[@]}")
+                                fi
                             fi
                             ;;
                         */post-CHANGELOG.txt)
                             # changelog
-                            if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
-                                # update: user don't needs to see any version number here
-                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                if [[ -n "$post_changelog" ]] ; then
-                                    post_changelog="${post_changelog}\n\n$(cat "$file" )"
-                                else
-                                    post_changelog="$(cat "$file" )"
+                            if [[ "$prepost" = "post" ]] ; then
+                                if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
+                                    # update: user don't needs to see any version number here
+                                    #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                    if [[ -n "$post_changelog" ]] ; then
+                                        post_changelog="${post_changelog}\n\n$(cat "$file" )"
+                                    else
+                                        post_changelog="$(cat "$file" )"
+                                    fi
                                 fi
                             fi
 
@@ -315,17 +325,19 @@ run_hooks(){
                             ;;
                         */pre-CHANGELOG.txt)
                             # changelog
-                            if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
-                                # update: user don't needs to see any version number here
-                                #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                if [[ -n "$pre_changelog" ]] ; then
-                                    pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
-                                else
-                                    pre_changelog="$(cat "$file" )"
+                            if [[ "$prepost" = "pre" ]] ; then
+                                if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
+                                    # update: user don't needs to see any version number here
+                                    #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
+                                    if [[ -n "$pre_changelog" ]] ; then
+                                        pre_changelog="${pre_changelog}\n\n$(cat "$file" )"
+                                    else
+                                        pre_changelog="$(cat "$file" )"
+                                    fi
                                 fi
-                            fi
 
-                            show_changelog "pre" "$pre_changelog"
+                                show_changelog "pre" "$pre_changelog"
+                            fi
                             ;;
                         */CHANGELOG.txt)
                             # changelog
@@ -340,33 +352,39 @@ run_hooks(){
                             ;;
                         */packages-to-upgrade.txt)
                             # only installs (update) if they are already installed
-                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
-                            do
-                                if [[ -n "$package" ]] ; then
-                                    # only if is already installed
-                                    if COLUMNS=1000 dpkg -l | grep -E "^(hi|ii)" | awk '{print $2}' | sed -e 's|:.*||g' | grep -qs "^${package}$" ; then
-                                        el_array_member_add "$package" "${packages_to_upgrade[@]}" ; packages_to_upgrade=("${_out[@]}")
+                            if [[ "$prepost" = "pre" ]] ; then
+                                for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
+                                do
+                                    if [[ -n "$package" ]] ; then
+                                        # only if is already installed
+                                        if COLUMNS=1000 dpkg -l | grep -E "^(hi|ii)" | awk '{print $2}' | sed -e 's|:.*||g' | grep -qs "^${package}$" ; then
+                                            el_array_member_add "$package" "${packages_to_upgrade[@]}" ; packages_to_upgrade=("${_out[@]}")
+                                        fi
                                     fi
-                                fi
-                            done
+                                done
+                            fi
                             ;;
                         */packages-to-install.txt)
                             # installs them
-                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
-                            do
-                                if [[ -n "$package" ]] ; then
-                                    el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
-                                fi
-                            done
+                            if [[ "$prepost" = "pre" ]] ; then
+                                for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
+                                do
+                                    if [[ -n "$package" ]] ; then
+                                        el_array_member_add "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                    fi
+                                done
+                            fi
                             ;;
                         */packages-to-remove.txt)
-                            for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
-                            do
-                                if [[ -n "$package" ]] ; then
-                                    el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
-                                    el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
-                                fi
-                            done
+                            if [[ "$prepost" = "pre" ]] ; then
+                                for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
+                                do
+                                    if [[ -n "$package" ]] ; then
+                                        el_array_member_unset "$package" "${packages_to_install[@]}" ; packages_to_install=("${_out[@]}")
+                                        el_array_member_add "$package" "${packages_to_remove[@]}" ; packages_to_remove=("${_out[@]}")
+                                    fi
+                                done
+                            fi
                             ;;
                         *)
                             el_error "elive-upgrader: filetype unknown: $file"
@@ -539,7 +557,7 @@ run_hooks(){
     fi
 
     # post scripts to run by root:
-    for file in "${script_root_post[@]}"
+    for file in "${scripts_post[@]}"
     do
         el_info "running script: $file"
         if ! "$file" ; then
