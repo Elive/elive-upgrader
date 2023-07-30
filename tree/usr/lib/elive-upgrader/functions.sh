@@ -451,7 +451,7 @@ run_hooks(){
                 fi
 
                 killall apt-get 2>/dev/null 1>&2 || true
-                if apt_get install --reinstall $APTGET_OPTIONS ${packages_to_upgrade} ; then
+                if apt_get install $APTGET_OPTIONS ${packages_to_upgrade} ; then
                     el_info "upgraded packages:\n$( echo "${packages_to_upgrade}" | tr ' ' '\n' | sort -u )"
                 else
                     # update
