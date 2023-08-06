@@ -198,6 +198,7 @@ main(){
     # update tool first (if)
     el_debug "going to: update-tool"
     el_sudo elive-upgrader-root --update-tool
+    source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
     el_debug "going to: hooks root pre"
