@@ -21,6 +21,11 @@ main(){
     # # fix notification daemon
     # notification-daemon-restarter
     #
+    # add autolauncher
+    if ! grep -qs "lockfs-notify.desktop" ~/.e16/startup-applications.list ; then
+        echo "/etc/xdg/autostart/lockfs-notify.desktop" >> ~/.e16/startup-applications.list
+        echo -e "Added lockfs notify launcher"
+    fi
 }
 
 #
