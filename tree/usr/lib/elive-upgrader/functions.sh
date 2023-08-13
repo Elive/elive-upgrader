@@ -324,9 +324,9 @@ run_hooks(){
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                     if [[ -n "$changelog" ]] ; then
-                                        changelog="${changelog}\n\n$(cat "$file" )"
+                                        changelog="${changelog}\n\n$(cat "$file" | grep -v "^#" )"
                                     else
-                                        changelog="$(cat "$file" )"
+                                        changelog="$(cat "$file" | grep -v "^#" )"
                                     fi
                                 fi
 
@@ -340,9 +340,9 @@ run_hooks(){
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                     if [[ -n "$changelog" ]] ; then
-                                        changelog="${changelog}\n\n$(cat "$file" )"
+                                        changelog="${changelog}\n\n$(cat "$file" | grep -v "^#" )"
                                     else
-                                        changelog="$(cat "$file" )"
+                                        changelog="$(cat "$file" | grep -v "^#" )"
                                     fi
                                 fi
 
@@ -356,7 +356,7 @@ run_hooks(){
                                 if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
-                                    changelog="${changelog}\n\n$(cat "$file" )"
+                                    changelog="${changelog}\n\n$(cat "$file" | grep -v "^#" )"
                                 fi
                                 if [[ "$mode" = "user" ]] ; then
                                     el_warning "Warning: changelogs should be shown as root mode, if you want user specific messages use the post- or pre- changelogs system"
