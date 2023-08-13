@@ -409,13 +409,15 @@ run_hooks(){
                 done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
 
                 # update version, to know that we have run the hooks until here
-                if [[ "$mode" = "root" ]] && [[ "$prepost" = "post" ]] ; then
-                    sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
-                    conf_version_upgrader="$version"
-                fi
-                if [[ "$mode" = "user" ]] ; then
-                    conf_version_upgrader="$version"
-                    el_config_save "conf_version_upgrader"
+                if [[ "$prepost" = "post" ]] ; then
+                    if [[ "$mode" = "root" ]] ; then
+                        sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
+                        conf_version_upgrader="$version"
+                    fi
+                    if [[ "$mode" = "user" ]] ; then
+                        conf_version_upgrader="$version"
+                        el_config_save "conf_version_upgrader"
+                    fi
                 fi
 
                 # tell the user the system has been updated:
