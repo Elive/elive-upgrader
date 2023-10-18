@@ -1,0 +1,7 @@
+zstd
+libgupnp-1.6-0
+libgupnp-av-1.0-3
+libgssdp-1.6-0
+procps-legacy
+exfatprogs
+

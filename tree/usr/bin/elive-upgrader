@@ -49,7 +49,8 @@ main(){
     # distro version
     case "$( cat /etc/debian_version )" in
         12.*|"bookworm"*)
-            el_error "TODO: new distro needs to be implemented correctly in all other tools, grep for is_bullseye to all source codes and update them"
+            is_bookworm=1
+            hooks_d="/usr/lib/elive-upgrader/hooks-bookworm"
             ;;
         11.*|"bullseye"*)
             is_bullseye=1
@@ -65,7 +66,7 @@ main(){
             ;;
         *)
             el_error "debian version unknown: $(cat /etc/debian_version)"
-            el_error "TODO: new distro needs to be implemented correctly in all other tools, grep for is_bullseye to all source codes and update them"
+            el_error "TODO: new distro needs to be implemented correctly in all other tools, grep for is_bookworm to all source codes and update them"
             # fallback:
             hooks_d="/usr/lib/elive-upgrader/hooks"
             ;;
