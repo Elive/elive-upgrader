@@ -128,23 +128,29 @@ upgrade_system_delayed(){
 monthly_earnings_patreon_get(){
     local patreon_curl patreon_currency patreon_patrons patreon_curl patreon_pledge
 
-    patreon_curl="$( curl -m 20 -Ls --user-agent "Mozilla 5.0"  "https://www.patreon.com/elive/about" | grep -E "(patron_count|pledge_sum)" )"
-    patreon_currency="$( echo "$patreon_curl" | grep '"pledge_sum_currency":' | sed -e 's|^.*": ||g' -e 's|,$||g' -e 's|"||g' )"
+    patreon_curl="$( curl -m 20 -Ls --user-agent "Mozilla 5.0"  "https://www.patreon.com/elive/about" | grep -E "(patron_count|pledge_sum)" | tr '"' "'" | tr ',' '\n' )"
+    if [[ -z "$patreon_curl" ]] ; then
+        sleep 2m
+        patreon_curl="$( curl -m 20 -Ls --user-agent "Mozilla 5.0"  "https://www.patreon.com/elive/about" | grep -E "(patron_count|pledge_sum)" | tr '"' "'" | tr ',' '\n' )"
+    fi
+    patreon_currency="$( echo "$patreon_curl" | grep "'pledge_sum_currency':" | sed -e "s|^.*':||g" -e "s|,$||g" -e "s|'||g" )"
     read -r patreon_currency <<< "$patreon_currency"
 
-    if [[ -n "$patreon_currency" ]] ; then
-        patreon_patrons="$( echo "$patreon_curl" | grep '"patron_count":' | sed -e 's|^.*": ||g' -e 's|,$||g' )"
-        read -r patreon_patrons <<< "$patreon_patrons"
-        patreon_pledge="$( echo "$patreon_curl" | grep '"pledge_sum":' | sed -e 's|^.*": ||g' -e 's|,$||g' )"
-        read -r patreon_pledge <<< "$patreon_pledge"
-        # remove the two last numbers (decimals)
-        patreon_pledge="${patreon_pledge::-2}"
-        if [[ -z "$patreon_pledge" ]] || [[ -z "$patreon_patrons" ]] ; then
-            el_error "wrong data obtained from patreon curl:\n$patreon_curl"
-        fi
+    if [[ -n "$patreon_curl" ]] ; then
+        if [[ -n "$patreon_currency" ]] ; then
+            patreon_patrons="$( echo "$patreon_curl" | grep "'patron_count':" | sed -e "s|^.*':||g" -e "s|,$||g" | sort -V | tail -n 1 )"
+            read -r patreon_patrons <<< "$patreon_patrons"
+            patreon_pledge="$( echo "$patreon_curl" | grep "'pledge_sum':" | sed -e "s|^.*':||g" -e "s|,$||g" | sort -V | tail -n 1 )"
+            read -r patreon_pledge <<< "$patreon_pledge"
+            # remove the two last numbers (decimals)
+            patreon_pledge="${patreon_pledge::-2}"
+            if [[ -z "$patreon_pledge" ]] || [[ -z "$patreon_patrons" ]] ; then
+                el_error "wrong data obtained from patreon curl:\n$patreon_curl"
+            fi
 
-        echo "$patreon_pledge $patreon_currency"
-        return
+            echo "$patreon_pledge $patreon_currency"
+            return
+        fi
     fi
 }
 
