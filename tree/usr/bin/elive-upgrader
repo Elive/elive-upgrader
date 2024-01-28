@@ -133,6 +133,10 @@ main(){
         exit 1
     fi
 
+    if ! ((is_interactive)) ; then
+        sudo_opts="-n $sudo_opts"
+    fi
+
     # }}}
 
     # TODO:
@@ -154,7 +158,7 @@ main(){
                 shift
                 ;;
             -u|--upgrade)
-                el_sudo elive-upgrader-root --upgrade
+                sudo $sudo_opts elive-upgrader-root --upgrade
                 ;;
             #-s|--simulate)
                 ## simulates the normal run / start from the daemon mode
@@ -198,17 +202,17 @@ main(){
 
     # fixes first (if)
     #el_debug "going to: previous fixes"
-    #sudo elive-upgrader-root --fix
+    #sudo $sudo_opts elive-upgrader-root --fix
 
     # update tool first (if)
     el_debug "going to: update-tool"
-    el_sudo elive-upgrader-root --update-tool
+    sudo $sudo_opts elive-upgrader-root --update-tool
     source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
     el_debug "going to: hooks root pre"
     # XXX this is ugly, includes also the upgrading of packages
-    el_sudo elive-upgrader-root --hooks-root-pre
+    sudo $sudo_opts elive-upgrader-root --hooks-root-pre
 
     # hooks: user
     el_debug "going to: hooks user pre"
@@ -225,7 +229,7 @@ main(){
 
     # hooks: root
     el_debug "going to: hooks root post"
-    el_sudo elive-upgrader-root --hooks-root-post
+    sudo $sudo_opts elive-upgrader-root --hooks-root-post
 
     # hooks: user
     el_debug "going to: hooks user post"
