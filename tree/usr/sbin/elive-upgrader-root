@@ -192,7 +192,7 @@ upgrade_system(){
 
         monthly_donations="$( monthly_earnings_patreon_get )"
         local message_donate_to_continue
-        message_donate_to_continue="$( printf "$( eval_gettext "Your Elive has been upgraded with improvements and fixes. This month we have received so far %s. Would you like to contribute to this amazing project in order to keep it progressing?" )" "$monthly_donations" )"
+        message_donate_to_continue="$( printf "$( eval_gettext "Your Elive has been upgraded with improvements and fixes. This month we have received so far %s. Would you like to contribute to the amazing Elive project in order to keep it progressing?" )" "$monthly_donations" )"
 
         #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
         if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
