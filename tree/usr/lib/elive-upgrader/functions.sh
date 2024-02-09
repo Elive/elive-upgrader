@@ -154,6 +154,66 @@ monthly_earnings_patreon_get(){
     fi
 }
 
+patreon_members_update(){
+    local timestamp limit_time_seconds num_updates time_passed
+
+    # get the email or add it
+    if [[ -s /etc/elive/settings ]] ; then
+        source /etc/elive/settings
+    fi
+
+    # add a system email if we don't have any
+    if ! echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+        # 3 attempts
+        local message_email
+        message_email="$( printf "$( eval_gettext "Insert your email. It will be used as a computer identifier or to improve your experience in case you become a Premium user. Note that in such case is important to use the same one of your Patreon account." )" "" )"
+
+        for i in 1 2 3 ; do
+            if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+                break
+            else
+                computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
+            fi
+        done
+
+        if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+            sed -i "/^computer_identifier_email=/d" "/etc/elive/settings" 2>/dev/null || true
+            echo "computer_identifier_email=\"$computer_identifier_email\"" >> /etc/elive/settings
+        else
+            $guitool --error --text="$( eval_gettext "You have not inserted a valid email. This is needed in case you become a Premium/Patreon supporter of Elive. It will improve your experience. Your email is only saved locally on your computer and not sent anywhere. However, you can also add a false email if you want." )" 2>/dev/null
+        fi
+    fi
+
+    # know if still an active patreon user
+    if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+        computer_identifier_email_sum="$( echo "$computer_identifier_email" | sha1sum | awk '{print $1}' )"
+
+        sed -i "/^premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
+
+        # only after a min amount of time
+        timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
+        limit_time_seconds="7200" # 2 hours
+        if [[ -e "$timestamp" ]] ; then
+            time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
+        else
+            touch "$timestamp"
+            time_passed="999999999999999999999999999"
+        fi
+
+        # add conf to know that is an active patreon
+        if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
+
+            if curl -Ls -A "Mozilla/5.0" https://www.elivecd.org/files/patreon_members.txt | grep -qs "^${computer_identifier_email_sum}$" ; then
+                echo "premium_user=\"1\"" >> /etc/elive/settings
+            else
+                echo "premium_user=\"0\"" >> /etc/elive/settings
+            fi
+        fi
+    fi
+
+    source /etc/elive/settings 2>/dev/null || true
+}
+
 #===  FUNCTION  ================================================================
 #          NAME:  show_changelog
 #   DESCRIPTION:  show the changelog message
