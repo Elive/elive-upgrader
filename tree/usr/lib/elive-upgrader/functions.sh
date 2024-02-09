@@ -180,7 +180,7 @@ patreon_members_update(){
             sed -i "/^computer_identifier_email=/d" "/etc/elive/settings" 2>/dev/null || true
             echo "computer_identifier_email=\"$computer_identifier_email\"" >> /etc/elive/settings
         else
-            $guitool --error --text="$( eval_gettext "You have not inserted a valid email. This is needed in case you become a Premium/Patreon supporter of Elive. It will improve your experience. Your email is only saved locally on your computer and not sent anywhere. However, you can also add a false email if you want." )" 2>/dev/null
+            $guitool --error --text="$( eval_gettext "You have not inserted a valid email. This is needed in case you become a Premium/Patreon supporter of Elive. It will improve your experience. Your email is only saved locally on your computer and not sent anywhere. However, you can also add a false email if you want but we recommend using your real one." )" 2>/dev/null
         fi
     fi
 
