@@ -187,8 +187,6 @@ patreon_members_update(){
     if echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
         computer_identifier_email_sum="$( echo "$computer_identifier_email" | sha1sum | awk '{print $1}' )"
 
-        sed -i "/^premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
-
         # only after a min amount of time
         timestamp="/etc/elive/settings"
         limit_time_seconds="7200" # 2 hours
@@ -201,6 +199,7 @@ patreon_members_update(){
 
         # add conf to know that is an active patreon
         if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
+            sed -i "/^premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
 
             if curl -Ls -A "Mozilla/5.0" https://www.elivecd.org/files/patreon_members.txt | grep -qs "^${computer_identifier_email_sum}$" ; then
                 echo "premium_user=\"1\"" >> /etc/elive/settings
