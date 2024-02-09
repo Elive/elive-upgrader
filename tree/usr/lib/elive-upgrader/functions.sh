@@ -6,6 +6,11 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
+# get patreon status
+if [[ -s /etc/elive/settings ]] ; then
+    source /etc/elive/settings
+fi
+
 # distro version
 case "$( cat /etc/debian_version )" in
     12.*|"bookworm"*)
@@ -157,11 +162,6 @@ monthly_earnings_patreon_get(){
 patreon_members_update(){
     local timestamp limit_time_seconds num_updates time_passed
 
-    # get the email or add it
-    if [[ -s /etc/elive/settings ]] ; then
-        source /etc/elive/settings
-    fi
-
     # add a system email if we don't have any
     if ! echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
         # 3 attempts
@@ -265,9 +265,11 @@ show_changelog(){
             message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-            if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
-                #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
-                web-launcher "https://www.patreon.com/elive"
+            if ! ((premium_user)) ; then
+                if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
+                    #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
+                    web-launcher "https://www.patreon.com/elive"
+                fi
             fi
             ;;
     esac
