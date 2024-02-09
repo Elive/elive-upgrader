@@ -163,20 +163,19 @@ patreon_members_update(){
     fi
 
     # add a system email if we don't have any
-    if ! echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    if ! echo "$computer_identifier_email_sum" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
         # 3 attempts
         local message_email
         message_email="$( printf "$( eval_gettext "Insert your email. It will be used as a computer identifier or to improve your experience in case you become a Premium user. Note that in such case is important to use the same one of your Patreon account." )" "" )"
 
-        for i in 1 2 3 ; do
-            if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-                break
-            else
-                computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
-            fi
-        done
+        if ! echo "$computer_identifier_email_sum" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+            computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
+        fi
+        if ! echo "$computer_identifier_email_sum" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+            computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
+        fi
 
-        if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+        if echo "$computer_identifier_email_sum" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
             sed -i "/^computer_identifier_email=/d" "/etc/elive/settings" 2>/dev/null || true
             echo "computer_identifier_email=\"$computer_identifier_email\"" >> /etc/elive/settings
         else
@@ -185,7 +184,7 @@ patreon_members_update(){
     fi
 
     # know if still an active patreon user
-    if echo "$computer_identifier_email_sum" | grep -Eiorhqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    if echo "$computer_identifier_email_sum" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
         computer_identifier_email_sum="$( echo "$computer_identifier_email" | sha1sum | awk '{print $1}' )"
 
         sed -i "/^premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
