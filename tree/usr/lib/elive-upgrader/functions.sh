@@ -162,30 +162,35 @@ monthly_earnings_patreon_get(){
 patreon_members_update(){
     local timestamp limit_time_seconds num_updates time_passed
 
-    # add a system email if we don't have any
-    if ! echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-        # 3 attempts
-        local message_email
-        message_email="$( printf "$( eval_gettext "Insert your email. It will be used as a computer identifier or to improve your experience in case you become a Premium user. Note that in such case is important to use the same one of your Patreon account." )" "" )"
-
-        if ! echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-            computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
-        fi
-        if ! echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-            computer_identifier_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
-        fi
-
-        if echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-            sed -i "/^computer_identifier_email=/d" "/etc/elive/settings" 2>/dev/null || true
-            echo "computer_identifier_email=\"$computer_identifier_email\"" >> /etc/elive/settings
-        else
-            $guitool --error --text="$( eval_gettext "You have not inserted a valid email. This is needed in case you become a Premium supporter of Elive to improve your experience. Your email is only saved locally on your computer and not sent anywhere. However, you can also add a false email if you want but we recommend using your real one." )" 2>/dev/null
-        fi
+    # only if user has inserted a patreon email, update the status
+    if [[ -z "$patreon_email" ]] ; then
+        return
     fi
 
+    # add a system email if we don't have any
+    # if ! echo "$patreon_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    #     # 3 attempts
+    #     local message_email
+    #     message_email="$( printf "$( eval_gettext "Insert your email. It will be used as a computer identifier or to improve your experience in case you become a Premium user. Note that in such case is important to use the same one of your Patreon account." )" "" )"
+    #
+    #     if ! echo "$patreon_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    #         patreon_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
+    #     fi
+    #     if ! echo "$patreon_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    #         patreon_email="$( $guitool --entry --width=350 --title="Email Identifier" --text="$message_email" 2>/dev/null )"
+    #     fi
+    #
+    #     if echo "$patreon_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+    #         sed -i "/^patreon_email=/d" "/etc/elive/settings" 2>/dev/null || true
+    #         echo "patreon_email=\"$patreon_email\"" >> /etc/elive/settings
+    #     else
+    #         $guitool --error --text="$( eval_gettext "You have not inserted a valid email. This is needed in case you become a Premium supporter of Elive to improve your experience. Your email is only saved locally on your computer and not sent anywhere. However, you can also add a false email if you want but we recommend using your real one." )" 2>/dev/null
+    #     fi
+    # fi
+
     # know if still an active patreon user
-    if echo "$computer_identifier_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
-        computer_identifier_email_sum="$( echo "$computer_identifier_email" | sha1sum | awk '{print $1}' )"
+    if echo "$patreon_email" | grep -Eiqs '([[:alnum:]_.-]+@[[:alnum:]_.-]+?\.[[:alpha:].]{2,6})' ; then
+        patreon_email_checksum="$( echo "$patreon_email" | sha1sum | awk '{print $1}' )"
 
         # only after a min amount of time
         timestamp="/etc/elive/settings"
@@ -201,7 +206,7 @@ patreon_members_update(){
         if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
             sed -i "/^is_premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
 
-            if curl -Ls -A "Mozilla/5.0" https://www.elivecd.org/files/patreon_members.txt | grep -qs "^${computer_identifier_email_sum}$" ; then
+            if curl -Ls -A "Mozilla/5.0" https://www.elivecd.org/files/patreon_members.txt | grep -qs "^${patreon_email_checksum}$" ; then
                 echo "is_premium_user=\"1\"" >> /etc/elive/settings
             else
                 echo "is_premium_user=\"0\"" >> /etc/elive/settings
@@ -265,7 +270,7 @@ show_changelog(){
             message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-            if ! ((is_premium_user)) ; then
+            if ! ((premium_user)) ; then
                 if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
                     #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
                     web-launcher "https://www.patreon.com/elive"
