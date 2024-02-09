@@ -270,7 +270,7 @@ show_changelog(){
             message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
-            if ! ((premium_user)) ; then
+            if ! ((is_premium_user)) ; then
                 if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
                     #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
                     web-launcher "https://www.patreon.com/elive"
