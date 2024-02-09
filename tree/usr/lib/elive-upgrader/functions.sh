@@ -191,7 +191,7 @@ patreon_members_update(){
         sed -i "/^premium_user=/d" "/etc/elive/settings" 2>/dev/null || true
 
         # only after a min amount of time
-        timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
+        timestamp="/etc/elive/settings"
         limit_time_seconds="7200" # 2 hours
         if [[ -e "$timestamp" ]] ; then
             time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
