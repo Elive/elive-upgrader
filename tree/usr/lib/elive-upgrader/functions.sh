@@ -267,7 +267,7 @@ show_changelog(){
             monthly_donations="$( monthly_earnings_patreon_get )"
 
             local message_donate_to_continue
-            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently only sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
+            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
             if ! ((is_premium_user)) ; then
