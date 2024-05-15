@@ -177,6 +177,8 @@ main(){
     if ((is_delayed)) ; then
         el_debug "delayed $(basename $0) 180 seconds"
 
+        sleep 30
+
         # wait 5 minutes but in the case we are shutding down computer just exit from the tool inmediately
         for i in $(seq 180)
         do
