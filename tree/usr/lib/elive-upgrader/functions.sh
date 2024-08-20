@@ -113,7 +113,7 @@ upgrade_system_delayed(){
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
             if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
 
-                $guitool --info --text="$( eval_gettext "Follow the instructions on the terminal when it appears, answering the questions. It's suggested to verify that the upgrade will not remove any needed package of your system." )" 1>/dev/null 2>&1
+                $guitool --info --text="$( eval_gettext "Follow the terminal instructions when they appear, answering the questions. Verify that the upgrade won't remove any essential system packages." )" 1>/dev/null 2>&1
                 # note: --noaptupdate because when we did --upgdates-available before we already updated the packages list
                 sudo elive-upgrader-root --upgrade --noaptupdate
 
@@ -267,7 +267,7 @@ show_changelog(){
             monthly_donations="$( monthly_earnings_patreon_get )"
 
             local message_donate_to_continue
-            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently sustained with %s / month. Would you like to contribute to the amazing Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
+            message_donate_to_continue="$( printf "$( eval_gettext "Elive is currently sustained with %s per month. Would you like to contribute to the Elive project in order to continue making updates and improvements?" )" "$monthly_donations" )"
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
             if ! ((is_premium_user)) ; then
