@@ -94,7 +94,7 @@ main(){
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
 
                 if [[ -z "$conf_use_upgrader_in_live" ]] ; then
-                    if $guitool --question --text="$( eval_gettext "Do you want to have automated updates? This will make your Persistence have updated packages and new Elive features." )" 1>/dev/null 2>&1 ; then
+                    if $guitool --question --text="$( eval_gettext "Do you want automated updates? This will keep your Persistence updated with the latest packages and Elive features." )" 1>/dev/null 2>&1 ; then
                         conf_use_upgrader_in_live="yes"
                     else
                         conf_use_upgrader_in_live="no"
