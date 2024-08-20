@@ -92,7 +92,7 @@ apt_fixes(){
 
     if ((is_failed)) ; then
         local message_failed
-        message_failed="$( printf "$( eval_gettext "It seems like you have held broken packages. Please open a terminal and run the command '%s'. If you cannot solve the issue you can try to reinstall your Elive system, the installer features an upgrade mode that will keep all of your files and information." )" "apif" )"
+        message_failed="$( printf "$( eval_gettext "You seem to have held broken packages. Open a terminal and run the command '%s'. If the issue persists, consider reinstalling Elive in upgrade mode which keeps your files and settings." )" "apif" )"
         $guitool --error --text="$message_failed" 1>/dev/null 2>&1
     fi
 }
@@ -255,7 +255,7 @@ upgrade_firmwares(){
             el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
 
             # notify
-            $guitool --info --text="$( eval_gettext "Firmware updates have been found for your computer." )" 1>/dev/null 2>&1
+            $guitool --info --text="$( eval_gettext "Firmware updates are available for your computer." )" 1>/dev/null 2>&1
 
             # display updates
             while read -ru 3 line
@@ -287,10 +287,10 @@ upgrade_firmwares(){
 
 
             # ask to install
-            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your computer?" )" 1>/dev/null 2>&1 ; then
+            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your system?" )" 1>/dev/null 2>&1 ; then
                 # ac power
                 if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" && laptop-detect ; then
-                    $guitool --warning --text="$( eval_gettext "Important: Your computer is not plugged in. Connect it before continuing." )" 1>/dev/null 2>&1
+                    $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
                 fi
 
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
