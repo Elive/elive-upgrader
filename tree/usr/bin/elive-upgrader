@@ -133,6 +133,9 @@ main(){
         exit 1
     fi
 
+    # access to the graphical system from its parent user
+    sudo_opts="-E $sudo_opts"
+
     if ! ((is_interactive)) ; then
         sudo_opts="-n $sudo_opts"
     fi
