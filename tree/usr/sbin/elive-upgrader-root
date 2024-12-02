@@ -92,7 +92,7 @@ apt_fixes(){
 
     if ((is_failed)) ; then
         local message_failed
-        message_failed="$( printf "$( eval_gettext "You seem to have held broken packages. Open a terminal and run the command '%s'. If the issue persists, consider reinstalling Elive in upgrade mode which keeps your files and settings." )" "apif" )"
+        message_failed="$( printf "$( eval_gettext "You seem to have broken packages. Open a terminal and run the command '%s'. If the issue persists, consider reinstalling Elive in upgrade mode which keeps your files and settings." )" "apif" )"
         $guitool --error --text="$message_failed" 1>/dev/null 2>&1
     fi
 }
