@@ -134,10 +134,20 @@ main(){
     fi
 
     # access to the graphical system from its parent user
-    sudo_opts="-E $sudo_opts"
-
+    # access to the graphical system from its parent user
+    # Initialize sudo_opts based on interactivity
     if ! ((is_interactive)) ; then
-        sudo_opts="-n $sudo_opts"
+        sudo_opts="-n"
+    else
+        sudo_opts=""
+    fi
+
+    # Add DISPLAY and XAUTHORITY if they exist, making sure to quote them for safety
+    if [[ -n "$DISPLAY" ]] ; then
+        sudo_opts+=" DISPLAY=\"$DISPLAY\""
+    fi
+    if [[ -n "$XAUTHORITY" ]] && [[ -r "$XAUTHORITY" ]] ; then
+        sudo_opts+=" XAUTHORITY=\"$XAUTHORITY\""
     fi
 
     # }}}
