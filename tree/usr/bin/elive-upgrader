@@ -12,11 +12,11 @@ lockfile="/tmp/.$(basename $0)-${USER}.lock"
 
 exit_ok(){
     rm -f "$lockfile"
-    xhost -local: >/dev/null 2>&1
+    rm -f "$tmp_xauth_file" >/dev/null 2>&1
 }
 exit_error(){
     rm -f "$lockfile"
-    xhost -local: >/dev/null 2>&1
+    rm -f "$tmp_xauth_file" >/dev/null 2>&1
 }
 
 if [[ -r "$lockfile" ]] ; then
@@ -42,11 +42,15 @@ echo "$$" > "$lockfile"
 # end lock system }}}
 
 main(){
-    # Allow root to access the X server for graphical applications
-    xhost +local: >/dev/null 2>&1
-
     # pre {{{
-    local pong
+    local pong tmp_xauth_file
+
+    # Generate a temporary xauthority file for secure X server access
+    # This copies the current user's X cookie for the display to a temporary file,
+    # allowing root access to the X server for graphical applications without
+    # broadly opening X access via xhost.
+    tmp_xauth_file=$(mktemp)
+    xauth nlist "$DISPLAY" | sed -e 's/^..../ffff/' | xauth -f "$tmp_xauth_file" nmerge -
 
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     read -r version_elive <<< "$version_elive"
@@ -130,6 +134,9 @@ main(){
     #fi
 
     # just a check to make sure that it work
+    # The XAUTHORITY variable is temporarily set for `elive-upgrader-root`
+    # to allow graphical applications to run securely via sudo.
+    export XAUTHORITY="$tmp_xauth_file"
     pong="$( timeout 10 sudo -n elive-upgrader-root --ping )"
     if [[ "$pong" != "pong" ]] ; then
         if grep -qs "^first-user: $USER\$" /etc/elive-version ; then
