@@ -12,9 +12,11 @@ lockfile="/tmp/.$(basename $0)-${USER}.lock"
 
 exit_ok(){
     rm -f "$lockfile"
+    xhost -local: >/dev/null 2>&1
 }
 exit_error(){
     rm -f "$lockfile"
+    xhost -local: >/dev/null 2>&1
 }
 
 if [[ -r "$lockfile" ]] ; then
@@ -40,6 +42,9 @@ echo "$$" > "$lockfile"
 # end lock system }}}
 
 main(){
+    # Allow root to access the X server for graphical applications
+    xhost +local: >/dev/null 2>&1
+
     # pre {{{
     local pong
 
