@@ -399,7 +399,7 @@ check_for_new_elive_version() {
 #===============================================================================
 run_hooks(){
     # pre {{{
-    local mode changelog file
+    local mode changelog file was_updated=0
     el_debug
     el_security_function_loop || return 0
 
@@ -482,6 +482,7 @@ run_hooks(){
                             # run script
                             if [[ "$prepost" = "pre" ]] ; then
                                 if [[ -x "$file" ]] ; then
+                                    was_updated=1
                                     el_info "running script: $file"
                                     if ! "$file" ; then
                                         el_error "failed ${file}: $( "$file" )"
@@ -493,6 +494,7 @@ run_hooks(){
                             # script
                             if [[ "$prepost" = "post" ]] ; then
                                 if [[ -x "$file" ]] ; then
+                                    was_updated=1
                                     el_info "running script: $file"
                                     if ! "$file" ; then
                                         el_error "failed ${file}: $( "$file" )"
@@ -504,6 +506,7 @@ run_hooks(){
                         *.sh)
                             # DEPRECATED
                             if [[ -x "$file" ]] && [[ "$file" != *"pre-"* ]] && [[ "$file" != *"post-"* ]] ; then
+                                was_updated=1
                                 el_info "running script: $file"
                                 if ! "$file" ; then
                                     el_error "failed ${file}: $( "$file" )"
@@ -515,6 +518,7 @@ run_hooks(){
                             # changelog
                             if [[ "$prepost" = "post" ]] ; then
                                 if [[ -s "$file" ]] && [[ "$file" = *"/post-CHANGELOG.txt" ]] ; then
+                                    was_updated=1
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                     if [[ -n "$changelog" ]] ; then
@@ -531,6 +535,7 @@ run_hooks(){
                             # changelog
                             if [[ "$prepost" = "pre" ]] ; then
                                 if [[ -s "$file" ]] && [[ "$file" = *"/pre-CHANGELOG.txt" ]] ; then
+                                    was_updated=1
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                     if [[ -n "$changelog" ]] ; then
@@ -548,6 +553,7 @@ run_hooks(){
                             # changelog
                             if [[ "$prepost" = "post" ]] ; then
                                 if [[ -s "$file" ]] && [[ "$file" = *"/CHANGELOG.txt" ]] ; then
+                                    was_updated=1
                                     # update: user don't needs to see any version number here
                                     #changelog="${changelog}\n\nVersion ${version}:\n$(cat "$file" )"
                                     changelog="${changelog}\n\n$(cat "$file" | grep -v "^#" )"
@@ -560,6 +566,7 @@ run_hooks(){
                         */packages-to-upgrade.txt)
                             # only installs (update) if they are already installed
                             if [[ "$prepost" = "pre" ]] ; then
+                                was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
                                     if [[ -n "$package" ]] ; then
@@ -574,6 +581,7 @@ run_hooks(){
                         */packages-to-install.txt)
                             # installs them
                             if [[ "$prepost" = "pre" ]] ; then
+                                was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
                                     if [[ -n "$package" ]] ; then
@@ -584,6 +592,7 @@ run_hooks(){
                             ;;
                         */packages-to-remove.txt)
                             if [[ "$prepost" = "pre" ]] ; then
+                                was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
                                     if [[ -n "$package" ]] ; then
@@ -624,11 +633,13 @@ run_hooks(){
                     fi
                 fi
 
-                # tell the user the system has been updated:
-                notify_user_system_updated
 
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
+
+        if ((was_updated)) ; then
+            notify_user_system_updated
+        fi
     else
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
     fi
