@@ -367,6 +367,11 @@ update_upgrader_fast(){
 #}
 
 main(){
+    if [[ "$1" = "--enable-distro-upgrade" ]] ; then
+        /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$2"
+        exit $?
+    fi
+
     # pre {{{
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     read -r version_elive <<< "$version_elive"

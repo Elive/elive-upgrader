@@ -357,10 +357,18 @@ check_for_new_elive_version() {
         local choice=$?
 
         case $choice in
-            0) # View Upgrade Guide
-                # TODO: change to the actual upgrade tool when available
-                el_info "Proceeding with full distro upgrade to $next_codename"
-                conf_debian_upgrade_notification=""
+            0) # Run Distro Upgrade
+                el_info "Enabling distro upgrade to $next_codename for next reboot..."
+                if sudo elive-upgrader-root --enable-distro-upgrade "$next_codename" ; then
+                    local message_reboot
+                    message_reboot="$( printf "$( eval_gettext "The system is now configured to upgrade to the next Elive version on the next reboot.\n\nPlease save your work and reboot your computer to start the upgrade process." )" "" )"
+                    $guitool --info --text="$message_reboot" --no-cancel 1>/dev/null 2>&1
+                    conf_debian_upgrade_notification=""
+                else
+                    local message_failed
+                    message_failed="$( eval_gettext "Failed to enable the distro upgrade. Please check the logs for more information." )"
+                    $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+                fi
                 true
                 ;;
             1) # Remind Me Later
