@@ -1,0 +1,519 @@
+#!/bin/bash
+
+# Debian Upgrade Script
+# Uses tmux for session management and runs non-interactively
+
+set -e  # Exit on any error
+set -u  # Treat unset variables as errors
+
+BOOT_MODE="false"
+
+# Source LSB functions for boot mode logging
+if [[ "$BOOT_MODE" == "true" ]]; then
+    if [[ -f /lib/lsb/init-functions ]]; then
+        . /lib/lsb/init-functions
+    else
+        # Provide dummy LSB functions if they don't exist
+        log_action_msg() { echo " * $*"; }
+        log_warning_msg() { echo " ! WARNING: $*"; }
+        log_failure_msg() { echo " ! FAILURE: $*"; }
+    fi
+fi
+
+# Debian version mapping
+declare -A DEBIAN_CODENAMES=(
+    ["bullseye"]=11
+    ["bookworm"]=12
+    ["trixie"]=13
+    ["forky"]=14
+)
+declare -A DEBIAN_VERSIONS=(
+    [11]="bullseye"
+    [12]="bookworm"
+    [13]="trixie"
+    [14]="forky"
+)
+
+# Will be set from command-line argument
+TARGET_CODENAME=""
+
+# Colors for output
+if [[ "$BOOT_MODE" == "true" ]]; then
+    RED=''
+    GREEN=''
+    YELLOW=''
+    NC=''
+else
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m' # No Color
+fi
+
+# Logging setup
+if [[ -z "$DEBIAN_UPGRADE_LOGFILE" ]]; then
+    export DEBIAN_UPGRADE_LOGFILE="/var/log/debian-upgrade-$(date +%Y%m%d-%H%M%S).log"
+fi
+LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+usage() {
+    echo "Usage: $0 <target_codename>"
+    echo "   or: $0 --enable-boot-upgrade <target_codename>"
+    echo "   or: $0 --disable-boot-upgrade"
+    echo
+    echo "Example: $0 trixie"
+    echo "Supported targets: ${!DEBIAN_CODENAMES[@]}"
+    exit 1
+}
+
+log_info() {
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        log_action_msg "$1"
+    else
+        echo -e "${GREEN}[INFO]${NC} $1"
+    fi
+}
+
+log_warning() {
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        log_warning_msg "$1"
+    else
+        echo -e "${YELLOW}[WARNING]${NC} $1"
+    fi
+}
+
+log_error() {
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        log_failure_msg "$1"
+    else
+        echo -e "${RED}[ERROR]${NC} $1"
+    fi
+}
+
+run_and_show_plymouth_on_boot() {
+    if [[ "$BOOT_MODE" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
+        ( # Run in a subshell to contain pipefail setting
+            set -o pipefail
+            "$@" 2>&1 | while IFS= read -r line; do
+                echo "$line"
+                plymouth message --text="$line"
+            done
+        )
+    else
+        "$@"
+    fi
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "This script must be run as root"
+        exit 1
+    fi
+}
+
+check_tmux() {
+    if ! command -v tmux &> /dev/null; then
+        log_error "tmux is not installed. Please install it first: apt install tmux"
+        exit 1
+    fi
+}
+
+backup_system() {
+    log_info "Starting system backup..."
+
+    # Create backup directory
+    BACKUP_DIR="/root/debian-upgrade-backup-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+
+    # Backup critical files
+    cp -a /etc "$BACKUP_DIR/etc"
+    cp -a /var/lib/dpkg "$BACKUP_DIR/var-lib-dpkg"
+    cp -a /var/lib/apt/extended_states "$BACKUP_DIR/"
+    cp -a /var/lib/aptitude/pkgstates "$BACKUP_DIR/" 2>/dev/null || true
+
+    # Backup package selections
+    dpkg --get-selections '*' > "$BACKUP_DIR/dpkg-selections.txt"
+
+    # Backup sources.list.d
+    cp -a /etc/apt/sources.list.d "$BACKUP_DIR/sources.list.d"
+
+    log_info "Backup completed at: $BACKUP_DIR"
+}
+
+check_current_release() {
+    local current_release_full
+    current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
+    local current_version_number
+    current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
+
+    if [[ -z "${DEBIAN_VERSIONS[$current_version_number]:-}" ]]; then
+        log_error "Could not determine current Debian version or it is unsupported. Found: $current_release_full"
+        exit 1
+    fi
+
+    local current_codename=${DEBIAN_VERSIONS[$current_version_number]}
+    log_info "Current Debian version: $current_version_number ($current_codename)"
+
+    local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]:-}
+    if [[ -z "$target_version_number" ]]; then
+        log_error "Unsupported target version: $TARGET_CODENAME"
+        usage
+    fi
+
+    if (( target_version_number <= current_version_number )); then
+        log_error "Target version must be newer than the current version."
+        log_error "Current: $current_version_number ($current_codename), Target: $target_version_number ($TARGET_CODENAME)"
+        exit 1
+    fi
+
+    log_info "Target Debian version: $target_version_number ($TARGET_CODENAME)"
+}
+
+update_sources() {
+    local codename=$1
+    log_info "Updating APT sources to $codename..."
+
+    # Create or update debian.sources file
+    cat > /etc/apt/sources.list.d/debian.sources << EOF
+Types: deb
+URIs: https://deb.debian.org/debian
+Suites: $codename ${codename}-updates
+Components: main non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: https://security.debian.org/debian-security
+Suites: ${codename}-security
+Components: main non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+
+    # Comment out /etc/apt/sources.list
+    if [[ -f /etc/apt/sources.list ]]; then
+        log_info "Disabling source file: /etc/apt/sources.list"
+        sed -i 's/^deb /# deb /' /etc/apt/sources.list
+        sed -i 's/^deb-src /# deb-src /' /etc/apt/sources.list
+    fi
+
+    # Comment out all existing .list files in sources.list.d
+    for file in /etc/apt/sources.list.d/*.list; do
+        if [[ -f "$file" ]]; then
+            log_info "Disabling source file: $file"
+            sed -i 's/^deb /# deb /' "$file"
+            sed -i 's/^deb-src /# deb-src /' "$file"
+        fi
+    done
+
+    # Remove proposed-updates if present
+    sed -i '/proposed-updates/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
+}
+
+cleanup_packages() {
+    log_info "Cleaning up packages..."
+
+    # Remove obsolete packages
+    run_and_show_plymouth_on_boot apt-get autoremove --purge -y
+
+    # Clean package cache
+    run_and_show_plymouth_on_boot apt-get clean
+
+    # Remove non-Debian packages
+    non_debian_packages=$(apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
+    if [[ -n "$non_debian_packages" ]]; then
+        log_warning "Non-Debian packages found. Consider removing manually:"
+        echo "$non_debian_packages"
+    fi
+
+    # Remove leftover configuration files
+    find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -delete 2>/dev/null || true
+}
+
+check_disk_space() {
+    log_info "Checking disk space..."
+
+    local var_space
+    var_space=$(df /var | awk 'NR==2 {print $4}')
+    local root_space
+    root_space=$(df / | awk 'NR==2 {print $4}')
+
+    if [[ $var_space -lt 1048576 ]]; then  # Less than 1GB free in /var
+        log_warning "Low disk space in /var. Consider cleaning up before proceeding."
+        df -h /var
+    fi
+
+    if [[ $root_space -lt 2097152 ]]; then  # Less than 2GB free in /
+        log_warning "Low disk space in root. Consider cleaning up before proceeding."
+        df -h /
+    fi
+}
+
+stop_services() {
+    log_info "Stopping non-essential services..."
+
+    # Stop monitoring services that might interfere
+    systemctl stop monit 2>/dev/null || true
+    service monit stop 2>/dev/null || true
+
+    # Stop watchdog if present
+    service micro-evtd stop 2>/dev/null || true
+    if command -v microapl &> /dev/null; then
+        microapl -a system_set_watchdog off 2>/dev/null || true
+    fi
+}
+
+perform_upgrade() {
+    log_info "Starting upgrade process..."
+
+    # Update package lists
+    run_and_show_plymouth_on_boot apt-get update
+
+    # Minimal upgrade first
+    log_info "Performing minimal upgrade..."
+    run_and_show_plymouth_on_boot apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+
+    # Full upgrade
+    log_info "Performing full upgrade..."
+    run_and_show_plymouth_on_boot apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+        --allow-downgrades --allow-remove-essential --allow-change-held-packages \
+        -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
+
+    # Install latest kernel metapackage if not present
+    if ! dpkg -l 'linux-image*' | grep -q '^ii.*meta'; then
+        arch=$(dpkg --print-architecture)
+        case $arch in
+            amd64) kernel_meta="linux-image-amd64" ;;
+            i386) kernel_meta="linux-image-686" ;;
+            arm64) kernel_meta="linux-image-arm64" ;;
+            *) kernel_meta="linux-image-$arch" ;;
+        esac
+
+        if apt-cache show "$kernel_meta" &> /dev/null; then
+            log_info "Installing kernel metapackage: $kernel_meta"
+            run_and_show_plymouth_on_boot apt-get install -y "$kernel_meta"
+        fi
+    fi
+}
+
+post_upgrade_cleanup() {
+    log_info "Performing post-upgrade cleanup..."
+
+    # Remove obsolete packages
+    run_and_show_plymouth_on_boot apt-get autoremove --purge -y
+
+    # Remove leftover config files
+    run_and_show_plymouth_on_boot apt-get purge '?config-files' -y || true
+
+    # Clean package cache
+    run_and_show_plymouth_on_boot apt-get clean
+
+    # Update alternatives if needed
+    update-alternatives --all --auto 2>/dev/null || true
+}
+
+verify_upgrade() {
+    log_info "Verifying upgrade..."
+
+    # Check Debian version
+    new_release=$(cat /etc/debian_version)
+    log_info "New Debian version: $new_release"
+
+    # Check for broken packages
+    if dpkg -l | grep -q '^rc'; then
+        log_warning "Some packages are in rc (removed but config files remain) state"
+    fi
+
+    # Check for held packages
+    held_packages=$(apt-mark showhold)
+    if [[ -n "$held_packages" ]]; then
+        log_warning "The following packages are on hold:"
+        echo "$held_packages"
+    fi
+}
+
+run_pre_hooks() {
+    local codename=$1
+    log_info "Running pre-upgrade hooks for $codename..."
+
+    case "$codename" in
+        "bookworm")
+            # Example: Prepare a service for upgrade before Bookworm
+            # log_info "Preparing foo.service for Bookworm..."
+            ;;
+        "trixie")
+            # Example: Backup a specific configuration before Trixie
+            # if [[ -f /etc/bar.conf ]]; then
+            #     log_info "Backing up bar.conf for Trixie..."
+            #     cp /etc/bar.conf /etc/bar.conf.pre-trixie
+            # fi
+            ;;
+        "forky")
+            # Add pre-hooks for forky here
+            ;;
+        *)
+            log_info "No specific pre-hooks to run for $codename."
+            ;;
+    esac
+}
+
+run_post_hooks() {
+    local codename=$1
+    log_info "Running post-upgrade hooks for $codename..."
+
+    case "$codename" in
+        "bookworm")
+            # Example: Fix for a specific service in Bookworm
+            # log_info "Applying Bookworm-specific fix for foo.service..."
+            # systemctl restart foo.service || true
+            ;;
+        "trixie")
+            # Example: Migrate configuration for a package in Trixie
+            # if [[ -f /etc/bar.conf ]]; then
+            #     log_info "Migrating bar.conf for Trixie..."
+            #     migrate-bar-conf --auto
+            # fi
+            ;;
+        "forky")
+            # Add post-hooks for forky here
+            ;;
+        *)
+            log_info "No specific post-hooks to run for $codename."
+            ;;
+    esac
+}
+
+enable_boot_upgrade_conf() {
+    local target_codename=$1
+    local config_file="/etc/default/elive-distro-upgrade"
+
+    if [[ -z "$target_codename" ]]; then
+        log_error "Target codename required."
+        usage
+    fi
+    if [[ -z "${DEBIAN_CODENAMES[$target_codename]:-}" ]]; then
+        log_error "Unsupported target version: $target_codename"
+        usage
+    fi
+
+    log_info "Enabling boot-time upgrade to $target_codename..."
+    cat > "$config_file" << EOF
+# Configuration for the elive-distro-upgrader service.
+# This file is auto-generated by debian-upgrader. Do not edit.
+
+UPGRADE_ENABLED=yes
+TARGET_CODENAME="$target_codename"
+EOF
+    log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
+    log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
+}
+
+disable_boot_upgrade() {
+    if [ -f /etc/default/elive-distro-upgrade ]; then
+        log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
+        rm -f /etc/default/elive-distro-upgrade
+    fi
+}
+
+main_upgrade() {
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        export DEBIAN_FRONTEND=noninteractive
+        export DEBIAN_PRIORITY=critical
+        export DEBCONF_NONINTERACTIVE_SEEN=true
+        export DEBCONF_NOWARNINGS=true
+        export LC_ALL=C
+        export TERM=linux
+    fi
+
+    if [[ $# -ne 1 ]]; then
+        log_error "No target codename specified."
+        usage
+    fi
+    TARGET_CODENAME=$1
+
+    log_info "Starting Debian upgrade to $TARGET_CODENAME"
+
+    check_root
+    if [[ "$BOOT_MODE" == "false" ]]; then
+        check_tmux
+    fi
+    check_current_release
+    backup_system
+    cleanup_packages
+    check_disk_space
+    stop_services
+
+    local current_release_full
+    current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
+    local current_version_number
+    current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
+    local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]}
+
+    for version in $(seq $((current_version_number + 1)) "$target_version_number"); do
+        local step_codename=${DEBIAN_VERSIONS[$version]}
+        if [[ -z "$step_codename" ]]; then
+            log_error "Unknown version number $version in upgrade path. Aborting."
+            exit 1
+        fi
+        log_info "--- Starting upgrade step to $step_codename ---"
+        run_pre_hooks "$step_codename"
+        update_sources "$step_codename"
+        perform_upgrade
+        post_upgrade_cleanup
+        run_post_hooks "$step_codename"
+        log_info "--- Completed upgrade step to $step_codename ---"
+    done
+
+    verify_upgrade
+
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        disable_boot_upgrade
+        log_info "Upgrade completed successfully!"
+        log_info "Rebooting in 5 seconds..."
+        for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
+        log_info "Rebooting now."
+        /sbin/reboot
+    else
+        log_info "Upgrade completed successfully!"
+        log_info "Please review the log file at: $LOG_FILE"
+        log_info "A reboot is recommended to use the new kernel: reboot"
+    fi
+}
+
+main() {
+    if [[ $# -eq 0 ]]; then
+        usage
+    fi
+
+    case "$1" in
+        --enable-boot-upgrade)
+            check_root
+            enable_boot_upgrade_conf "${2:-}"
+            exit 0
+            ;;
+        --boot-mode)
+            BOOT_MODE="true"
+            shift # remove --boot-mode
+            main_upgrade "$@"
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            if [[ "$1" == -* ]]; then
+                log_error "Unknown option: $1"
+                usage
+            fi
+
+            # Interactive upgrade
+            if [[ -z "$TMUX" ]]; then
+                log_info "Starting upgrade in tmux session..."
+                tmux new-session -d -s elive-distro-upgrade "bash $0 $@"
+                tmux attach-session -t elive-distro-upgrade
+            else
+                main_upgrade "$@"
+            fi
+            ;;
+    esac
+}
+
+main "$@"
