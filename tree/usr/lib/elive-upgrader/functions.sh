@@ -380,6 +380,9 @@ check_for_new_elive_version() {
         esac
 
         el_config_save "conf_debian_upgrade_notification"
+
+    else
+        el_info "No new Debian version found (tried: $repo_url)"
     fi
 }
 
