@@ -288,28 +288,6 @@ check_for_new_elive_version() {
     local is_betatester="$2"
     local current_codename next_codename repo_url conf_var
 
-    case "$upgrade_type" in
-        alpha)
-            if ! ((is_betatester)); then
-                el_info "This distro upgrade is only avaialble for betatesters, consult the Elive Forum if you want to participate"
-                return 2
-            fi
-            ;;
-        beta)
-            if ! ((is_premium_user)); then
-                el_info "This distro upgrade is only avaialble for Premium users, consult the Elive Premium page to be one:  https://www.elivecd.org/premium"
-                return 2
-            fi
-            ;;
-        stable)
-            el_info "Distro upgrade found"
-            ;;
-        *)
-            el_warning "Unknown debian-upgrade type: $upgrade_type"
-            return 2
-            ;;
-    esac
-
     if ((is_bookworm)); then
         current_codename="bookworm"
     elif ((is_bullseye)); then
@@ -342,6 +320,28 @@ check_for_new_elive_version() {
 
     # Check if the repo for the next version exists
     if curl --output /dev/null --silent --head --fail "$repo_url"; then
+        case "$upgrade_type" in
+            alpha)
+                if ! ((is_betatester)); then
+                    el_info "This distro upgrade is only avaialble for betatesters, consult the Elive Forum if you want to participate"
+                    return 2
+                fi
+                ;;
+            beta)
+                if ! ((is_premium_user)); then
+                    el_info "This distro upgrade is only avaialble for Premium users, consult the Elive Premium page to be one:  https://www.elivecd.org/premium"
+                    return 2
+                fi
+                ;;
+            stable)
+                el_info "Distro upgrade found"
+                ;;
+            *)
+                el_warning "Unknown debian-upgrade type: $upgrade_type"
+                return 2
+                ;;
+        esac
+
         local message_new_version
         message_new_version="$( printf "$( eval_gettext "A new version of Elive based on Debian '%s' is available." )" "$next_codename" )"
 
