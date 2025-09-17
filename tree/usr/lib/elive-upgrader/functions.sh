@@ -453,6 +453,8 @@ run_hooks(){
             if LC_ALL=C dpkg --compare-versions "$version" "gt" "$conf_version_upgrader" ; then
                 el_info "elive-upgrader: hook version: $version"
 
+                local debian_upgrade_hook_run=0
+
                 # loop in every hook for this version
                 while read -ru 3 file
                 do
@@ -466,6 +468,7 @@ run_hooks(){
                                 local upgrade_type
                                 upgrade_type=$(cat "$file")
                                 check_for_new_elive_version "$upgrade_type" "$is_betatester"
+                                debian_upgrade_hook_run=1
                             fi
                             ;;
                         */pre-*.sh)
@@ -594,13 +597,21 @@ run_hooks(){
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$prepost" = "post" ]] ; then
-                    if [[ "$mode" = "root" ]] ; then
-                        sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
-                        conf_version_upgrader="$version"
+                    local should_update_version=1
+                    # if the debian-upgrade hook was run, and there's no other hooks in the same dir, don't update the version to allow it to be re-checked in the future
+                    if ((debian_upgrade_hook_run)) && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
+                        should_update_version=0
                     fi
-                    if [[ "$mode" = "user" ]] ; then
-                        conf_version_upgrader="$version"
-                        el_config_save "conf_version_upgrader"
+
+                    if ((should_update_version)); then
+                        if [[ "$mode" = "root" ]] ; then
+                            sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
+                            conf_version_upgrader="$version"
+                        fi
+                        if [[ "$mode" = "user" ]] ; then
+                            conf_version_upgrader="$version"
+                            el_config_save "conf_version_upgrader"
+                        fi
                     fi
                 fi
 
