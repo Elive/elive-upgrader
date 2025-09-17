@@ -3,6 +3,9 @@ SOURCE="$0"
 source /usr/lib/elive-tools/functions
 EL_REPORTS="1"
 el_make_environment
+if [[ -r "/etc/elive/settings" ]] ; then
+    . "/etc/elive/settings"
+fi
 . gettext.sh
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
@@ -180,6 +183,10 @@ main(){
         case "$arg" in
             --delayed)
                 is_delayed=1
+                shift
+                ;;
+            --betatest)
+                is_betatester=1
                 shift
                 ;;
             -u|--upgrade)
