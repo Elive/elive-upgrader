@@ -273,6 +273,18 @@ perform_upgrade() {
     log_info "Performing minimal upgrade..."
     run_and_show_plymouth_on_boot apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
 
+    # Remove existing kernels before installing the new one
+    log_info "Removing existing kernels before upgrade..."
+    existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null || true)
+
+    if [[ -n "$existing_kernel_packages" ]]; then
+        log_info "Found existing kernel packages to remove:"
+        echo "$existing_kernel_packages"
+        run_and_show_plymouth_on_boot apt-get remove --purge -y $existing_kernel_packages
+    else
+        log_info "No existing kernel packages found to remove."
+    fi
+
     # Full upgrade
     log_info "Performing full upgrade..."
     run_and_show_plymouth_on_boot apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
