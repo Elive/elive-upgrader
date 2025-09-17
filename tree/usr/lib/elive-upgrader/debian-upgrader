@@ -212,7 +212,8 @@ EOF
 cleanup_packages() {
     log_info "Cleaning up packages..."
 
-    # Remove obsolete packages
+    # Remove obsolete packages, including old kernels
+    log_info "Removing obsolete packages and old kernels..."
     run_and_show_plymouth_on_boot apt-get autoremove --purge -y
 
     # Clean package cache
@@ -293,6 +294,12 @@ perform_upgrade() {
             run_and_show_plymouth_on_boot apt-get install -y "$kernel_meta"
         fi
     fi
+
+    log_info "Rebuilding initramfs for all kernels..."
+    run_and_show_plymouth_on_boot update-initramfs -u -k all
+
+    log_info "Updating GRUB configuration..."
+    run_and_show_plymouth_on_boot update-grub
 }
 
 post_upgrade_cleanup() {
