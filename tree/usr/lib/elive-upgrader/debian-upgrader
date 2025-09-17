@@ -212,19 +212,20 @@ EOF
 cleanup_packages() {
     log_info "Cleaning up packages..."
 
-    # Remove obsolete packages, including old kernels
-    log_info "Removing obsolete packages and old kernels..."
+    # Remove obsolete packages
+    log_info "Removing obsolete packages..."
     run_and_show_plymouth_on_boot apt-get autoremove --purge -y
 
     # Clean package cache
     run_and_show_plymouth_on_boot apt-get clean
 
     # Remove non-Debian packages
-    non_debian_packages=$(apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
-    if [[ -n "$non_debian_packages" ]]; then
-        log_warning "Non-Debian packages found. Consider removing manually:"
-        echo "$non_debian_packages"
-    fi
+    # Note: Elive packages are listead as non-Debian, so we skip this step
+    # non_debian_packages=$(apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
+    # if [[ -n "$non_debian_packages" ]]; then
+    #     log_warning "Non-Debian packages found. Consider removing manually:"
+    #     echo "$non_debian_packages"
+    # fi
 
     # Remove leftover configuration files
     find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -delete 2>/dev/null || true
@@ -276,7 +277,6 @@ perform_upgrade() {
     # Remove existing kernels before installing the new one
     log_info "Removing existing kernels before upgrade..."
     existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null || true)
-
     if [[ -n "$existing_kernel_packages" ]]; then
         log_info "Found existing kernel packages to remove:"
         echo "$existing_kernel_packages"
