@@ -281,6 +281,100 @@ show_changelog(){
 
 }
 
+check_for_new_elive_version() {
+    local upgrade_type="$1"
+    local is_betatester="$2"
+    local current_codename next_codename repo_url conf_var
+
+    case "$upgrade_type" in
+        alpha)
+            if ! ((is_betatester)); then
+                el_info "This distro upgrade is only avaialble for betatesters, consult the Elive Forum if you want to participate"
+                return
+            fi
+            ;;
+        beta)
+            if ! ((is_premium_user)); then
+                el_info "This distro upgrade is only avaialble for Premium users, consult the Elive Premium page to be one:  https://www.elivecd.org/premium"
+                return
+            fi
+            ;;
+        stable)
+            el_info "Distro upgrade found"
+            ;;
+        *)
+            el_warning "Unknown debian-upgrade type: $upgrade_type"
+            return
+            ;;
+    esac
+
+    if ((is_bookworm)); then
+        current_codename="bookworm"
+    elif ((is_bullseye)); then
+        current_codename="bullseye"
+    elif ((is_buster)); then
+        current_codename="buster"
+    elif ((is_wheezy)); then
+        current_codename="wheezy"
+    else
+        return
+    fi
+
+    case "$current_codename" in
+        "wheezy") next_codename="buster" ;;
+        "buster") next_codename="bullseye" ;;
+        "bullseye") next_codename="bookworm" ;;
+        "bookworm") next_codename="trixie" ;; # For future releases
+        *)
+            return
+            ;;
+    esac
+
+    el_config_get
+    if [[ "${conf_debian_upgrade_notification}" = "never" ]]; then
+        el_info "User opted out for new Debian version notifications. Ignoring..."
+        return
+    fi
+
+    repo_url="https://repo.${next_codename}.elive.elivecd.org/dists/${next_codename}/Release"
+
+    # Check if the repo for the next version exists
+    if curl --output /dev/null --silent --head --fail "$repo_url"; then
+        local message_new_version
+        message_new_version="$( printf "$( eval_gettext "A new version of Elive based on Debian '%s' is available." )" "$next_codename" )"
+
+        if ! el_dependencies_check "yad" &>/dev/null ; then
+            el_dependencies_install "yad"
+        fi
+
+        local title
+        title="$(eval_gettext "New Distro Upgrade Available")"
+        $yad --title="$title" --text="$message_new_version" --text-align=center \
+            --button="$(eval_gettext "Run Distro Upgrade"):0" \
+            --button="$(eval_gettext "Remind Me Later"):1" \
+            --button="$(eval_gettext "Never Ask Again"):2"
+
+        local choice=$?
+
+        case $choice in
+            0) # View Upgrade Guide
+                # TODO: change to the actual upgrade tool when available
+                el_info "Proceeding with full distro upgrade to $next_codename"
+                conf_debian_upgrade_notification=""
+                true
+                ;;
+            1) # Remind Me Later
+                conf_debian_upgrade_notification="remind"
+                ;;
+            2) # Never Ask Again
+                conf_debian_upgrade_notification="never"
+                ;;
+        esac
+
+        el_config_save "conf_debian_upgrade_notification"
+    fi
+}
+
 #===  FUNCTION  ================================================================
 #          NAME:  run_hooks
 #   DESCRIPTION:  run the hooks up to the last version ran
@@ -320,7 +414,7 @@ run_hooks(){
             ;;
         user)
             # get versions {{{
-            el_config_get "conf_version_upgrader"
+            el_config_get
             if [[ -z "$conf_version_upgrader" ]] ; then
                 # reference to start from the version of elive built
                 conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
@@ -356,6 +450,13 @@ run_hooks(){
                     el_debug "hook: $file"
 
                     case "$file" in
+                        */debian-upgrade)
+                            if [[ "$prepost" = "post" ]] ; then
+                                local upgrade_type
+                                upgrade_type=$(cat "$file")
+                                check_for_new_elive_version "$upgrade_type" "$is_betatester"
+                            fi
+                            ;;
                         */pre-*.sh)
                             # run script
                             if [[ "$prepost" = "pre" ]] ; then
@@ -478,7 +579,7 @@ run_hooks(){
 
                 # sorted preference to run goes here:
                 #done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
-                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
+                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "debian-upgrade" -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$prepost" = "post" ]] ; then

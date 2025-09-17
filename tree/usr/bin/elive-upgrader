@@ -44,6 +44,7 @@ echo "$$" > "$lockfile"
 
 # end lock system }}}
 
+
 main(){
     # pre {{{
     local pong tmp_xauth_file
