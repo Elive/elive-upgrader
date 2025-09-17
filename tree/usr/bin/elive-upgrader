@@ -47,7 +47,7 @@ echo "$$" > "$lockfile"
 
 main(){
     # pre {{{
-    local pong tmp_xauth_file
+    local pong tmp_xauth_file was_anything_updated=0
 
     # Generate a temporary xauthority file for secure X server access
     # This copies the current user's X cookie for the display to a temporary file,
@@ -247,16 +247,22 @@ main(){
     # hooks: root
     el_debug "going to: hooks root pre"
     # XXX this is ugly, includes also the upgrading of packages
-    sudo $sudo_opts elive-upgrader-root --hooks-root-pre
+    if sudo $sudo_opts elive-upgrader-root --hooks-root-pre ; then
+        was_anything_updated=1
+    fi
 
     # hooks: user
     el_debug "going to: hooks user pre"
-    run_hooks "user" "pre"
+    if run_hooks "user" "pre" ; then
+        was_anything_updated=1
+    fi
 
 
     # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
-    upgrade_system_delayed
+    if upgrade_system_delayed ; then
+        was_anything_updated=1
+    fi
 
 
     # always update before to run (if the package has been updated we want to fetch new code too)
@@ -264,13 +270,21 @@ main(){
 
     # hooks: root
     el_debug "going to: hooks root post"
-    sudo $sudo_opts elive-upgrader-root --hooks-root-post
+    if sudo $sudo_opts elive-upgrader-root --hooks-root-post ; then
+        was_anything_updated=1
+    fi
 
     # hooks: user
     el_debug "going to: hooks user post"
-    run_hooks "user" "post"
+    if run_hooks "user" "post" ; then
+        was_anything_updated=1
+    fi
 
-    el_info "$( eval_gettext "Your system is up to date." )"
+    if ((was_anything_updated)) ; then
+        notify_user_system_updated
+    else
+        el_info "$( eval_gettext "Your system is up to date." )"
+    fi
 
 }
 

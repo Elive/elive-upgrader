@@ -119,6 +119,7 @@ upgrade_system_delayed(){
 
                 # upgrade firmwares too if the user wanted to upgrade his system
                 sudo elive-upgrader-root --upgrade-firmwares
+                return 0
             fi
         fi
 
@@ -127,6 +128,7 @@ upgrade_system_delayed(){
     else
         el_debug "Not enough time passed to run a full upgrade, minimum is '$( displaytime $limit_time_seconds )', passed time is $( displaytime $time_passed )"
     fi
+    return 1
 }
 
 
@@ -446,7 +448,7 @@ run_hooks(){
 
 
     # changes found
-    if LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
+    if [[ -n "$version_last_hook" ]] && LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
 
         # loop in version dirs
@@ -637,9 +639,6 @@ run_hooks(){
             fi
         done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
 
-        if ((was_updated)) ; then
-            notify_user_system_updated
-        fi
     else
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"
     fi
@@ -790,6 +789,11 @@ run_hooks(){
     # changelog to show?
     show_changelog "$prepost" "$changelog"
 
+    if ((was_updated)) ; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # function replacement for apt-get calls with a wait for unlock apt before to run
