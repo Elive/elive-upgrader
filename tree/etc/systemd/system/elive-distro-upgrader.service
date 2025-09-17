@@ -1,0 +1,20 @@
+[Unit]
+Description=Debian Distribution Upgrade
+Documentation=man:debian-upgrader(8)
+ConditionPathExists=/etc/default/elive-distro-upgrade
+After=network-online.target
+Wants=network-online.target
+DefaultDependencies=no
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/elive-distro-upgrade
+ExecStartPre=/bin/bash -c '[[ "$UPGRADE_ENABLED" == "yes" && -n "$TARGET_CODENAME" ]]'
+ExecStart=/usr/lib/elive-upgrader/debian-upgrader --boot-mode ${TARGET_CODENAME}
+StandardOutput=journal+console
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

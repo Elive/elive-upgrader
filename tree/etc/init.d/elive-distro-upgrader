@@ -1,0 +1,70 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          elive-distro-upgrader
+# Required-Start:    $remote_fs $network
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Perform Debian distribution upgrade on boot
+# Description:       This script performs a one-time Debian distribution
+#                    upgrade on boot, configured via /etc/default/elive-distro-upgrade.
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
+SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
+
+# Read configuration
+if [ -r "$DEFAULTS_FILE" ]; then
+    . "$DEFAULTS_FILE"
+fi
+
+UPGRADE_ENABLED=${UPGRADE_ENABLED:-no}
+TARGET_CODENAME=${TARGET_CODENAME:-}
+
+case "$1" in
+    start)
+        if [ "$UPGRADE_ENABLED" != "yes" ]; then
+            if [ -f "$DEFAULTS_FILE" ]; then
+                log_action_msg "Debian upgrade disabled in $DEFAULTS_FILE."
+            fi
+            exit 0
+        fi
+        if [ -z "$TARGET_CODENAME" ]; then
+            log_failure_msg "TARGET_CODENAME not set in $DEFAULTS_FILE."
+            exit 1
+        fi
+
+        log_daemon_msg "Starting Debian upgrade to $TARGET_CODENAME" "elive-distro-upgrader"
+        if [ ! -x "$SCRIPT_PATH" ]; then
+            log_failure_msg "$SCRIPT_PATH not found or not executable"
+            exit 1
+        fi
+
+        # The script will reboot, so we don't handle it like a daemon.
+        "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME"
+        log_end_msg $?
+        ;;
+    stop|restart|force-reload)
+        log_action_msg "Action '$1' is not supported for elive-distro-upgrader."
+        ;;
+    status)
+        log_action_msg "Debian upgrade status:"
+        log_action_msg "  Enabled: $UPGRADE_ENABLED"
+        log_action_msg "  Target: $TARGET_CODENAME"
+        if [ "$UPGRADE_ENABLED" = "yes" ] && [ -n "$TARGET_CODENAME" ]; then
+            log_action_msg "Upgrade is configured to run on next boot."
+            exit 0
+        else
+            log_action_msg "Upgrade is not configured to run on next boot."
+            exit 3 # Program is not running and not configured to.
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}" >&2
+        exit 3
+        ;;
+esac
+
+exit 0
