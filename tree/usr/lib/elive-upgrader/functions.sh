@@ -607,7 +607,7 @@ run_hooks(){
                     local should_update_version=1
                     # if the debian-upgrade hook was run, and there's no other hooks in the same dir, don't update the version to allow it to be re-checked in the future
                     if ((debian_upgrade_hook_run)) && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
-                        if [[ "$debian_upgrade_choice" -eq 1 ]] ; then
+                        if [[ "$debian_upgrade_choice" -ne 0 ]] ; then
                             should_update_version=0
                         fi
                     fi
