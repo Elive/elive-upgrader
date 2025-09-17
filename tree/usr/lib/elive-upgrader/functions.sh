@@ -290,13 +290,13 @@ check_for_new_elive_version() {
         alpha)
             if ! ((is_betatester)); then
                 el_info "This distro upgrade is only avaialble for betatesters, consult the Elive Forum if you want to participate"
-                return
+                return 2
             fi
             ;;
         beta)
             if ! ((is_premium_user)); then
                 el_info "This distro upgrade is only avaialble for Premium users, consult the Elive Premium page to be one:  https://www.elivecd.org/premium"
-                return
+                return 2
             fi
             ;;
         stable)
@@ -304,7 +304,7 @@ check_for_new_elive_version() {
             ;;
         *)
             el_warning "Unknown debian-upgrade type: $upgrade_type"
-            return
+            return 2
             ;;
     esac
 
@@ -317,7 +317,7 @@ check_for_new_elive_version() {
     elif ((is_wheezy)); then
         current_codename="wheezy"
     else
-        return
+        return 2
     fi
 
     case "$current_codename" in
@@ -326,14 +326,14 @@ check_for_new_elive_version() {
         "bullseye") next_codename="bookworm" ;;
         "bookworm") next_codename="trixie" ;; # For future releases
         *)
-            return
+            return 2
             ;;
     esac
 
     el_config_get
     if [[ "${conf_debian_upgrade_notification}" = "never" ]]; then
         el_info "User opted out for new Debian version notifications. Ignoring..."
-        return
+        return 0
     fi
 
     repo_url="https://repo.${next_codename}.elive.elivecd.org/dists/${next_codename}/Release"
@@ -369,20 +369,25 @@ check_for_new_elive_version() {
                     message_failed="$( eval_gettext "Failed to enable the distro upgrade. Please check the logs for more information." )"
                     $guitool --error --text="$message_failed" 1>/dev/null 2>&1
                 fi
-                true
+                conf_debian_upgrade_notification="never"
+                el_config_save "conf_debian_upgrade_notification"
+                return 0
                 ;;
             1) # Remind Me Later
                 conf_debian_upgrade_notification="remind"
+                el_config_save "conf_debian_upgrade_notification"
+                return 1
                 ;;
             2) # Never Ask Again
                 conf_debian_upgrade_notification="never"
+                el_config_save "conf_debian_upgrade_notification"
+                return 0
                 ;;
         esac
 
-        el_config_save "conf_debian_upgrade_notification"
-
     else
         el_info "No new Debian version found (tried: $repo_url)"
+        return 2
     fi
 }
 
@@ -454,6 +459,7 @@ run_hooks(){
                 el_info "elive-upgrader: hook version: $version"
 
                 local debian_upgrade_hook_run=0
+                local debian_upgrade_choice=0
 
                 # loop in every hook for this version
                 while read -ru 3 file
@@ -468,6 +474,7 @@ run_hooks(){
                                 local upgrade_type
                                 upgrade_type=$(cat "$file")
                                 check_for_new_elive_version "$upgrade_type" "$is_betatester"
+                                debian_upgrade_choice=$?
                                 debian_upgrade_hook_run=1
                             fi
                             ;;
@@ -600,7 +607,9 @@ run_hooks(){
                     local should_update_version=1
                     # if the debian-upgrade hook was run, and there's no other hooks in the same dir, don't update the version to allow it to be re-checked in the future
                     if ((debian_upgrade_hook_run)) && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
-                        should_update_version=0
+                        if [[ "$debian_upgrade_choice" -eq 1 ]] ; then
+                            should_update_version=0
+                        fi
                     fi
 
                     if ((should_update_version)); then
