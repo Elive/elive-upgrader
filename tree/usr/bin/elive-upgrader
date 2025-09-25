@@ -14,12 +14,12 @@ export TEXTDOMAIN
 lockfile="/tmp/.$(basename $0)-${USER}.lock"
 
 exit_ok(){
+    xhost -si:localuser:root >/dev/null 2>&1
     rm -f "$lockfile"
-    rm -f "$tmp_xauth_file" >/dev/null 2>&1
 }
 exit_error(){
+    xhost -si:localuser:root >/dev/null 2>&1
     rm -f "$lockfile"
-    rm -f "$tmp_xauth_file" >/dev/null 2>&1
 }
 
 if [[ -r "$lockfile" ]] ; then
@@ -47,14 +47,10 @@ echo "$$" > "$lockfile"
 
 main(){
     # pre {{{
-    local pong tmp_xauth_file was_anything_updated=0
+    local pong was_anything_updated=0
 
-    # Generate a temporary xauthority file for secure X server access
-    # This copies the current user's X cookie for the display to a temporary file,
-    # allowing root access to the X server for graphical applications without
-    # broadly opening X access via xhost.
-    tmp_xauth_file=$(mktemp)
-    xauth nlist "$DISPLAY" | sed -e 's/^..../ffff/' | xauth -f "$tmp_xauth_file" nmerge -
+    # allow root to access the user's display
+    xhost +si:localuser:root >/dev/null 2>&1
 
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     read -r version_elive <<< "$version_elive"
@@ -140,7 +136,6 @@ main(){
     # just a check to make sure that it work
     # The XAUTHORITY variable is temporarily set for `elive-upgrader-root`
     # to allow graphical applications to run securely via sudo.
-    export XAUTHORITY="$tmp_xauth_file"
     pong="$( timeout 10 sudo -n elive-upgrader-root --ping )"
     if [[ "$pong" != "pong" ]] ; then
         if grep -qs "^first-user: $USER\$" /etc/elive-version ; then
@@ -151,19 +146,15 @@ main(){
 
     # access to the graphical system from its parent user
     # access to the graphical system from its parent user
-    # Initialize sudo_opts based on interactivity
+    # Initialize sudo_args based on interactivity
+    local sudo_args=()
     if ! ((is_interactive)) ; then
-        sudo_opts="-n"
-    else
-        sudo_opts=""
+        sudo_args+=("-n")
     fi
 
     # Add DISPLAY and XAUTHORITY if they exist, making sure to quote them for safety
     if [[ -n "$DISPLAY" ]] ; then
-        sudo_opts+=" DISPLAY=\"$DISPLAY\""
-    fi
-    if [[ -n "$XAUTHORITY" ]] && [[ -r "$XAUTHORITY" ]] ; then
-        sudo_opts+=" XAUTHORITY=\"$XAUTHORITY\""
+        sudo_args+=("DISPLAY=$DISPLAY")
     fi
 
     # }}}
@@ -191,7 +182,7 @@ main(){
                 shift
                 ;;
             -u|--upgrade)
-                sudo $sudo_opts elive-upgrader-root --upgrade
+                sudo "${sudo_args[@]}" elive-upgrader-root --upgrade
                 ;;
             #-s|--simulate)
                 ## simulates the normal run / start from the daemon mode
@@ -241,13 +232,13 @@ main(){
 
     # update tool first (if)
     el_debug "going to: update-tool"
-    sudo $sudo_opts elive-upgrader-root --update-tool
+    sudo "${sudo_args[@]}" elive-upgrader-root --update-tool
     source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
     el_debug "going to: hooks root pre"
     # XXX this is ugly, includes also the upgrading of packages
-    if sudo $sudo_opts elive-upgrader-root --hooks-root-pre ; then
+    if sudo "${sudo_args[@]}" elive-upgrader-root --hooks-root-pre ; then
         was_anything_updated=1
     fi
 
@@ -270,7 +261,7 @@ main(){
 
     # hooks: root
     el_debug "going to: hooks root post"
-    if sudo $sudo_opts elive-upgrader-root --hooks-root-post ; then
+    if sudo "${sudo_args[@]}" elive-upgrader-root --hooks-root-post ; then
         was_anything_updated=1
     fi
 
