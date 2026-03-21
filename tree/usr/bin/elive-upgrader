@@ -44,6 +44,15 @@ echo "$$" > "$lockfile"
 
 # end lock system }}}
 
+show_help(){
+    echo "Usage: $(basename "$0") [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -u, --upgrade    Force an immediate system upgrade"
+    echo "  --delayed        Delay execution (used for background/autostart)"
+    echo "  --betatest       Enable beta testing features"
+    echo "  -h, --help       Show this help message"
+}
 
 main(){
     # pre {{{
