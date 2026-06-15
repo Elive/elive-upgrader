@@ -399,6 +399,9 @@ perform_upgrade() {
     # Update package lists
     safe_apt_run apt-get update
 
+    # Check disk space now that package lists are updated
+    check_disk_space
+
     # Minimal upgrade first
     log_info "Performing minimal upgrade..."
     safe_apt_run apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
@@ -599,7 +602,8 @@ enable_boot_upgrade_conf() {
     if [[ "$success" != "true" ]]; then
         log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
         # Restore sources from backup if update fails
-        cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/
+        rm -rf /etc/apt/sources.list.d
+        cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
         if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
             cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
         fi
@@ -657,7 +661,6 @@ main_upgrade() {
     check_current_release
     backup_system
     cleanup_packages
-    check_disk_space
     stop_services
 
     local current_release_full
