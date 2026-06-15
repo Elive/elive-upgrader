@@ -147,12 +147,24 @@ check_current_release() {
     local current_version_number
     current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
 
-    if [[ -z "${DEBIAN_VERSIONS[$current_version_number]:-}" ]]; then
+    if [[ "$current_version_number" =~ ^[0-9]+$ ]]; then
+        current_codename=${DEBIAN_VERSIONS[$current_version_number]:-}
+    else
+        current_codename=""
+        for cn in "${!DEBIAN_CODENAMES[@]}"; do
+            if [[ "$current_release_full" == *"$cn"* ]]; then
+                current_codename="$cn"
+                current_version_number=${DEBIAN_CODENAMES[$cn]}
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "$current_codename" ]]; then
         log_error "Could not determine current Debian version or it is unsupported. Found: $current_release_full"
         exit 1
     fi
 
-    current_codename=${DEBIAN_VERSIONS[$current_version_number]}
     log_info "Current Debian version: $current_version_number ($current_codename)"
 
     local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]:-}
