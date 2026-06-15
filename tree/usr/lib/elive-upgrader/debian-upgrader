@@ -26,12 +26,14 @@ declare -A DEBIAN_CODENAMES=(
     ["bookworm"]=12
     ["trixie"]=13
     ["forky"]=14
+    ["duke"]=15
 )
 declare -A DEBIAN_VERSIONS=(
     [11]="bullseye"
     [12]="bookworm"
     [13]="trixie"
     [14]="forky"
+    [15]="duke"
 )
 
 # Will be set from command-line argument

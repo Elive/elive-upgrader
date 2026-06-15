@@ -13,6 +13,20 @@ fi
 
 # distro version
 case "$( cat /etc/debian_version )" in
+    15.*|"duke"*)
+        is_duke=1
+        export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks-duke"
+        ;;
+    14.*|"forky"*)
+        is_forky=1
+        export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks-forky"
+        ;;
     13.*|"trixie"*)
         is_trixie=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
@@ -55,6 +69,11 @@ case "$( cat /etc/debian_version )" in
         hooks_d="/usr/lib/elive-upgrader/hooks"
         ;;
 esac
+
+# If the specific hooks directory does not exist, fall back to the latest available modern hooks directory (hooks-bookworm)
+if [[ ! -d "$hooks_d" ]]; then
+    hooks_d="/usr/lib/elive-upgrader/hooks-bookworm"
+fi
 
 show_help(){
     echo "Usage:
