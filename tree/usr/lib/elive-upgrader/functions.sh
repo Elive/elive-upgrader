@@ -865,7 +865,7 @@ apt_get(){
     done
 
     # run what we want
-    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get "$@"
+    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$@"
 }
 
 
