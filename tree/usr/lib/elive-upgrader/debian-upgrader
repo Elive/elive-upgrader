@@ -186,47 +186,19 @@ check_current_release() {
 
 update_sources() {
     local codename=$1
-    log_info "Updating APT sources to $codename..."
+    log_info "Updating APT sources from $current_codename to $codename..."
 
-    # Create or update debian.sources file
-    cat > /etc/apt/sources.list.d/debian.sources << EOF
-Types: deb
-URIs: https://deb.debian.org/debian
-Suites: $codename ${codename}-updates
-Components: main non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-
-Types: deb
-URIs: https://security.debian.org/debian-security
-Suites: ${codename}-security
-Components: main non-free-firmware
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-EOF
-
-    # Comment out /etc/apt/sources.list
+    # Direct sed replacement in sources.list
     if [[ -f /etc/apt/sources.list ]]; then
-        log_info "Disabling source file: /etc/apt/sources.list"
-        sed -i 's/^deb /# deb /' /etc/apt/sources.list
-        sed -i 's/^deb-src /# deb-src /' /etc/apt/sources.list
+        sed -i "s/$current_codename/$codename/g" /etc/apt/sources.list
     fi
 
-    # Comment out all existing .list files in sources.list.d EXCEPT Elive repositories,
-    # which we update to the new codename.
-    for file in /etc/apt/sources.list.d/*.list; do
+    # Direct sed replacement in all files under sources.list.d/
+    for file in /etc/apt/sources.list.d/*; do
         if [[ -f "$file" ]]; then
-            if [[ "$file" == *"elive"* ]]; then
-                log_info "Updating Elive source file: $file to $codename"
-                sed -i "s/$current_codename/$codename/g" "$file"
-            else
-                log_info "Disabling source file: $file"
-                sed -i 's/^deb /# deb /' "$file"
-                sed -i 's/^deb-src /# deb-src /' "$file"
-            fi
+            sed -i "s/$current_codename/$codename/g" "$file"
         fi
     done
-
-    # Remove proposed-updates if present
-    sed -i '/proposed-updates/d' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
 }
 
 cleanup_packages() {
@@ -254,20 +226,121 @@ cleanup_packages() {
 check_disk_space() {
     log_info "Checking disk space..."
 
-    local var_space
-    var_space=$(df /var | awk 'NR==2 {print $4}')
-    local root_space
-    root_space=$(df / | awk 'NR==2 {print $4}')
+    # Helper function to convert to KB
+    to_kb() {
+        local val=$1
+        local unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+        val=${val//,/.}
+        awk -v v="$val" -v u="$unit" '
+            BEGIN {
+                factor = 1
+                if (u ~ /^k/) factor = 1
+                else if (u ~ /^m/) factor = 1024
+                else if (u ~ /^g/) factor = 1024 * 1024
+                else if (u ~ /^b/) factor = 1 / 1024
+                printf "%.0f", v * factor
+            }
+        '
+    }
 
-    if [[ $var_space -lt 1048576 ]]; then  # Less than 1GB free in /var
-        log_warning "Low disk space in /var. Consider cleaning up before proceeding."
-        df -h /var
+    # Run a quick simulation to estimate required space
+    log_info "Simulating upgrade to estimate required disk space..."
+    local sim_out
+    sim_out=$(apt-get -s dist-upgrade 2>/dev/null || true)
+
+    local download_kb=0
+    local install_kb=0
+
+    local dl_val dl_unit
+    dl_val=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
+    dl_unit=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+
+    if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
+        download_kb=$(to_kb "$dl_val" "$dl_unit")
     fi
 
-    if [[ $root_space -lt 2097152 ]]; then  # Less than 2GB free in /
-        log_warning "Low disk space in root. Consider cleaning up before proceeding."
-        df -h /
+    local inst_val inst_unit inst_sign=1
+    if echo "$sim_out" | grep -q "additional disk space will be used"; then
+        inst_val=$(echo "$sim_out" | grep "additional disk space will be used" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
+        inst_unit=$(echo "$sim_out" | grep "additional disk space will be used" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+        inst_sign=1
+    elif echo "$sim_out" | grep -q "disk space will be freed"; then
+        inst_val=$(echo "$sim_out" | grep "disk space will be freed" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
+        inst_unit=$(echo "$sim_out" | grep "disk space will be freed" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+        inst_sign=-1
     fi
+
+    if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
+        install_kb=$(to_kb "$inst_val" "$inst_unit")
+        install_kb=$(( install_kb * inst_sign ))
+    fi
+
+    # Fallback to safe defaults if simulation didn't yield results
+    if (( download_kb == 0 )); then
+        log_warning "Could not estimate download size from simulation. Using fallback estimate of 1.5 GB."
+        download_kb=1572864
+    fi
+    if (( install_kb == 0 )); then
+        log_warning "Could not estimate install size from simulation. Using fallback estimate of 1.0 GB."
+        install_kb=1048576
+    fi
+
+    log_info "Estimated download size: $(( download_kb / 1024 )) MB"
+    log_info "Estimated net install size change: $(( install_kb / 1024 )) MB"
+
+    # Calculate required space
+    # We need space for:
+    # 1. Downloaded archives (download_kb)
+    # 2. Unpacking/temporary space (roughly download_kb * 1.5)
+    # 3. Net installation space (install_kb if positive)
+    # 4. Safety margin (500 MB)
+    local safety_margin_kb=524288
+    local temp_unpack_kb=$(( download_kb * 3 / 2 ))
+    local net_extra_kb=0
+    if (( install_kb > 0 )); then
+        net_extra_kb=$install_kb
+    fi
+
+    # Check if /var is on a separate partition
+    local var_on_separate=false
+    local var_dev root_dev
+    var_dev=$(df /var | awk 'NR==2 {print $1}')
+    root_dev=$(df / | awk 'NR==2 {print $1}')
+    if [[ "$var_dev" != "$root_dev" ]]; then
+        var_on_separate=true
+    fi
+
+    local var_space_free
+    var_space_free=$(df /var | awk 'NR==2 {print $4}')
+    local root_space_free
+    root_space_free=$(df / | awk 'NR==2 {print $4}')
+
+    if [[ "$var_on_separate" == "true" ]]; then
+        # /var needs enough space for the download + small safety margin (100MB)
+        local required_var_kb=$(( download_kb + 102400 ))
+        log_info "Checking separate /var partition (Free: $(( var_space_free / 1024 )) MB, Required: $(( required_var_kb / 1024 )) MB)"
+        if (( var_space_free < required_var_kb )); then
+            log_error "Insufficient space in /var. Required: $(( required_var_kb / 1024 )) MB, Free: $(( var_space_free / 1024 )) MB"
+            exit 1
+        fi
+        # / root needs space for unpacking, net install, and safety margin
+        local required_root_kb=$(( temp_unpack_kb + net_extra_kb + safety_margin_kb ))
+        log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
+        if (( root_space_free < required_root_kb )); then
+            log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
+            exit 1
+        fi
+    else
+        # Everything is on /
+        local required_root_kb=$(( download_kb + temp_unpack_kb + net_extra_kb + safety_margin_kb ))
+        log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
+        if (( root_space_free < required_root_kb )); then
+            log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
+            exit 1
+        fi
+    fi
+
+    log_info "Disk space check passed successfully."
 }
 
 stop_services() {
@@ -438,6 +511,49 @@ enable_boot_upgrade_conf() {
     if [[ -z "${DEBIAN_CODENAMES[$target_codename]:-}" ]]; then
         log_error "Unsupported target version: $target_codename"
         usage
+    fi
+
+    # Set target codename and verify current release details
+    TARGET_CODENAME="$target_codename"
+    check_current_release
+
+    log_info "Pre-downloading packages for the upgrade to $target_codename to ensure a reliable offline/boot-time upgrade..."
+    
+    # Backup system configuration before changing sources
+    backup_system
+
+    # Update sources to target codename to download packages
+    update_sources "$target_codename"
+
+    log_info "Updating package lists..."
+    local attempt=1
+    local success=false
+    while (( attempt <= 5 )); do
+        log_info "Attempt $attempt of 5 to update package lists..."
+        if apt-get update; then
+            success=true
+            break
+        fi
+        log_warning "Attempt $attempt failed. Retrying in 5 seconds..."
+        sleep 5
+        (( attempt++ ))
+    done
+
+    if [[ "$success" != "true" ]]; then
+        log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
+        # Restore sources from backup if update fails
+        cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/
+        if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
+            cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
+        fi
+        exit 1
+    fi
+
+    log_info "Downloading packages (download-only)..."
+    if ! apt-get dist-upgrade --download-only -y --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
+        log_warning "Some packages failed to download. We will attempt to download remaining packages during boot."
+    else
+        log_info "All packages pre-downloaded successfully!"
     fi
 
     log_info "Enabling boot-time upgrade to $target_codename..."

@@ -6,6 +6,14 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
+# Non-interactive environment variables to prevent prompts and freezes
+export DEBIAN_FRONTEND=noninteractive
+export DEBIAN_PRIORITY=critical
+export DEBCONF_NONINTERACTIVE_SEEN=true
+export DEBCONF_NOWARNINGS=true
+# Force ucf to use new configuration files to match --force-confnew
+export UCF_FORCE_CONFFNEW=1
+
 # get patreon status
 if [[ -s /etc/elive/settings ]] ; then
     source /etc/elive/settings
