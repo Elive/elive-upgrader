@@ -1,4 +1,12 @@
 #!/bin/bash
+SOURCE="$0"
+source /usr/lib/elive-tools/functions
+EL_REPORTS="1"
+el_make_environment
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
+
 
 # Debian Upgrade Script
 # Uses tmux for session management and runs non-interactively
@@ -80,17 +88,42 @@ log_info() {
 log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         log_warning_msg "$1"
-    else
-        echo -e "${YELLOW}[WARNING]${NC} $1"
     fi
+    el_warning "$1"
 }
 
 log_error() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         log_failure_msg "$1"
-    else
-        echo -e "${RED}[ERROR]${NC} $1"
     fi
+    el_error "$1"
+}
+
+repair_apt() {
+    log_warning "Attempting to repair APT/dpkg state..."
+    # Configure any unconfigured packages
+    dpkg --configure -a || true
+    # Fix broken dependencies
+    apt-get install -f -y || true
+    # Fix broken packages
+    apt-get install --fix-broken -y || true
+    # Update package lists with fix-missing
+    apt-get update --fix-missing || true
+}
+
+safe_apt_run() {
+    local attempt=1
+    local max_attempts=3
+    while (( attempt <= max_attempts )); do
+        if run_and_show_plymouth_on_boot "$@"; then
+            return 0
+        fi
+        log_warning "Command failed: $*. Attempt $attempt of $max_attempts."
+        repair_apt
+        (( attempt++ ))
+    done
+    log_error "Command failed permanently after $max_attempts attempts: $*"
+    return 1
 }
 
 run_and_show_plymouth_on_boot() {
@@ -360,50 +393,74 @@ stop_services() {
 perform_upgrade() {
     log_info "Starting upgrade process..."
 
+    # Ensure we start with a clean and repaired state
+    repair_apt
+
     # Update package lists
-    run_and_show_plymouth_on_boot apt-get update
+    safe_apt_run apt-get update
 
     # Minimal upgrade first
     log_info "Performing minimal upgrade..."
-    run_and_show_plymouth_on_boot apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+    safe_apt_run apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
 
-    # Check if /boot (or / if /boot is not a separate partition) has low space (less than 100MB)
-    local boot_dir="/boot"
-    local boot_space
-    boot_space=$(df "$boot_dir" | awk 'NR==2 {print $4}')
-    if [[ $boot_space -lt 102400 ]]; then
-        log_warning "Low space in $boot_dir (${boot_space} KB free). Removing older kernels to free up space..."
-        # Find existing kernels, excluding the currently running one to keep the system bootable
-        existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | grep -v "$(uname -r)" || true)
-        if [[ -n "$existing_kernel_packages" ]]; then
-            log_info "Found older kernel packages to remove:"
-            echo "$existing_kernel_packages"
-            run_and_show_plymouth_on_boot apt-get remove --purge -y $existing_kernel_packages
-        else
-            log_info "No older kernel packages found to remove."
+    # Check space in /boot for two kernels (approx 100MB each * 1.3 tolerance = 260MB / 266240 KB)
+    local boot_space_free
+    boot_space_free=$(df /boot | awk 'NR==2 {print $4}')
+    local required_boot_kb=266240
+    local can_install_new_kernel=true
+
+    if (( boot_space_free < required_boot_kb )); then
+        log_warning "Low space in /boot (${boot_space_free} KB free). We need at least ${required_boot_kb} KB to safely keep two kernels."
+        log_warning "Only the current kernel will be kept, and new kernel installation will be skipped."
+        can_install_new_kernel=false
+    fi
+
+    # Always remove older kernels to free up space, keeping only the currently running one
+    log_info "Removing older kernels to free up space..."
+    # Find existing kernels, excluding the currently running one to keep the system bootable
+    existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | grep -v "$(uname -r)" || true)
+    if [[ -n "$existing_kernel_packages" ]]; then
+        log_info "Found older kernel packages to remove:"
+        echo "$existing_kernel_packages"
+        safe_apt_run apt-get remove --purge -y $existing_kernel_packages
+    else
+        log_info "No older kernel packages found to remove."
+    fi
+
+    if [[ "$can_install_new_kernel" == "false" ]]; then
+        # Hold existing kernel metapackages to prevent new kernel installation during full-upgrade
+        local installed_meta
+        installed_meta=$(dpkg -l 'linux-image-*' 2>/dev/null | grep '^ii' | grep -E 'amd64|686|arm64|rt-' | grep -v -E 'linux-image-[0-9]' | awk '{print $2}' || true)
+        if [[ -n "$installed_meta" ]]; then
+            log_info "Holding kernel metapackages to prevent new kernel installation: $installed_meta"
+            apt-mark hold $installed_meta
         fi
     fi
 
     # Full upgrade
     log_info "Performing full upgrade..."
-    run_and_show_plymouth_on_boot apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+    safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
         --allow-downgrades --allow-remove-essential --allow-change-held-packages \
         -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
 
-    # Install latest kernel metapackage if not present
-    if ! dpkg -l 'linux-image*' | grep -q '^ii.*meta'; then
-        arch=$(dpkg --print-architecture)
-        case $arch in
-            amd64) kernel_meta="linux-image-amd64" ;;
-            i386) kernel_meta="linux-image-686" ;;
-            arm64) kernel_meta="linux-image-arm64" ;;
-            *) kernel_meta="linux-image-$arch" ;;
-        esac
+    # Install latest kernel metapackage if not present and space permits
+    if [[ "$can_install_new_kernel" == "true" ]]; then
+        if ! dpkg -l 'linux-image*' | grep -q '^ii.*meta'; then
+            arch=$(dpkg --print-architecture)
+            case $arch in
+                amd64) kernel_meta="linux-image-amd64" ;;
+                i386) kernel_meta="linux-image-686" ;;
+                arm64) kernel_meta="linux-image-arm64" ;;
+                *) kernel_meta="linux-image-$arch" ;;
+            esac
 
-        if apt-cache show "$kernel_meta" &> /dev/null; then
-            log_info "Installing kernel metapackage: $kernel_meta"
-            run_and_show_plymouth_on_boot apt-get install -y "$kernel_meta"
+            if apt-cache show "$kernel_meta" &> /dev/null; then
+                log_info "Installing kernel metapackage: $kernel_meta"
+                safe_apt_run apt-get install -y "$kernel_meta"
+            fi
         fi
+    else
+        log_info "Skipping kernel metapackage installation/upgrade due to low space in /boot."
     fi
 
     log_info "Rebuilding initramfs for all kernels..."
@@ -417,13 +474,13 @@ post_upgrade_cleanup() {
     log_info "Performing post-upgrade cleanup..."
 
     # Remove obsolete packages
-    run_and_show_plymouth_on_boot apt-get autoremove --purge -y
+    safe_apt_run apt-get autoremove --purge -y
 
     # Remove leftover config files
-    run_and_show_plymouth_on_boot apt-get purge '?config-files' -y || true
+    safe_apt_run apt-get purge '?config-files' -y || true
 
     # Clean package cache
-    run_and_show_plymouth_on_boot apt-get clean
+    safe_apt_run apt-get clean
 
     # Update alternatives if needed
     update-alternatives --all --auto 2>/dev/null || true
