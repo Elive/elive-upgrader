@@ -66,6 +66,10 @@ main(){
 
     # distro version
     case "$( cat /etc/debian_version )" in
+        13.*|"trixie"*)
+            is_trixie=1
+            hooks_d="/usr/lib/elive-upgrader/hooks-trixie"
+            ;;
         12.*|"bookworm"*)
             is_bookworm=1
             hooks_d="/usr/lib/elive-upgrader/hooks-bookworm"

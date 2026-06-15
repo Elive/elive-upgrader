@@ -13,6 +13,13 @@ fi
 
 # distro version
 case "$( cat /etc/debian_version )" in
+    13.*|"trixie"*)
+        is_trixie=1
+        export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
+        hooks_d="/usr/lib/elive-upgrader/hooks-trixie"
+        ;;
     12.*|"bookworm"*)
         is_bookworm=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confnew -y --allow-downgrades"
@@ -298,7 +305,9 @@ check_for_new_elive_version() {
     local is_betatester="$2"
     local current_codename next_codename repo_url conf_var
 
-    if ((is_bookworm)); then
+    if ((is_trixie)); then
+        current_codename="trixie"
+    elif ((is_bookworm)); then
         current_codename="bookworm"
     elif ((is_bullseye)); then
         current_codename="bullseye"
@@ -314,7 +323,8 @@ check_for_new_elive_version() {
         "wheezy") next_codename="buster" ;;
         "buster") next_codename="bullseye" ;;
         "bullseye") next_codename="bookworm" ;;
-        "bookworm") next_codename="trixie" ;; # For future releases
+        "bookworm") next_codename="trixie" ;;
+        "trixie") next_codename="forky" ;;
         *)
             return 2
             ;;
