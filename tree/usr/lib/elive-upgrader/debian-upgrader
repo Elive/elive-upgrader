@@ -152,7 +152,7 @@ check_current_release() {
         exit 1
     fi
 
-    local current_codename=${DEBIAN_VERSIONS[$current_version_number]}
+    current_codename=${DEBIAN_VERSIONS[$current_version_number]}
     log_info "Current Debian version: $current_version_number ($current_codename)"
 
     local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]:-}
@@ -196,12 +196,18 @@ EOF
         sed -i 's/^deb-src /# deb-src /' /etc/apt/sources.list
     fi
 
-    # Comment out all existing .list files in sources.list.d
+    # Comment out all existing .list files in sources.list.d EXCEPT Elive repositories,
+    # which we update to the new codename.
     for file in /etc/apt/sources.list.d/*.list; do
         if [[ -f "$file" ]]; then
-            log_info "Disabling source file: $file"
-            sed -i 's/^deb /# deb /' "$file"
-            sed -i 's/^deb-src /# deb-src /' "$file"
+            if [[ "$file" == *"elive"* ]]; then
+                log_info "Updating Elive source file: $file to $codename"
+                sed -i "s/$current_codename/$codename/g" "$file"
+            else
+                log_info "Disabling source file: $file"
+                sed -i 's/^deb /# deb /' "$file"
+                sed -i 's/^deb-src /# deb-src /' "$file"
+            fi
         fi
     done
 
@@ -274,15 +280,21 @@ perform_upgrade() {
     log_info "Performing minimal upgrade..."
     run_and_show_plymouth_on_boot apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
 
-    # Remove existing kernels before installing the new one
-    log_info "Removing existing kernels before upgrade..."
-    existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null || true)
-    if [[ -n "$existing_kernel_packages" ]]; then
-        log_info "Found existing kernel packages to remove:"
-        echo "$existing_kernel_packages"
-        run_and_show_plymouth_on_boot apt-get remove --purge -y $existing_kernel_packages
-    else
-        log_info "No existing kernel packages found to remove."
+    # Check if /boot (or / if /boot is not a separate partition) has low space (less than 100MB)
+    local boot_dir="/boot"
+    local boot_space
+    boot_space=$(df "$boot_dir" | awk 'NR==2 {print $4}')
+    if [[ $boot_space -lt 102400 ]]; then
+        log_warning "Low space in $boot_dir (${boot_space} KB free). Removing older kernels to free up space..."
+        # Find existing kernels, excluding the currently running one to keep the system bootable
+        existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | grep -v "$(uname -r)" || true)
+        if [[ -n "$existing_kernel_packages" ]]; then
+            log_info "Found older kernel packages to remove:"
+            echo "$existing_kernel_packages"
+            run_and_show_plymouth_on_boot apt-get remove --purge -y $existing_kernel_packages
+        else
+            log_info "No older kernel packages found to remove."
+        fi
     fi
 
     # Full upgrade
@@ -480,6 +492,7 @@ main_upgrade() {
         post_upgrade_cleanup
         run_post_hooks "$step_codename"
         log_info "--- Completed upgrade step to $step_codename ---"
+        current_codename=$step_codename
     done
 
     verify_upgrade
