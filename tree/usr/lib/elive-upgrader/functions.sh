@@ -718,7 +718,7 @@ run_hooks(){
 
             # fix
             # note: NEVER use timeout so it hangs apt-get
-            # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt_get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confnew\" -q -y elive-upgrader" ; then
+            # UPDATE: seems like it can work like this:   if ! timeout 1200 bash -c "unset TERM DISPLAY ; export DEBIAN_FRONTEND=noninteractive ; apt_get install -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -q -y elive-upgrader" ; then
 
             if ! apt_get -y -f install ; then
                 if [[ "$UID" = 0 ]] ; then
