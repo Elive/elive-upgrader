@@ -121,7 +121,7 @@ apt_fixes(){
 
             # try to reconfigure packages now
             if dpkg --configure -a --force-confold ; then
-                if ! apt_get -y -f instal -q=2 ; then
+                if ! apt_get -y -f install -q=2 ; then
                     el_error "$(basename $0) in ${FUNCNAME} with apt-get -y -f install:\n$( DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get -y -f install 2>&1 )"
                     is_failed=1
                 fi
@@ -136,7 +136,10 @@ apt_fixes(){
         local message_failed
         message_failed="$( printf "$( eval_gettext "You seem to have broken packages. Open a terminal and run the command '%s'. If the issue persists, consider reinstalling Elive in upgrade mode which keeps your files and settings." )" "apif" )"
         $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+        return 1
     fi
+
+    return 0
 }
 hooks_root_pre(){
     # always update before to run (if the package has been updated we want to fetch new code too)
@@ -411,6 +414,16 @@ update_upgrader_fast(){
 main(){
     if [[ "$1" = "--enable-distro-upgrade" ]] ; then
         /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$2"
+        exit $?
+    fi
+
+    if [[ "$1" = "--cancel-distro-upgrade" ]] ; then
+        /usr/lib/elive-upgrader/debian-upgrader --cancel
+        exit $?
+    fi
+
+    if [[ "$1" = "--distro-upgrade-status" ]] ; then
+        /usr/lib/elive-upgrader/debian-upgrader --status
         exit $?
     fi
 

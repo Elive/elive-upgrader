@@ -392,6 +392,7 @@ check_for_new_elive_version() {
         local message_new_version
         message_new_version="$( printf "$( eval_gettext "A new version of Elive based on Debian '%s' is available." )" "$next_codename" )"
 
+        # Ensure yad is available for the dialog
         if ! el_dependencies_check "yad" &>/dev/null ; then
             el_dependencies_install "yad"
         fi
@@ -412,14 +413,17 @@ check_for_new_elive_version() {
                     local message_reboot
                     message_reboot="$( printf "$( eval_gettext "The system is now configured to upgrade to the next Elive version on the next reboot.\n\nPlease save your work and reboot your computer to start the upgrade process." )" "" )"
                     $guitool --info --text="$message_reboot" --no-cancel 1>/dev/null 2>&1
+                    # Upgrade initiated successfully - reset notification so user is asked again for future versions
                     conf_debian_upgrade_notification=""
+                    el_config_save "conf_debian_upgrade_notification"
                 else
                     local message_failed
                     message_failed="$( eval_gettext "Failed to enable the distro upgrade. Please check the logs for more information." )"
                     $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+                    # Only disable notifications on failure
+                    conf_debian_upgrade_notification="never"
+                    el_config_save "conf_debian_upgrade_notification"
                 fi
-                conf_debian_upgrade_notification="never"
-                el_config_save "conf_debian_upgrade_notification"
                 return 0
                 ;;
             1) # Remind Me Later
@@ -465,14 +469,26 @@ run_hooks(){
     case "$mode" in
         root)
             # get versions {{{
-            conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-fixes:" | awk '{print $2}' )"
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            conf_version_upgrader="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-fixes:" | awk '{print $2}' )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
             read -r conf_version_upgrader <<< "$conf_version_upgrader"
 
             # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
             if [[ -z "$conf_version_upgrader" ]] ; then
                 conf_version_upgrader="$version_elive"
-                echo -e "elive-fixes: $conf_version_upgrader" >> /etc/elive-version
+                # Only write if we have a valid version
+                if [[ -n "$conf_version_upgrader" ]] ; then
+                    echo -e "elive-fixes: $conf_version_upgrader" >> /etc/elive-version
+                else
+                    el_error "Cannot determine Elive version for hooks tracking"
+                    return 1
+                fi
+            fi
+
+            # Validate conf_version_upgrader is not empty before proceeding
+            if [[ -z "$conf_version_upgrader" ]] ; then
+                el_error "conf_version_upgrader is empty, cannot run hooks"
+                return 1
             fi
 
             # - # get versions }}}
@@ -482,17 +498,76 @@ run_hooks(){
             el_config_get
             if [[ -z "$conf_version_upgrader" ]] ; then
                 # reference to start from the version of elive built
-                conf_version_upgrader="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+                conf_version_upgrader="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-version:" | awk '{print $2}' )"
                 read -r conf_version_upgrader <<< "$conf_version_upgrader"
-                el_config_save "conf_version_upgrader"
+                if [[ -n "$conf_version_upgrader" ]] ; then
+                    el_config_save "conf_version_upgrader"
+                else
+                    el_error "Cannot determine Elive version for user hooks tracking"
+                    return 1
+                fi
             fi
 
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
 
             #}}}
             ;;
     esac
 
+    # Verify if a distro upgrade was scheduled but did not complete successfully
+    if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
+        local upgrade_enabled upgrade_in_progress target_codename current_codename
+        upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
+        upgrade_in_progress="$(grep "^UPGRADE_IN_PROGRESS=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
+        target_codename="$(grep "^TARGET_CODENAME=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
+
+        case "$( cat /etc/debian_version )" in
+            15.*|"duke"*) current_codename="duke" ;;
+            14.*|"forky"*) current_codename="forky" ;;
+            13.*|"trixie"*) current_codename="trixie" ;;
+            12.*|"bookworm"*) current_codename="bookworm" ;;
+            11.*|"bullseye"*) current_codename="bullseye" ;;
+            10.*|"buster"*) current_codename="buster" ;;
+            *) current_codename="unknown" ;;
+        esac
+
+        # If upgrade is enabled, in progress, and we haven't reached the target yet,
+        # the upgrade is still running (possibly across reboots) - don't reset state
+        if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_in_progress" = "yes" ]] && [[ -n "$target_codename" ]] && [[ "$current_codename" != "$target_codename" ]] ; then
+            el_info "Distro upgrade to $target_codename is in progress (current: $current_codename). Hooks will be deferred until upgrade completes."
+            # Don't run hooks while a distro upgrade is in progress to avoid conflicts
+            return 1
+        fi
+
+        # If upgrade is enabled but NOT in progress, and we haven't reached the target,
+        # it means the upgrade was interrupted/failed - reset state to retry
+        if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_in_progress" != "yes" ]] && [[ -n "$target_codename" ]] && [[ "$current_codename" != "$target_codename" ]] ; then
+            el_warning "A pending distro upgrade to $target_codename was detected but not completed (not in progress). Resetting upgrader state to retry..."
+
+            # Ensure version_elive is populated
+            local v_elive
+            v_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
+            read -r v_elive <<< "$v_elive"
+
+            if [[ -n "$v_elive" ]]; then
+                if [[ "$mode" = "root" ]] ; then
+                    sed -i "/^elive-fixes:/s/^.*$/elive-fixes: $v_elive/" "/etc/elive-version"
+                    conf_version_upgrader="$v_elive"
+                fi
+                if [[ "$mode" = "user" ]] ; then
+                    conf_version_upgrader="$v_elive"
+                    el_config_save "conf_version_upgrader"
+                fi
+            fi
+        fi
+
+        # If we've reached the target, the upgrade completed successfully
+        if [[ "$upgrade_enabled" = "yes" ]] && [[ -n "$target_codename" ]] && [[ "$current_codename" = "$target_codename" ]] ; then
+            el_info "Distro upgrade to $target_codename completed successfully. Cleaning up upgrade state."
+            rm -f "/etc/default/elive-distro-upgrade"
+            # Don't disable systemd/init here since the debian-upgrader should have already done so
+        fi
+    fi
 
     # changes found
     if [[ -n "$version_last_hook" ]] && LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
@@ -657,8 +732,13 @@ run_hooks(){
                     esac
 
                 # sorted preference to run goes here:
-                #done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "\.sh$" )"
-                done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "debian-upgrade" -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
+                # Use psort if available, otherwise fall back to sort
+                if command -v psort &>/dev/null; then
+                    done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "debian-upgrade" -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
+                else
+                    # Fallback: sort by filename, which gives a reasonable order
+                    done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort )"
+                fi
 
                 # update version, to know that we have run the hooks until here
                 if [[ "$prepost" = "post" ]] ; then
@@ -848,8 +928,34 @@ apt_get(){
     local is_waiting i
     i=0
 
+    # Check if fuser is available, fallback to lsof or simple lock file check
+    local has_fuser=false
+    if command -v fuser &>/dev/null; then
+        has_fuser=true
+    fi
+
     tput sc
-    while fuser /var/lib/dpkg/lock /var/lib/apt/lists/lock  >/dev/null 2>&1 ; do
+    while true; do
+        # Check if locks are held
+        local locks_held=false
+        if $has_fuser; then
+            if fuser /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
+                locks_held=true
+            fi
+        else
+            # Fallback: check if lock files exist and are held
+            if [[ -f /var/lib/dpkg/lock ]] && ! (set -o noclobber; :>/var/lib/dpkg/lock) 2>/dev/null; then
+                locks_held=true
+            fi
+            if [[ -f /var/lib/apt/lists/lock ]] && ! (set -o noclobber; :>/var/lib/apt/lists/lock) 2>/dev/null; then
+                locks_held=true
+            fi
+        fi
+
+        if ! $locks_held; then
+            break
+        fi
+
         case $(($i % 4)) in
             0 ) j="-" ;;
             1 ) j="\\" ;;
@@ -862,10 +968,23 @@ apt_get(){
 
         sleep 0.5
         ((i=i+1))
+
+        # Safety: timeout after 30 minutes
+        if (( i > 360 )); then
+            echo ""
+            el_warning "Timeout waiting for apt lock. Proceeding anyway..."
+            break
+        fi
     done
 
+    # Clear the waiting message
+    if ((is_waiting)); then
+        tput rc
+        echo -en "\r\033[K"
+    fi
+
     # run what we want
-    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" "$@"
+    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true  apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --allow-downgrades "$@"
 }
 
 

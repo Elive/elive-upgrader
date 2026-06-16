@@ -2,17 +2,106 @@
 Description=Debian Distribution Upgrade
 Documentation=man:debian-upgrader(8)
 ConditionPathExists=/etc/default/elive-distro-upgrade
-After=network-online.target local-fs.target
+# Ensure filesystems and network are ready before attempting upgrade
+After=network-online.target local-fs.target syslog.target
 Wants=network-online.target
-Conflicts=shutdown.target
+# Prevent running during shutdown/reboot to avoid conflicts
+Conflicts=shutdown.target reboot.target halt.target
+# Don't run if the system is in emergency/rescue mode
+ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/default/elive-distro-upgrade
-ExecStartPre=/bin/bash -c '[[ "$UPGRADE_ENABLED" == "yes" && -n "$TARGET_CODENAME" ]]'
-ExecStart=/usr/lib/elive-upgrader/debian-upgrader --boot-mode ${TARGET_CODENAME}
+
+# Validate state before starting: check flags, clean up if invalid or target reached
+# This acts as a self-repair mechanism for stale or malformed state
+ExecStartPre=/bin/bash -c '\
+    set -e; \
+    DEFAULTS_FILE="/etc/default/elive-distro-upgrade"; \
+    LOCK_FILE="/tmp/.debian-upgrader.lock"; \
+    \
+    # Function to map version to codename; \
+    version_to_codename() { \
+        case "$1" in \
+            15|15.*) echo "duke" ;; \
+            14|14.*) echo "forky" ;; \
+            13|13.*) echo "trixie" ;; \
+            12|12.*) echo "bookworm" ;; \
+            11|11.*) echo "bullseye" ;; \
+            10|10.*) echo "buster" ;; \
+            *) echo "$1" | grep -oE "^[a-z]+" | head -1 ;; \
+        esac; \
+    }; \
+    \
+    # Function to clean up stale state; \
+    cleanup_state() { \
+        echo "Cleaning up stale upgrade state"; \
+        rm -f "$DEFAULTS_FILE"; \
+        rm -f "$LOCK_FILE"; \
+        systemctl daemon-reload 2>/dev/null || true; \
+    }; \
+    \
+    # Validate UPGRADE_ENABLED; \
+    if [[ "$UPGRADE_ENABLED" != "yes" ]]; then \
+        echo "UPGRADE_ENABLED is not yes, cleaning up state file"; \
+        cleanup_state; \
+        exit 1; \
+    fi; \
+    \
+    # Validate UPGRADE_IN_PROGRESS; \
+    if [[ "$UPGRADE_IN_PROGRESS" != "yes" ]]; then \
+        echo "UPGRADE_IN_PROGRESS is not yes, cleaning up state file"; \
+        cleanup_state; \
+        exit 1; \
+    fi; \
+    \
+    # Validate TARGET_CODENAME is set; \
+    if [[ -z "$TARGET_CODENAME" ]]; then \
+        echo "TARGET_CODENAME is empty, cleaning up malformed state file"; \
+        cleanup_state; \
+        exit 1; \
+    fi; \
+    \
+    # Safety: check reboot count to prevent infinite loops; \
+    if [[ "${REBOOT_COUNT:-0}" -ge 20 ]] 2>/dev/null; then \
+        echo "FATAL: Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."; \
+        echo "Check logs at /var/log/debian-upgrade-*.log for details."; \
+        cleanup_state; \
+        exit 1; \
+    fi; \
+    \
+    # Check if target already reached (self-repair for completed upgrades); \
+    current_ver=$(cat /etc/debian_version 2>/dev/null | cut -d"." -f1); \
+    current_cn=$(version_to_codename "$current_ver"); \
+    if [[ -n "$current_cn" && "$current_cn" == "$TARGET_CODENAME" ]]; then \
+        echo "Target $TARGET_CODENAME already reached (current: $current_cn). Cleaning up."; \
+        cleanup_state; \
+        exit 0; \
+    fi; \
+    \
+    # Clean stale lock files from crashed upgrades; \
+    rm -f "$LOCK_FILE" 2>/dev/null || true; \
+    \
+    echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"'
+
+# Run the upgrade - exit code 0 means success (may have rebooted), exit code 1 means skip/abort
+ExecStart=/bin/bash -c '\
+    /usr/lib/elive-upgrader/debian-upgrader --boot-mode ${TARGET_CODENAME}; \
+    exit_code=$?; \
+    if [[ $exit_code -eq 0 ]]; then \
+        echo "Upgrade completed successfully"; \
+        # Disable the service to prevent re-triggering on next boot \
+        systemctl disable elive-distro-upgrader.service 2>/dev/null || true; \
+        systemctl daemon-reload 2>/dev/null || true; \
+    else \
+        echo "Upgrade skipped or failed with exit code $exit_code"; \
+    fi; \
+    exit $exit_code'
 StandardOutput=journal+console
+StandardError=journal+console
 RemainAfterExit=yes
+# No timeout - upgrade can take a long time
 TimeoutStartSec=0
 
 [Install]

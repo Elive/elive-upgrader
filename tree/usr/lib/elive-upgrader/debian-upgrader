@@ -56,6 +56,15 @@ declare -A DEBIAN_VERSIONS=(
 # Will be set from command-line argument
 TARGET_CODENAME=""
 
+# State file for tracking upgrade progress across reboots
+UPGRADE_STATE_FILE="/etc/default/elive-distro-upgrade"
+
+# Lock file to prevent concurrent execution
+UPGRADE_LOCK_FILE="/tmp/.debian-upgrader.lock"
+
+# Recovery flag file - if present, upgrade will not run (for manual recovery)
+UPGRADE_RECOVERY_FLAG="/etc/default/elive-distro-upgrade-recovery"
+
 # Colors for output
 if [[ "$BOOT_MODE" == "true" ]]; then
     RED=''
@@ -76,14 +85,168 @@ fi
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
+# Lock mechanism to prevent concurrent execution
+acquire_lock() {
+    if [[ -f "$UPGRADE_LOCK_FILE" ]]; then
+        local lock_pid
+        lock_pid=$(cat "$UPGRADE_LOCK_FILE" 2>/dev/null)
+        if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+            log_error "Another instance of debian-upgrader is already running (PID: $lock_pid)"
+            exit 1
+        else
+            log_warning "Stale lock file found (PID: $lock_pid is not running). Removing."
+            rm -f "$UPGRADE_LOCK_FILE"
+        fi
+    fi
+    echo $$ > "$UPGRADE_LOCK_FILE"
+}
+
+release_lock() {
+    rm -f "$UPGRADE_LOCK_FILE"
+}
+
 usage() {
     echo "Usage: $0 <target_codename>"
     echo "   or: $0 --enable-boot-upgrade <target_codename>"
     echo "   or: $0 --disable-boot-upgrade"
+    echo "   or: $0 --boot-mode <target_codename>"
+    echo "   or: $0 --status"
+    echo "   or: $0 --cancel"
     echo
     echo "Example: $0 trixie"
     echo "Supported targets: ${!DEBIAN_CODENAMES[@]}"
+    echo
+    echo "Options:"
+    echo "  --enable-boot-upgrade <codename>  Prepare and enable boot-time upgrade"
+    echo "  --disable-boot-upgrade            Disable boot-time upgrade"
+    echo "  --boot-mode <codename>            Run upgrade in boot mode (used by init system)"
+    echo "  --status                          Show current upgrade state"
+    echo "  --cancel                          Cancel an in-progress boot upgrade"
     exit 1
+}
+
+# State management functions for tracking upgrade across reboots
+
+upgrade_state_read() {
+    local key="$1"
+    local default="${2:-}"
+    if [[ -f "$UPGRADE_STATE_FILE" ]]; then
+        local value
+        value=$(grep "^${key}=" "$UPGRADE_STATE_FILE" 2>/dev/null | tail -1 | cut -d'"' -f2)
+        if [[ -n "$value" ]]; then
+            echo "$value"
+        else
+            echo "$default"
+        fi
+    else
+        echo "$default"
+    fi
+}
+
+upgrade_state_write() {
+    local key="$1"
+    local value="$2"
+    # Create file if it doesn't exist
+    if [[ ! -f "$UPGRADE_STATE_FILE" ]]; then
+        touch "$UPGRADE_STATE_FILE"
+    fi
+    # Remove existing key if present, then append
+    sed -i "/^${key}=/d" "$UPGRADE_STATE_FILE"
+    echo "${key}=\"${value}\"" >> "$UPGRADE_STATE_FILE"
+}
+
+upgrade_state_clear() {
+    rm -f "$UPGRADE_STATE_FILE"
+}
+
+upgrade_state_get_reboot_count() {
+    local count
+    count=$(upgrade_state_read "REBOOT_COUNT" "0")
+    echo "$count"
+}
+
+upgrade_state_increment_reboot() {
+    local count
+    count=$(upgrade_state_get_reboot_count)
+    count=$((count + 1))
+    upgrade_state_write "REBOOT_COUNT" "$count"
+    log_info "Reboot count during upgrade: $count"
+
+    # Safety: if too many reboots, something is seriously wrong
+    if (( count > 20 )); then
+        log_error "Too many reboots during upgrade ($count). Aborting upgrade to prevent infinite loop."
+        upgrade_state_set_upgrade_in_progress "no"
+        # Restore sources to the original codename to leave system in consistent state
+        local original_version
+        original_version=$(upgrade_state_read "CURRENT_VERSION" "")
+        if [[ -n "$original_version" ]]; then
+            local original_codename=${DEBIAN_VERSIONS[$original_version]:-}
+            if [[ -n "$original_codename" ]]; then
+                log_info "Attempting to restore sources to $original_codename..."
+                current_codename="$original_codename"
+                # Best-effort restore - don't fail if this doesn't work
+                if [[ -f /etc/apt/sources.list ]]; then
+                    local target_cn
+                    target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
+                    sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
+                fi
+                for file in /etc/apt/sources.list.d/*; do
+                    if [[ -f "$file" ]]; then
+                        local target_cn
+                        target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
+                        sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+                    fi
+                done
+            fi
+        fi
+        disable_boot_upgrade
+        release_lock
+        exit 1
+    fi
+}
+
+upgrade_state_get_current_step() {
+    upgrade_state_read "CURRENT_STEP" ""
+}
+
+upgrade_state_set_current_step() {
+    upgrade_state_write "CURRENT_STEP" "$1"
+}
+
+upgrade_state_get_upgrade_in_progress() {
+    local val
+    val=$(upgrade_state_read "UPGRADE_IN_PROGRESS" "no")
+    if [[ "$val" == "yes" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+upgrade_state_set_upgrade_in_progress() {
+    if [[ "$1" == "yes" ]]; then
+        upgrade_state_write "UPGRADE_IN_PROGRESS" "yes"
+    else
+        upgrade_state_write "UPGRADE_IN_PROGRESS" "no"
+    fi
+}
+
+# Validate state file integrity
+validate_state_file() {
+    # Check if state file exists and has required fields
+    if [[ ! -f "$UPGRADE_STATE_FILE" ]]; then
+        return 1
+    fi
+
+    local target_cn
+    target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
+    if [[ -z "$target_cn" ]]; then
+        log_warning "State file exists but TARGET_CODENAME is empty. Cleaning up."
+        upgrade_state_clear
+        return 1
+    fi
+
+    return 0
 }
 
 log_info() {
@@ -115,38 +278,104 @@ repair_apt() {
     fi
 
     log_warning "Attempting to repair APT/dpkg state..."
+
+    # Remove stale lock files that may exist from a crashed upgrade
+    rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
+    rm -f /var/lib/dpkg/lock 2>/dev/null || true
+    rm -f /var/lib/apt/lists/lock 2>/dev/null || true
+    rm -f /var/cache/apt/archives/lock 2>/dev/null || true
+
+    # Kill any stuck apt/dpkg processes that might hold locks
+    if pgrep -f "apt-get|dpkg" >/dev/null 2>&1; then
+        log_warning "Killing stuck apt/dpkg processes..."
+        pkill -f "apt-get|dpkg" 2>/dev/null || true
+        sleep 2
+        pkill -9 -f "apt-get|dpkg" 2>/dev/null || true
+        sleep 1
+    fi
+
+    # Remove lock files again after killing processes
+    rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
+    rm -f /var/lib/dpkg/lock 2>/dev/null || true
+    rm -f /var/lib/apt/lists/lock 2>/dev/null || true
+    rm -f /var/cache/apt/archives/lock 2>/dev/null || true
+
+    # Rebuild dpkg status if corrupted (e.g. from hard reboot)
+    if ! dpkg --audit >/dev/null 2>&1; then
+        log_warning "dpkg audit failed, attempting to rebuild package database..."
+        # Try to recover dpkg status from the backup
+        if [[ -f /var/lib/dpkg/status-old ]]; then
+            cp -a /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
+        fi
+        # If status is empty or missing, try to rebuild
+        if [[ ! -s /var/lib/dpkg/status ]]; then
+            log_warning "dpkg status is empty, attempting to rebuild from available packages..."
+            # Create a minimal status file
+            dpkg --clear-avail 2>/dev/null || true
+            # Try to scan installed packages
+            for control in /var/lib/dpkg/info/*.control; do
+                if [[ -f "$control" ]]; then
+                    cat "$control" >> /var/lib/dpkg/status 2>/dev/null || true
+                    echo "" >> /var/lib/dpkg/status 2>/dev/null || true
+                fi
+            done
+        fi
+    fi
+
     # Configure any unconfigured packages
-    dpkg --configure -a || true
+    dpkg --configure -a 2>/dev/null || true
+
     # Fix broken dependencies
-    apt-get install -f -y || true
+    apt-get install -f -y 2>/dev/null || true
+
     # Fix broken packages
-    apt-get install --fix-broken -y || true
+    apt-get --fix-broken install -y 2>/dev/null || true
+
     # Update package lists with fix-missing
-    apt-get update --fix-missing || true
+    apt-get update --fix-missing 2>/dev/null || true
+
+    # Final check
+    if ! dpkg --audit >/dev/null 2>&1 || ! apt-get check >/dev/null 2>&1; then
+        log_warning "APT/dpkg state may still be broken after repair attempts. Continuing anyway..."
+    fi
 }
 
 safe_apt_run() {
     local attempt=1
     local max_attempts=3
+    local exit_code=0
     while (( attempt <= max_attempts )); do
-        if run_and_show_plymouth_on_boot "$@"; then
+        # Run the command and capture exit code explicitly to avoid set -e issues
+        set +e
+        run_and_show_plymouth_on_boot "$@"
+        exit_code=$?
+        set -e
+        if [[ "$exit_code" -eq 0 ]]; then
             return 0
         fi
-        log_warning "Command failed: $*. Attempt $attempt of $max_attempts."
-        repair_apt
+        log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts."
+        # Don't repair on the last attempt - just fail
+        if (( attempt < max_attempts )); then
+            repair_apt
+        fi
         (( attempt++ ))
     done
     log_error "Command failed permanently after $max_attempts attempts: $*"
-    return 1
+    return "$exit_code"
 }
 
 run_and_show_plymouth_on_boot() {
     if [[ "$BOOT_MODE" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
-        ( # Run in a subshell to contain pipefail setting
+        # Run command, tee output to both stdout and plymouth
+        # Use a subshell to contain pipefail and handle plymouth failures gracefully
+        # IMPORTANT: we do NOT use "|| true" here because safe_apt_run needs the
+        # real exit code to decide whether to retry.
+        (
             set -o pipefail
             "$@" 2>&1 | while IFS= read -r line; do
                 echo "$line"
-                plymouth message --text="$line"
+                # Don't let plymouth failures abort the upgrade
+                plymouth message --text="$line" 2>/dev/null || true
             done
         )
     else
@@ -211,7 +440,7 @@ check_current_release() {
 
     if [[ -z "$current_codename" ]]; then
         log_error "Could not determine current Debian version or it is unsupported. Found: $current_release_full"
-        exit 1
+        return 1
     fi
 
     log_info "Current Debian version: $current_version_number ($current_codename)"
@@ -222,30 +451,52 @@ check_current_release() {
         usage
     fi
 
-    if (( target_version_number <= current_version_number )); then
-        log_error "Target version must be newer than the current version."
+    # If target is already reached, signal success (upgrade complete)
+    if (( target_version_number == current_version_number )); then
+        log_info "Target version $TARGET_CODENAME is already the current version. Upgrade is complete."
+        return 2
+    fi
+
+    if (( target_version_number < current_version_number )); then
+        log_error "Target version is older than the current version."
         log_error "Current: $current_version_number ($current_codename), Target: $target_version_number ($TARGET_CODENAME)"
-        exit 1
+        return 1
     fi
 
     log_info "Target Debian version: $target_version_number ($TARGET_CODENAME)"
 }
 
 update_sources() {
-    local codename=$1
+    local codename="$1"
+
+    if [[ -z "$current_codename" ]]; then
+        log_error "Cannot update sources: current codename is empty. This should not happen."
+        return 1
+    fi
+
+    # Skip if already on the target codename (shouldn't happen in normal flow, but safety check)
+    if [[ "$current_codename" == "$codename" ]]; then
+        log_info "Sources already set to $codename, skipping update."
+        return 0
+    fi
+
     log_info "Updating APT sources from $current_codename to $codename..."
 
     # Direct sed replacement in sources.list
     if [[ -f /etc/apt/sources.list ]]; then
-        sed -i "s/$current_codename/$codename/g" /etc/apt/sources.list
+        # Use a backup before modifying
+        cp /etc/apt/sources.list "/etc/apt/sources.list.bak.$(date +%s)" 2>/dev/null || true
+        sed -i "s|$current_codename|$codename|g" /etc/apt/sources.list
     fi
 
     # Direct sed replacement in all files under sources.list.d/
     for file in /etc/apt/sources.list.d/*; do
         if [[ -f "$file" ]]; then
-            sed -i "s/$current_codename/$codename/g" "$file"
+            sed -i "s|$current_codename|$codename|g" "$file"
         fi
     done
+
+    log_info "APT sources updated from $current_codename to $codename"
 }
 
 cleanup_packages() {
@@ -275,19 +526,28 @@ check_disk_space() {
 
     # Helper function to convert to KB
     to_kb() {
-        local val=$1
-        local unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+        local val="$1"
+        local unit
+        unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+        # Normalize comma to period for decimal parsing
         val=${val//,/.}
-        awk -v v="$val" -v u="$unit" '
-            BEGIN {
-                factor = 1
-                if (u ~ /^k/) factor = 1
-                else if (u ~ /^m/) factor = 1024
-                else if (u ~ /^g/) factor = 1024 * 1024
-                else if (u ~ /^b/) factor = 1 / 1024
-                printf "%.0f", v * factor
-            }
-        '
+
+        # Validate inputs
+        if [[ -z "$val" || -z "$unit" ]]; then
+            echo "0"
+            return
+        fi
+
+        # Use awk for the conversion
+        awk -v v="$val" -v u="$unit" 'BEGIN {
+            factor = 1
+            if (u ~ /^k/) factor = 1
+            else if (u ~ /^m/) factor = 1024
+            else if (u ~ /^g/) factor = 1024 * 1024
+            else if (u ~ /^t/) factor = 1024 * 1024 * 1024
+            else if (u ~ /^b/) factor = 1 / 1024
+            printf "%.0f", v * factor
+        }'
     }
 
     # Run a quick simulation to estimate required space
@@ -435,10 +695,14 @@ perform_upgrade() {
     # Always remove older kernels to free up space, keeping only the currently running one
     log_info "Removing older kernels to free up space..."
     # Find existing kernels, excluding the currently running one to keep the system bootable
-    existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | grep -v "$(uname -r)" || true)
+    local running_kernel
+    running_kernel=$(uname -r)
+    local existing_kernel_packages
+    existing_kernel_packages=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | grep -vF "$running_kernel" || true)
     if [[ -n "$existing_kernel_packages" ]]; then
         log_info "Found older kernel packages to remove:"
         echo "$existing_kernel_packages"
+        # shellcheck disable=SC2086
         safe_apt_run apt-get remove --purge -y $existing_kernel_packages
     else
         log_info "No older kernel packages found to remove."
@@ -589,15 +853,28 @@ enable_boot_upgrade_conf() {
 
     # Set target codename and verify current release details
     TARGET_CODENAME="$target_codename"
+    local check_result
     check_current_release
+    check_result=$?
+    if [[ "$check_result" -eq 2 ]]; then
+        log_info "Target $target_codename is already the current version. Nothing to do."
+        exit 0
+    fi
+    if [[ "$check_result" -ne 0 ]]; then
+        exit 1
+    fi
 
     log_info "Pre-downloading packages for the upgrade to $target_codename to ensure a reliable offline/boot-time upgrade..."
-    
+
     # Backup system configuration before changing sources
     backup_system
 
     # Update sources to target codename to download packages
-    update_sources "$target_codename"
+    # current_codename is set by check_current_release
+    if ! update_sources "$target_codename"; then
+        log_error "Failed to update sources. Aborting."
+        exit 1
+    fi
 
     log_info "Updating package lists..."
     local attempt=1
@@ -616,10 +893,26 @@ enable_boot_upgrade_conf() {
     if [[ "$success" != "true" ]]; then
         log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
         # Restore sources from backup if update fails
-        rm -rf /etc/apt/sources.list.d
-        cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
+        if [[ -d "$BACKUP_DIR/sources.list.d" ]]; then
+            rm -rf /etc/apt/sources.list.d
+            cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
+        fi
         if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
             cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
+        else
+            # Fallback: restore from the backup we just created
+            if [[ -f "/etc/apt/sources.list.bak."* ]]; then
+                local latest_backup
+                latest_backup=$(ls -t /etc/apt/sources.list.bak.* 2>/dev/null | head -1)
+                if [[ -n "$latest_backup" ]]; then
+                    cp "$latest_backup" /etc/apt/sources.list
+                fi
+            fi
+        fi
+        # Try to update with restored sources
+        log_info "Retrying apt-get update with restored sources..."
+        if ! apt-get update; then
+            log_error "Failed to update even with restored sources. System may be in an inconsistent state."
         fi
         exit 1
     fi
@@ -632,46 +925,151 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Enabling boot-time upgrade to $target_codename..."
+
+    # Get current Debian version to track starting point
+    local current_release_full
+    current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
+    local current_version_number
+    current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
+
     cat > "$config_file" << EOF
 # Configuration for the elive-distro-upgrader service.
-# This file is auto-generated by debian-upgrader. Do not edit.
+# This file is auto-generated by elive-upgrader. Do not edit.
 
 UPGRADE_ENABLED=yes
 TARGET_CODENAME="$target_codename"
+UPGRADE_IN_PROGRESS="yes"
+REBOOT_COUNT="0"
+CURRENT_VERSION="$current_version_number"
+CURRENT_STEP=""
 EOF
 
+    # Verify the state file was written correctly
+    if [[ ! -f "$config_file" ]]; then
+        log_error "Failed to create state file $config_file. Aborting."
+        exit 1
+    fi
+
+    # Verify critical values in the state file
+    local verify_target
+    verify_target=$(grep "^TARGET_CODENAME=" "$config_file" 2>/dev/null | cut -d'"' -f2)
+    if [[ "$verify_target" != "$target_codename" ]]; then
+        log_error "State file verification failed. Expected TARGET_CODENAME=$target_codename, got '$verify_target'. Aborting."
+        rm -f "$config_file"
+        exit 1
+    fi
+
     # Enable the systemd service or sysvinit script so it actually runs on boot
+    # Try systemd first, then fall back to sysvinit - boot agnostic
+    local init_configured=false
+
     if command -v systemctl &>/dev/null; then
         log_info "Enabling elive-distro-upgrader.service..."
-        systemctl daemon-reload || true
-        systemctl enable elive-distro-upgrader.service || true
+        systemctl daemon-reload 2>/dev/null || true
+        if systemctl enable elive-distro-upgrader.service 2>/dev/null; then
+            init_configured=true
+            log_info "systemd service enabled successfully"
+        else
+            log_warning "Failed to enable systemd service"
+        fi
     fi
+
     if command -v update-rc.d &>/dev/null; then
         log_info "Enabling elive-distro-upgrader init script..."
-        chmod +x /etc/init.d/elive-distro-upgrader || true
-        update-rc.d elive-distro-upgrader defaults || true
+        chmod +x /etc/init.d/elive-distro-upgrader 2>/dev/null || true
+        # Remove any existing links first to avoid errors on re-enable
+        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+        if update-rc.d elive-distro-upgrader defaults 2>/dev/null; then
+            init_configured=true
+            log_info "sysvinit script enabled successfully"
+        else
+            log_warning "Failed to enable sysvinit script"
+        fi
+    fi
+
+    if [[ "$init_configured" != "true" ]]; then
+        log_error "Could not enable the upgrade service in any init system!"
+        log_error "The upgrade will NOT run automatically on reboot."
+        log_error "Please manually enable the service before rebooting."
+        # Clean up state file since we can't actually run the upgrade
+        upgrade_state_clear
+        exit 1
     fi
 
     log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
     log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
+
+    # Show a warning/success message to the user
+    local msg
+    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process.")"
+
+    if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+        yad --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=400 --button="OK:0" || true
+    elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+        zenity --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" || true
+    elif [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]]; then
+        $guitool --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" || true
+    else
+        echo -e "\n*** ${YELLOW}WARNING${NC} ***"
+        echo -e "$msg"
+        echo -e "*****************\n"
+    fi
 }
 
 disable_boot_upgrade() {
-    if [ -f /etc/default/elive-distro-upgrade ]; then
-        log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
-        rm -f /etc/default/elive-distro-upgrade
-    fi
+    # Disable services first, then clear the state file
     if command -v systemctl &>/dev/null; then
         log_info "Disabling elive-distro-upgrader.service..."
-        systemctl disable elive-distro-upgrader.service || true
+        systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+        systemctl stop elive-distro-upgrader.service 2>/dev/null || true
+        # Reload systemd to pick up the disabled state
+        systemctl daemon-reload 2>/dev/null || true
     fi
     if command -v update-rc.d &>/dev/null; then
         log_info "Disabling elive-distro-upgrader init script..."
-        update-rc.d -f elive-distro-upgrader remove || true
+        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+    fi
+
+    if [ -f /etc/default/elive-distro-upgrade ]; then
+        log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
+        upgrade_state_clear
+    fi
+}
+
+restore_sources_on_cancel() {
+    # Restore APT sources from target codename back to original codename
+    # This is used when cancelling a boot upgrade that hasn't completed
+    local target_cn
+    target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
+    local original_version
+    original_version=$(upgrade_state_read "CURRENT_VERSION" "")
+    local original_codename="${DEBIAN_VERSIONS[$original_version]:-}"
+
+    if [[ -n "$target_cn" && -n "$original_codename" && "$target_cn" != "$original_codename" ]]; then
+        log_info "Restoring APT sources from $target_cn back to $original_codename..."
+        if [[ -f /etc/apt/sources.list ]]; then
+            sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
+        fi
+        for file in /etc/apt/sources.list.d/*; do
+            if [[ -f "$file" ]]; then
+                sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+            fi
+        done
+        # Clean up apt cache after restoring sources
+        apt-get clean 2>/dev/null || true
+        log_info "APT sources restored to $original_codename"
     fi
 }
 
 main_upgrade() {
+    # Check for recovery flag - if present, do not run upgrade
+    if [[ -f "$UPGRADE_RECOVERY_FLAG" ]]; then
+        log_error "Recovery flag detected at $UPGRADE_RECOVERY_FLAG"
+        log_error "The upgrade has been manually disabled for recovery."
+        log_error "To re-enable, remove the flag and re-run the upgrade: rm $UPGRADE_RECOVERY_FLAG"
+        exit 1
+    fi
+
     if [[ "$BOOT_MODE" == "true" ]]; then
         export DEBIAN_FRONTEND=noninteractive
         export DEBIAN_PRIORITY=critical
@@ -693,42 +1091,164 @@ main_upgrade() {
     if [[ "$BOOT_MODE" == "false" ]]; then
         check_tmux
     fi
-    check_current_release
+
+    # In boot mode, always repair apt first to handle interrupted upgrades
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        log_info "Boot mode: ensuring apt is in a good state..."
+        repair_apt
+
+        # Check if target is already reached BEFORE incrementing reboot count
+        # This prevents the counter from incrementing on every boot after completion
+        check_current_release
+        local check_result=$?
+        if [[ "$check_result" -eq 2 ]]; then
+            # Target already reached - upgrade was completed
+            log_info "Upgrade to $TARGET_CODENAME is already complete."
+            upgrade_state_set_upgrade_in_progress "no"
+            upgrade_state_set_current_step ""
+            upgrade_state_write "REBOOT_COUNT" "0"
+            disable_boot_upgrade
+            release_lock
+            log_info "Rebooting in 5 seconds..."
+            for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
+            log_info "Rebooting now."
+            /sbin/reboot
+            # If reboot fails, exit cleanly
+            log_error "Reboot failed. Please reboot manually."
+            exit 0
+        fi
+        if [[ "$check_result" -ne 0 ]]; then
+            release_lock
+            exit 1
+        fi
+
+        # Only increment reboot count if we're actually going to proceed with upgrade
+        upgrade_state_increment_reboot
+
+        # Check if we need to resume from a specific step
+        local saved_step
+        saved_step=$(upgrade_state_get_current_step)
+        if [[ -n "$saved_step" ]]; then
+            log_info "Resuming upgrade from saved step: $saved_step"
+        fi
+    else
+        # Non-boot mode: just check current release normally
+        check_current_release
+        local check_result=$?
+        if [[ "$check_result" -eq 2 ]]; then
+            log_info "Upgrade to $TARGET_CODENAME is already complete."
+            upgrade_state_set_upgrade_in_progress "no"
+            upgrade_state_set_current_step ""
+            upgrade_state_write "REBOOT_COUNT" "0"
+            disable_boot_upgrade
+            exit 0
+        fi
+        if [[ "$check_result" -ne 0 ]]; then
+            exit 1
+        fi
+    fi
+
+    # Validate that we have a proper current_codename before proceeding
+    if [[ -z "${current_codename:-}" ]]; then
+        log_error "Failed to determine current Debian codename. Cannot proceed with upgrade."
+        release_lock
+        exit 1
+    fi
+
     backup_system
     cleanup_packages
     stop_services
 
-    local current_release_full
-    current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
-    local current_version_number
-    current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
-    local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]}
+    # current_codename and current_version_number are set by check_current_release
+    # If check_current_release succeeded, current_codename should be valid.
+    # We still need to ensure current_version_number is numeric for the loop.
+    if ! [[ "$current_version_number" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid current version number: $current_version_number"
+        release_lock
+        exit 1
+    fi
 
-    for version in $(seq $((current_version_number + 1)) "$target_version_number"); do
+    local target_version_number=${DEBIAN_CODENAMES[$TARGET_CODENAME]:-}
+
+    # Validate target version number
+    if [[ -z "$target_version_number" ]]; then
+        log_error "Unsupported target codename: $TARGET_CODENAME"
+        release_lock
+        exit 1
+    fi
+
+    # Determine starting version for the loop
+    local start_version=$((current_version_number + 1))
+
+    # If resuming from a saved step, use it to determine where to start
+    local saved_step
+    saved_step=$(upgrade_state_get_current_step)
+    if [[ -n "$saved_step" ]]; then
+        local saved_version=${DEBIAN_CODENAMES[$saved_step]:-}
+        if [[ -n "$saved_version" ]] && (( saved_version > current_version_number && saved_version <= target_version_number )); then
+            # The saved step hasn't been completed yet, start from it
+            start_version=$saved_version
+            log_info "Resuming from saved step '$saved_step' (version $saved_version). Current version: $current_version_number"
+        fi
+    fi
+
+    for version in $(seq "$start_version" "$target_version_number"); do
         local step_codename=${DEBIAN_VERSIONS[$version]}
         if [[ -z "$step_codename" ]]; then
             log_error "Unknown version number $version in upgrade path. Aborting."
+            release_lock
             exit 1
         fi
+
+        # Save current step to state file for resume capability
+        upgrade_state_set_current_step "$step_codename"
+        upgrade_state_set_upgrade_in_progress "yes"
+
         log_info "--- Starting upgrade step to $step_codename ---"
         run_pre_hooks "$step_codename"
-        update_sources "$step_codename"
+
+        # If update_sources fails, abort to leave system in consistent state
+        if ! update_sources "$step_codename"; then
+            log_error "Failed to update sources to $step_codename. Aborting upgrade to prevent inconsistent state."
+            release_lock
+            exit 1
+        fi
+
         perform_upgrade
         post_upgrade_cleanup
         run_post_hooks "$step_codename"
         log_info "--- Completed upgrade step to $step_codename ---"
-        current_codename=$step_codename
+
+        # Update current_codename for the next iteration's update_sources
+        current_codename="$step_codename"
     done
+
+    # Clear upgrade state - we're done
+    upgrade_state_set_upgrade_in_progress "no"
+    upgrade_state_set_current_step ""
+    upgrade_state_write "REBOOT_COUNT" "0"
+
+    # Unhold any kernel packages that were held during the upgrade
+    local held_packages
+    held_packages=$(apt-mark showhold 2>/dev/null || true)
+    if [[ -n "$held_packages" ]]; then
+        log_info "Unholding packages that were held during upgrade: $held_packages"
+        echo "$held_packages" | xargs -r apt-mark unhold 2>/dev/null || true
+    fi
 
     verify_upgrade
 
     if [[ "$BOOT_MODE" == "true" ]]; then
         disable_boot_upgrade
+        release_lock
         log_info "Upgrade completed successfully!"
         log_info "Rebooting in 5 seconds..."
         for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
         log_info "Rebooting now."
         /sbin/reboot
+        # If reboot fails, exit cleanly
+        log_error "Reboot failed. Please reboot manually."
+        exit 0
     else
         log_info "Upgrade completed successfully!"
         log_info "Please review the log file at: $LOG_FILE"
@@ -738,7 +1258,91 @@ main_upgrade() {
 
 main() {
     if [[ $# -eq 0 ]]; then
+        # If no arguments but a boot upgrade is configured and in progress, auto-resume
+        if [[ -f "$UPGRADE_STATE_FILE" ]]; then
+            acquire_lock
+            local is_enabled
+            is_enabled=$(upgrade_state_read "UPGRADE_ENABLED" "no")
+            local in_progress
+            in_progress=$(upgrade_state_read "UPGRADE_IN_PROGRESS" "no")
+            local target
+            target=$(upgrade_state_read "TARGET_CODENAME" "")
+            local reboot_count
+            reboot_count=$(upgrade_state_get_reboot_count)
+
+            if [[ "$is_enabled" == "yes" && -n "$target" ]]; then
+                # Validate state file integrity first
+                if ! validate_state_file; then
+                    log_warning "Invalid state file detected. Cleaning up."
+                    disable_boot_upgrade
+                    release_lock
+                    exit 0
+                fi
+
+                # Check if target is already reached (self-repair)
+                local current_release_full
+                current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
+                local current_version_number
+                current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
+                local current_cn=${DEBIAN_VERSIONS[$current_version_number]:-}
+
+                if [[ "$current_cn" == "$target" ]]; then
+                    log_info "Target $target already reached. Cleaning up upgrade state."
+                    upgrade_state_set_upgrade_in_progress "no"
+                    upgrade_state_set_current_step ""
+                    upgrade_state_write "REBOOT_COUNT" "0"
+                    disable_boot_upgrade
+                    release_lock
+                    exit 0
+                fi
+
+                # Safety: check reboot count before resuming
+                if (( reboot_count >= 20 )); then
+                    log_error "Too many reboots during upgrade ($reboot_count). Aborting to prevent infinite loop."
+                    upgrade_state_set_upgrade_in_progress "no"
+                    disable_boot_upgrade
+                    release_lock
+                    exit 1
+                fi
+
+                # Set BOOT_MODE before calling main_upgrade
+                BOOT_MODE="true"
+
+                if [[ "$in_progress" == "yes" ]]; then
+                    log_info "Detected in-progress boot upgrade to $target (reboot count: $reboot_count). Resuming..."
+                    check_root
+                    main_upgrade "$target"
+                    # main_upgrade releases the lock itself on all paths
+                    return
+                else
+                    # Upgrade enabled but not in progress - was interrupted
+                    log_info "Detected interrupted boot upgrade to $target. Restarting..."
+                    upgrade_state_set_upgrade_in_progress "yes"
+                    check_root
+                    main_upgrade "$target"
+                    # main_upgrade releases the lock itself on all paths
+                    return
+                fi
+            fi
+
+            # State file exists but doesn't have valid upgrade config - self-repair
+            log_warning "State file exists but no valid upgrade config found. Cleaning up."
+            upgrade_state_clear
+            disable_boot_upgrade
+            release_lock
+            exit 0
+        fi
         usage
+    fi
+
+    # Set trap to release lock on exit for state-modifying operations
+    # This is a safety net - main_upgrade also releases lock explicitly
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            --enable-boot-upgrade|--boot-mode|--cancel)
+                trap release_lock EXIT
+                ;;
+        esac
     fi
 
     case "$1" in
@@ -750,7 +1354,66 @@ main() {
         --boot-mode)
             BOOT_MODE="true"
             shift # remove --boot-mode
+            # Validate TARGET_CODENAME is provided
+            if [[ -z "${1:-}" ]]; then
+                log_error "TARGET_CODENAME required for --boot-mode"
+                release_lock
+                exit 1
+            fi
+            # Run main_upgrade - it handles its own exit/reboot and lock release
             main_upgrade "$@"
+            # main_upgrade releases the lock itself on all paths
+            # If we get here, it means main_upgrade returned without rebooting (error case)
+            # The lock was already released by main_upgrade
+            ;;
+        --status)
+            # Show current upgrade status
+            if [[ -f "$UPGRADE_STATE_FILE" ]]; then
+                echo "=== Upgrade State ==="
+                cat "$UPGRADE_STATE_FILE"
+                echo "===================="
+                local in_progress
+                in_progress=$(upgrade_state_read "UPGRADE_IN_PROGRESS" "no")
+                if [[ "$in_progress" == "yes" ]]; then
+                    echo "Upgrade is IN PROGRESS"
+                    echo "Reboot count: $(upgrade_state_get_reboot_count)"
+                    echo "Current step: $(upgrade_state_get_current_step)"
+                else
+                    echo "No upgrade in progress."
+                fi
+            else
+                echo "No upgrade state found. No upgrade in progress."
+            fi
+            exit 0
+            ;;
+        --cancel)
+            check_root
+            log_info "Cancelling boot upgrade..."
+            restore_sources_on_cancel
+            upgrade_state_clear
+            disable_boot_upgrade
+            release_lock
+            log_info "Boot upgrade cancelled."
+            exit 0
+            ;;
+        --create-recovery-flag)
+            check_root
+            log_info "Creating recovery flag to prevent upgrade from running..."
+            echo "# Recovery flag created $(date)" > "$UPGRADE_RECOVERY_FLAG"
+            echo "# Remove this file to re-enable upgrades: rm $UPGRADE_RECOVERY_FLAG" >> "$UPGRADE_RECOVERY_FLAG"
+            log_info "Recovery flag created at $UPGRADE_RECOVERY_FLAG"
+            log_info "The upgrade service will not run until this flag is removed."
+            exit 0
+            ;;
+        --remove-recovery-flag)
+            check_root
+            if [[ -f "$UPGRADE_RECOVERY_FLAG" ]]; then
+                rm -f "$UPGRADE_RECOVERY_FLAG"
+                log_info "Recovery flag removed. Upgrade service can run again."
+            else
+                log_info "No recovery flag found. Upgrade service is not blocked."
+            fi
+            exit 0
             ;;
         -h|--help)
             usage
@@ -764,9 +1427,13 @@ main() {
             # Interactive upgrade
             if [[ -z "$TMUX" ]]; then
                 log_info "Starting upgrade in tmux session..."
+                # Don't acquire lock in parent - the child tmux session will acquire it
                 tmux new-session -d -s elive-distro-upgrade "bash $0 $@"
                 tmux attach-session -t elive-distro-upgrade
             else
+                # Already in tmux - acquire lock and run
+                acquire_lock
+                trap release_lock EXIT
                 main_upgrade "$@"
             fi
             ;;

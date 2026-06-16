@@ -158,7 +158,6 @@ main(){
     fi
 
     # access to the graphical system from its parent user
-    # access to the graphical system from its parent user
     # Initialize sudo_args based on interactivity
     local sudo_args=()
     if ! ((is_interactive)) ; then
@@ -168,6 +167,9 @@ main(){
     # Add DISPLAY and XAUTHORITY if they exist, making sure to quote them for safety
     if [[ -n "$DISPLAY" ]] ; then
         sudo_args+=("DISPLAY=$DISPLAY")
+    fi
+    if [[ -n "${XAUTHORITY:-}" ]] ; then
+        sudo_args+=("XAUTHORITY=$XAUTHORITY")
     fi
 
     # }}}
@@ -192,6 +194,7 @@ main(){
                 ;;
             --betatest)
                 is_betatester=1
+                is_force_upgrade=1
                 shift
                 ;;
             -u|--upgrade)
@@ -264,8 +267,15 @@ main(){
 
     # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
-    if upgrade_system_delayed ; then
-        was_anything_updated=1
+    if ((is_force_upgrade)) ; then
+        el_debug "beta test mode: forcing upgrade system"
+        if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade ; then
+            was_anything_updated=1
+        fi
+    else
+        if upgrade_system_delayed ; then
+            was_anything_updated=1
+        fi
     fi
 
 
