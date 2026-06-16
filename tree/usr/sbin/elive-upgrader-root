@@ -1,4 +1,46 @@
 #!/bin/bash
+# ==============================================================================
+# HOW TO CREATE HOOKS FOR ELIVE-UPGRADER
+# ==============================================================================
+# Hooks are organized by Debian release codenames and version numbers.
+#
+# Directory Structure:
+#   /usr/lib/elive-upgrader/hooks-<codename>/<version>/[root|user]/
+#
+#   Example:
+#     /usr/lib/elive-upgrader/hooks-bookworm/3.8.50.01/user/
+#
+# Hook Types & Execution Order:
+#   Inside the [root|user] directories, files are executed/processed in this order:
+#
+#   1. debian-upgrade
+#      - Contains the upgrade tier: "alpha", "beta", or "stable".
+#      - "alpha" requires the user to be a betatester (e.g., elive-upgrader --betatest).
+#      - "beta" requires the user to be a Premium user.
+#      - "stable" is available to all users.
+#
+#   2. pre-*.sh
+#      - Executed during the "pre" phase. Must be executable (chmod +x).
+#
+#   3. packages-to-remove.txt
+#      - List of packages to remove (one per line or space-separated).
+#
+#   4. packages-to-install.txt
+#      - List of packages to install (one per line or space-separated).
+#
+#   5. packages-to-upgrade.txt
+#      - List of packages to upgrade (only if already installed).
+#
+#   6. *.sh (Deprecated)
+#      - Executed if they don't start with "pre-" or "post-".
+#
+#   7. CHANGELOG.txt / pre-CHANGELOG.txt / post-CHANGELOG.txt
+#      - Text files containing release notes shown to the user.
+#
+#   8. post-*.sh
+#      - Executed during the "post" phase. Must be executable (chmod +x).
+# ==============================================================================
+
 SOURCE="$0"
 source /usr/lib/elive-tools/functions
 EL_REPORTS="1"
