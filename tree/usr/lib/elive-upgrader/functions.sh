@@ -734,9 +734,17 @@ run_hooks(){
                 # sorted preference to run goes here:
                 # Use psort if available, otherwise fall back to sort
                 if command -v psort &>/dev/null; then
-                    done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -- -p "debian-upgrade" -p "pre-"  -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG"  -p "post-" )"
+                    while read -ru 3 file
+                    do
+                        [[ -z "$file" ]] && continue
+                        true
+                    done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort | psort -p "debian-upgrade" -p "pre-" -p "packages-to-remove" -p "packages-to-install" -p "packages-to-upgrade" -p "\.sh$" -p "CHANGELOG" -p "post-" )"
                 else
                     # Fallback: sort by filename, which gives a reasonable order
+                    while read -ru 3 file
+                    do
+                        [[ -z "$file" ]] && continue
+                        true
                     done 3<<< "$( find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | sort )"
                 fi
 
