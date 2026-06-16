@@ -2,9 +2,8 @@
 Description=Debian Distribution Upgrade
 Documentation=man:debian-upgrader(8)
 ConditionPathExists=/etc/default/elive-distro-upgrade
-After=network-online.target
+After=network-online.target local-fs.target
 Wants=network-online.target
-DefaultDependencies=no
 Conflicts=shutdown.target
 
 [Service]

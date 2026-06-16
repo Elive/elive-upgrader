@@ -639,6 +639,19 @@ enable_boot_upgrade_conf() {
 UPGRADE_ENABLED=yes
 TARGET_CODENAME="$target_codename"
 EOF
+
+    # Enable the systemd service or sysvinit script so it actually runs on boot
+    if command -v systemctl &>/dev/null; then
+        log_info "Enabling elive-distro-upgrader.service..."
+        systemctl daemon-reload || true
+        systemctl enable elive-distro-upgrader.service || true
+    fi
+    if command -v update-rc.d &>/dev/null; then
+        log_info "Enabling elive-distro-upgrader init script..."
+        chmod +x /etc/init.d/elive-distro-upgrader || true
+        update-rc.d elive-distro-upgrader defaults || true
+    fi
+
     log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
     log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
 }
@@ -647,6 +660,14 @@ disable_boot_upgrade() {
     if [ -f /etc/default/elive-distro-upgrade ]; then
         log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
         rm -f /etc/default/elive-distro-upgrade
+    fi
+    if command -v systemctl &>/dev/null; then
+        log_info "Disabling elive-distro-upgrader.service..."
+        systemctl disable elive-distro-upgrader.service || true
+    fi
+    if command -v update-rc.d &>/dev/null; then
+        log_info "Disabling elive-distro-upgrader init script..."
+        update-rc.d -f elive-distro-upgrader remove || true
     fi
 }
 
