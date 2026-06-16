@@ -79,9 +79,8 @@ else
 fi
 
 # Logging setup
-if [[ -z "${DEBIAN_UPGRADE_LOGFILE:-}" ]]; then
-    export DEBIAN_UPGRADE_LOGFILE="/var/log/debian-upgrade-$(date +%Y%m%d-%H%M%S).log"
-fi
+DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-/var/log/debian-upgrade-$(date +%Y%m%d-%H%M%S).log}"
+export DEBIAN_UPGRADE_LOGFILE
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -1003,8 +1002,8 @@ EOF
     local msg
     msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process.")"
 
-    if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-        yad --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=400 --button="OK:0" || true
+    if [[ -n "$DISPLAY" ]] && [[ -n "$yad" ]] &>/dev/null; then
+        $yad --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=400 --button="OK:0" || true
     elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
         zenity --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" || true
     elif [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]]; then
