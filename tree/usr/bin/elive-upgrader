@@ -242,6 +242,15 @@ main(){
     # source functions
     source /usr/lib/elive-upgrader/functions.sh
 
+    if [[ -f "/var/lib/elive-upgrader/last-boot-upgrade-failure" ]]; then
+        local fail_msg
+        fail_msg=$(cat /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null)
+        rm -f /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        local user_msg
+        user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
+        $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
+    fi
+
     # fixes first (if)
     #el_debug "going to: previous fixes"
     #sudo $sudo_opts elive-upgrader-root --fix

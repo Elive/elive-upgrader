@@ -255,9 +255,18 @@ main() {
         rm -f "$err_log"
         el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
         echo "Check logs at /var/log/debian-upgrade-*.log for details"
-        restore_non_systemd_gettys
-        # Don't clean up state - allow retry on next boot
-        exit "$exit_code"
+        
+        echo "Safely cancelling boot-time upgrade to prevent boot loop..."
+        if [ -x "$SCRIPT_PATH" ]; then
+            "$SCRIPT_PATH" --cancel || true
+        fi
+        cleanup_and_disable
+        
+        # Create a notification flag file so the user is notified of the failure upon login
+        mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
+        echo "$err_msg" > /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        
+        exit 0
     fi
     rm -f "$err_log"
 

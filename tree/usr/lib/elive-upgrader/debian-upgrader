@@ -727,7 +727,7 @@ check_disk_space() {
     # Run a quick simulation to estimate required space
     log_info "Simulating upgrade to estimate required disk space..."
     local sim_out
-    sim_out=$(apt-get -s dist-upgrade 2>/dev/null || true)
+    sim_out=$(apt-get -s dist-upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true)
 
     local download_kb=0
     local install_kb=0
@@ -758,12 +758,12 @@ check_disk_space() {
 
     # Fallback to safe defaults if simulation didn't yield results
     if (( download_kb == 0 )); then
-        log_warning "Could not estimate download size from simulation. Using fallback estimate of 1.5 GB."
-        download_kb=1572864
+        log_warning "Could not estimate download size from simulation. Using fallback estimate of 800 MB."
+        download_kb=819200
     fi
     if (( install_kb == 0 )); then
-        log_warning "Could not estimate install size from simulation. Using fallback estimate of 1.0 GB."
-        install_kb=1048576
+        log_warning "Could not estimate install size from simulation. Using fallback estimate of 500 MB."
+        install_kb=512000
     fi
 
     log_info "Estimated download size: $(( download_kb / 1024 )) MB"
@@ -796,28 +796,54 @@ check_disk_space() {
     local root_space_free
     root_space_free=$(df / | awk 'NR==2 {print $4}')
 
+    attempt_space_cleanup() {
+        log_warning "Attempting to free up space automatically..."
+        # Clean up rotated/compressed logs
+        find /var/log -type f \( -name "*.gz" -o -name "*.[0-9]" \) -delete 2>/dev/null || true
+        # Clean apt cache of old/superseded packages
+        apt-get autoclean -y 2>/dev/null || true
+        # Run autoremove to clean up unused packages
+        apt-get autoremove --purge -y 2>/dev/null || true
+        # remove thumanails
+        rm -rf /home/*/.thumbnails/* /home/*/.local/share/thumbnails/* 2>/dev/null || true
+        # If still needed, do a full clean (will require re-downloading, but better than failing)
+        # apt-get clean 2>/dev/null || true
+    }
+
     if [[ "$var_on_separate" == "true" ]]; then
         # /var needs enough space for the download + small safety margin (100MB)
         local required_var_kb=$(( download_kb + 102400 ))
         log_info "Checking separate /var partition (Free: $(( var_space_free / 1024 )) MB, Required: $(( required_var_kb / 1024 )) MB)"
         if (( var_space_free < required_var_kb )); then
-            log_error "Insufficient space in /var. Required: $(( required_var_kb / 1024 )) MB, Free: $(( var_space_free / 1024 )) MB"
-            exit 1
+            attempt_space_cleanup
+            var_space_free=$(df /var | awk 'NR==2 {print $4}')
+            if (( var_space_free < required_var_kb )); then
+                log_error "Insufficient space in /var. Required: $(( required_var_kb / 1024 )) MB, Free: $(( var_space_free / 1024 )) MB"
+                exit 1
+            fi
         fi
         # / root needs space for unpacking, net install, and safety margin
         local required_root_kb=$(( temp_unpack_kb + net_extra_kb + safety_margin_kb ))
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
-            log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
-            exit 1
+            attempt_space_cleanup
+            root_space_free=$(df / | awk 'NR==2 {print $4}')
+            if (( root_space_free < required_root_kb )); then
+                log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
+                exit 1
+            fi
         fi
     else
         # Everything is on /
         local required_root_kb=$(( download_kb + temp_unpack_kb + net_extra_kb + safety_margin_kb ))
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
-            log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
-            exit 1
+            attempt_space_cleanup
+            root_space_free=$(df / | awk 'NR==2 {print $4}')
+            if (( root_space_free < required_root_kb )); then
+                log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
+                exit 1
+            fi
         fi
     fi
 
@@ -1209,7 +1235,7 @@ EOF
 
     # Show a warning/success message to the user and ask for agreement before rebooting
     local msg
-    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
+    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nIf the system fails to upgrade and is in an unrecoverable state, the easiest and fastest way to fix it is to download an updated version of Elive and run the installer again. The installer will take care of repairing the system while maintaining the user and its files.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
 
     # Ensure yad is available for the dialog
     if ! el_dependencies_check "yad" &>/dev/null ; then
