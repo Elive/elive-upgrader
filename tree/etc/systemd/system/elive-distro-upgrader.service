@@ -15,24 +15,14 @@ ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 Type=oneshot
 EnvironmentFile=-/etc/default/elive-distro-upgrade
 
-# Validate state before starting: check flags, clean up if invalid or target reached
-# This acts as a self-repair mechanism for stale or malformed state
-# IMPORTANT: systemd EnvironmentFile does NOT strip quotes from values, so we
-# must strip them manually. The state file uses quoted values like UPGRADE_ENABLED="yes"
-# which systemd reads as literally "yes" (with quotes).
 ExecStartPre=/bin/bash -c '\
     set -e; \
     DEFAULTS_FILE="/etc/default/elive-distro-upgrade"; \
     LOCK_FILE="/tmp/.debian-upgrader.lock"; \
-    \
-    # Strip surrounding double-quotes from environment variables \
-    # (systemd EnvironmentFile does not do this) \
     UPGRADE_ENABLED="${UPGRADE_ENABLED//\"}"; \
     UPGRADE_IN_PROGRESS="${UPGRADE_IN_PROGRESS//\"}"; \
     TARGET_CODENAME="${TARGET_CODENAME//\"}"; \
     REBOOT_COUNT="${REBOOT_COUNT//\"}"; \
-    \
-    # Function to map version to codename \
     version_to_codename() { \
         case "$1" in \
             15|15.*) echo "duke" ;; \
@@ -44,45 +34,33 @@ ExecStartPre=/bin/bash -c '\
             *) echo "$1" | grep -oE "^[a-z]+" | head -1 ;; \
         esac; \
     }; \
-    \
-    # Function to clean up stale state \
     cleanup_state() { \
         echo "Cleaning up stale upgrade state"; \
         rm -f "$DEFAULTS_FILE"; \
         rm -f "$LOCK_FILE"; \
         systemctl daemon-reload 2>/dev/null || true; \
     }; \
-    \
-    # Validate UPGRADE_ENABLED \
     if [[ "$UPGRADE_ENABLED" != "yes" ]]; then \
         echo "UPGRADE_ENABLED is not yes (value: \"$UPGRADE_ENABLED\"), cleaning up state file"; \
         cleanup_state; \
         exit 1; \
     fi; \
-    \
-    # Validate UPGRADE_IN_PROGRESS \
     if [[ "$UPGRADE_IN_PROGRESS" != "yes" ]]; then \
         echo "UPGRADE_IN_PROGRESS is not yes (value: \"$UPGRADE_IN_PROGRESS\"), cleaning up state file"; \
         cleanup_state; \
         exit 1; \
     fi; \
-    \
-    # Validate TARGET_CODENAME is set \
     if [[ -z "$TARGET_CODENAME" ]]; then \
         echo "TARGET_CODENAME is empty, cleaning up malformed state file"; \
         cleanup_state; \
         exit 1; \
     fi; \
-    \
-    # Safety: check reboot count to prevent infinite loops \
     if [[ "${REBOOT_COUNT:-0}" -ge 20 ]] 2>/dev/null; then \
         echo "FATAL: Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."; \
         echo "Check logs at /var/log/debian-upgrade-*.log for details."; \
         cleanup_state; \
         exit 1; \
     fi; \
-    \
-    # Check if target already reached (self-repair for completed upgrades) \
     current_ver=$(cat /etc/debian_version 2>/dev/null | cut -d"." -f1); \
     current_cn=$(version_to_codename "$current_ver"); \
     if [[ -n "$current_cn" && "$current_cn" == "$TARGET_CODENAME" ]]; then \
@@ -90,15 +68,9 @@ ExecStartPre=/bin/bash -c '\
         cleanup_state; \
         exit 1; \
     fi; \
-    \
-    # Clean stale lock files from crashed upgrades \
     rm -f "$LOCK_FILE" 2>/dev/null || true; \
-    \
     echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"'
 
-# Run the upgrade - exit code 0 means success (may have rebooted), exit code 1 means skip/abort
-# Note: We source the defaults file directly in bash (rather than relying on
-# systemd EnvironmentFile) so that quoted values are handled correctly.
 ExecStart=/bin/bash -c '\
     set -e; \
     DEFAULTS_FILE="/etc/default/elive-distro-upgrade"; \
@@ -106,7 +78,6 @@ ExecStart=/bin/bash -c '\
         echo "State file removed - upgrade already completed or cancelled"; \
         exit 1; \
     fi; \
-    # Source the file in bash which correctly handles quoted values \
     . "$DEFAULTS_FILE"; \
     if [[ -z "$TARGET_CODENAME" ]]; then \
         echo "TARGET_CODENAME is empty - nothing to do"; \
