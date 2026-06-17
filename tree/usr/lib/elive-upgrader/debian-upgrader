@@ -46,8 +46,7 @@ export TEXTDOMAIN
 #   export TERM=linux
 #
 #   # Replace codenames (e.g., bookworm to trixie)
-#   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list
-#   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list.d/*
+#   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list /etc/apt/sources.list.d/*
 #
 #   apt-get update
 #   apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
@@ -323,21 +322,37 @@ upgrade_state_increment_reboot() {
         if [[ -n "$original_version" ]]; then
             local original_codename=${DEBIAN_VERSIONS[$original_version]:-}
             if [[ -n "$original_codename" ]]; then
-                log_info "Attempting to restore sources to $original_codename..."
+                log_info "Attempting to restore sources, preferences, and configurations to $original_codename..."
                 current_codename="$original_codename"
                 # Best-effort restore - don't fail if this doesn't work
-                if [[ -f /etc/apt/sources.list ]]; then
-                    local target_cn
-                    target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
-                    sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
-                fi
-                for file in /etc/apt/sources.list.d/*; do
-                    if [[ -f "$file" ]]; then
-                        local target_cn
-                        target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
-                        sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+                local target_cn
+                target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
+                if [[ -n "$target_cn" ]]; then
+                    if [[ -f /etc/apt/sources.list ]]; then
+                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
                     fi
-                done
+                    for file in /etc/apt/sources.list.d/*; do
+                        if [[ -f "$file" ]]; then
+                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+                        fi
+                    done
+                    if [[ -f /etc/apt/preferences ]]; then
+                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/preferences 2>/dev/null || true
+                    fi
+                    for file in /etc/apt/preferences.d/*; do
+                        if [[ -f "$file" ]]; then
+                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+                        fi
+                    done
+                    if [[ -f /etc/apt/apt.conf ]]; then
+                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/apt.conf 2>/dev/null || true
+                    fi
+                    for file in /etc/apt/apt.conf.d/*; do
+                        if [[ -f "$file" ]]; then
+                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+                        fi
+                    done
+                fi
             fi
         fi
         disable_boot_upgrade
@@ -654,7 +669,7 @@ update_sources() {
         return 0
     fi
 
-    log_info "Updating APT sources from $current_codename to $codename..."
+    log_info "Updating APT sources and preferences from $current_codename to $codename..."
 
     # Direct sed replacement in sources.list
     if [[ -f /etc/apt/sources.list ]]; then
@@ -670,7 +685,33 @@ update_sources() {
         fi
     done
 
-    log_info "APT sources updated from $current_codename to $codename"
+    # Direct sed replacement in preferences
+    if [[ -f /etc/apt/preferences ]]; then
+        cp /etc/apt/preferences "/etc/apt/preferences.bak.$(date +%s)" 2>/dev/null || true
+        sed -i "s|$current_codename|$codename|g" /etc/apt/preferences
+    fi
+
+    # Direct sed replacement in all files under preferences.d/
+    for file in /etc/apt/preferences.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$current_codename|$codename|g" "$file"
+        fi
+    done
+
+    # Direct sed replacement in apt.conf
+    if [[ -f /etc/apt/apt.conf ]]; then
+        cp /etc/apt/apt.conf "/etc/apt/apt.conf.bak.$(date +%s)" 2>/dev/null || true
+        sed -i "s|$current_codename|$codename|g" /etc/apt/apt.conf
+    fi
+
+    # Direct sed replacement in all files under apt.conf.d/
+    for file in /etc/apt/apt.conf.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$current_codename|$codename|g" "$file"
+        fi
+    done
+
+    log_info "APT sources, preferences, and configurations updated from $current_codename to $codename"
 }
 
 cleanup_packages() {
@@ -1247,16 +1288,32 @@ EOF
     log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
     log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
 
-    # Restore sources.list to the original codename to prevent external tools
+    # Restore sources.list and preferences to the original codename to prevent external tools
     # (e.g. elive-upgrader GUI) from showing premature "system has been
     # updated" notifications. The packages are already downloaded to
     # /var/cache/apt/archives/ and the boot-time upgrade script will
     # re-apply the target sources when it runs.
-    log_info "Restoring APT sources to $current_codename to prevent false update notifications..."
+    log_info "Restoring APT sources, preferences, and configurations to $current_codename to prevent false update notifications..."
     if [[ -f /etc/apt/sources.list ]]; then
         sed -i "s|$target_codename|$current_codename|g" /etc/apt/sources.list
     fi
     for file in /etc/apt/sources.list.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$target_codename|$current_codename|g" "$file"
+        fi
+    done
+    if [[ -f /etc/apt/preferences ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/apt/preferences
+    fi
+    for file in /etc/apt/preferences.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$target_codename|$current_codename|g" "$file"
+        fi
+    done
+    if [[ -f /etc/apt/apt.conf ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/apt/apt.conf
+    fi
+    for file in /etc/apt/apt.conf.d/*; do
         if [[ -f "$file" ]]; then
             sed -i "s|$target_codename|$current_codename|g" "$file"
         fi
@@ -1320,7 +1377,7 @@ disable_boot_upgrade() {
 }
 
 restore_sources_on_cancel() {
-    # Restore APT sources from target codename back to original codename
+    # Restore APT sources and preferences from target codename back to original codename
     # This is used when cancelling a boot upgrade that hasn't completed
     local target_cn
     target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
@@ -1329,7 +1386,7 @@ restore_sources_on_cancel() {
     local original_codename="${DEBIAN_VERSIONS[$original_version]:-}"
 
     if [[ -n "$target_cn" && -n "$original_codename" && "$target_cn" != "$original_codename" ]]; then
-        log_info "Restoring APT sources from $target_cn back to $original_codename..."
+        log_info "Restoring APT sources and preferences from $target_cn back to $original_codename..."
         if [[ -f /etc/apt/sources.list ]]; then
             sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
         fi
@@ -1338,9 +1395,25 @@ restore_sources_on_cancel() {
                 sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
             fi
         done
+        if [[ -f /etc/apt/preferences ]]; then
+            sed -i "s|$target_cn|$original_codename|g" /etc/apt/preferences 2>/dev/null || true
+        fi
+        for file in /etc/apt/preferences.d/*; do
+            if [[ -f "$file" ]]; then
+                sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+            fi
+        done
+        if [[ -f /etc/apt/apt.conf ]]; then
+            sed -i "s|$target_cn|$original_codename|g" /etc/apt/apt.conf 2>/dev/null || true
+        fi
+        for file in /etc/apt/apt.conf.d/*; do
+            if [[ -f "$file" ]]; then
+                sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
+            fi
+        done
         # Clean up apt cache after restoring sources
         apt-get clean 2>/dev/null || true
-        log_info "APT sources restored to $original_codename"
+        log_info "APT sources, preferences, and configurations restored to $original_codename"
     fi
 }
 
