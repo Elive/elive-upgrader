@@ -11,6 +11,22 @@ else
     export EL_REPORTS="0"
 fi
 el_make_environment
+
+# wrapper for fix strange languages
+locales_source(){
+    if [[ -s "/etc/default/locale" ]] ; then
+        source /etc/default/locale
+    fi
+    # wrapper for fix strange languages
+    case "$LANG" in
+        bg*|bn*|el*|hi*|ja*|ko*|ru*|sr*|te*|uk*|vi*|zh*)
+            export LC_ALL=en_US.UTF-8
+            export LANG=en_US.UTF-8
+            ;;
+    esac
+}
+locales_source
+
 . gettext.sh
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN

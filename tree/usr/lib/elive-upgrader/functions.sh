@@ -83,6 +83,56 @@ if [[ ! -d "$hooks_d" ]]; then
     hooks_d="/usr/lib/elive-upgrader/hooks-bookworm"
 fi
 
+has_pending_distro_upgrade_hook() {
+    local conf_ver version file upgrade_type
+    el_config_get
+    conf_ver="${conf_version_upgrader:-}"
+    if [[ -z "$conf_ver" ]] ; then
+        conf_ver="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-fixes:" | awk '{print $2}' )"
+        read -r conf_ver <<< "$conf_ver"
+    fi
+    if [[ -z "$conf_ver" ]] ; then
+        conf_ver="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-version:" | awk '{print $2}' )"
+        read -r conf_ver <<< "$conf_ver"
+    fi
+    el_debug "has_pending_distro_upgrade_hook: conf_ver=${conf_ver}"
+    [[ -z "$conf_ver" ]] && return 1
+
+    while read -ru 3 version
+    do
+        [[ -z "$version" ]] && continue
+        el_debug "has_pending_distro_upgrade_hook: checking version ${version} against ${conf_ver}"
+        if LC_ALL=C dpkg --compare-versions "$version" "gt" "$conf_ver" ; then
+            for file in "${hooks_d}/${version}/root/debian-upgrade" "${hooks_d}/${version}/user/debian-upgrade"; do
+                el_debug "has_pending_distro_upgrade_hook: checking file ${file}"
+                if [[ -f "$file" ]]; then
+                    upgrade_type=$(tr -d '\r\n ' < "$file")
+                    el_debug "has_pending_distro_upgrade_hook: upgrade_type=${upgrade_type}, is_betatester=${is_betatester}, is_premium_user=${is_premium_user}"
+                    case "$upgrade_type" in
+                        alpha)
+                            if [[ "${is_betatester:-0}" -eq 1 ]] ; then
+                                el_debug "has_pending_distro_upgrade_hook: matched alpha"
+                                return 0
+                            fi
+                            ;;
+                        beta)
+                            if [[ "${is_premium_user:-0}" -eq 1 ]] ; then
+                                el_debug "has_pending_distro_upgrade_hook: matched beta"
+                                return 0
+                            fi
+                            ;;
+                        stable)
+                            el_debug "has_pending_distro_upgrade_hook: matched stable"
+                            return 0
+                            ;;
+                    esac
+                fi
+            done
+        fi
+    done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V )"
+    return 1
+}
+
 show_help(){
     echo "Usage:
 elive-upgrader                                  upgrades your system with everything needed
@@ -160,6 +210,11 @@ upgrade_system_delayed(){
     fi
 
     if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
+        if has_pending_distro_upgrade_hook ; then
+            el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
+            return 1
+        fi
+
         # get number of available updates
         num_updates="$( sudo elive-upgrader-root --updates-available )"
         el_debug "upgrades found: $num_updates"

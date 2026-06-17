@@ -201,38 +201,42 @@ upgrade_system(){
             apt_get update -q=2
         fi
 
-        # check
-        if ! [[ "$( updates_available_show )" -gt 0 ]] ; then
-            # No regular updates available - check if a distribution upgrade to a newer Debian release is possible
-            local _current_ver _next_codename
-            _current_ver="$( cat /etc/debian_version 2>/dev/null | cut -d'.' -f1 )"
-            if ! [[ "$_current_ver" =~ ^[0-9]+$ ]]; then
-                local current_release_full
-                current_release_full="$( cat /etc/debian_version 2>/dev/null )"
-                if [[ "$current_release_full" == *"bullseye"* ]]; then
-                    _current_ver=11
-                elif [[ "$current_release_full" == *"bookworm"* ]]; then
-                    _current_ver=12
-                elif [[ "$current_release_full" == *"trixie"* ]]; then
-                    _current_ver=13
-                elif [[ "$current_release_full" == *"forky"* ]]; then
-                    _current_ver=14
-                fi
+        # Check for distro upgrade first as a priority
+        local _current_ver _next_codename
+        _current_ver="$( cat /etc/debian_version 2>/dev/null | cut -d'.' -f1 )"
+        if ! [[ "$_current_ver" =~ ^[0-9]+$ ]]; then
+            local current_release_full
+            current_release_full="$( cat /etc/debian_version 2>/dev/null )"
+            if [[ "$current_release_full" == *"bullseye"* ]]; then
+                _current_ver=11
+            elif [[ "$current_release_full" == *"bookworm"* ]]; then
+                _current_ver=12
+            elif [[ "$current_release_full" == *"trixie"* ]]; then
+                _current_ver=13
+            elif [[ "$current_release_full" == *"forky"* ]]; then
+                _current_ver=14
             fi
-            case "$_current_ver" in
-                11) _next_codename="bookworm" ;;
-                12) _next_codename="trixie" ;;
-                13) _next_codename="forky" ;;
-                14) _next_codename="duke" ;;
-                *) _next_codename="" ;;
-            esac
-            if [[ -n "$_next_codename" ]] ; then
-                el_info "$( eval_gettext "No regular updates available, but a distribution upgrade is available" )"
+        fi
+        case "$_current_ver" in
+            11) _next_codename="bookworm" ;;
+            12) _next_codename="trixie" ;;
+            13) _next_codename="forky" ;;
+            14) _next_codename="duke" ;;
+            *) _next_codename="" ;;
+        esac
+        if [[ -n "$_next_codename" ]] ; then
+            local repo_url="https://repo.${_next_codename}.elive.elivecd.org/dists/${_next_codename}/Release"
+            if curl --output /dev/null --silent --head --fail "$repo_url"; then
+                el_info "A distribution upgrade to $_next_codename is available."
                 el_info "Enabling distro upgrade to $_next_codename..."
                 if /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$_next_codename" ; then
                     return 0
                 fi
             fi
+        fi
+
+        # check
+        if ! [[ "$( updates_available_show )" -gt 0 ]] ; then
             el_info "$( eval_gettext "No updates available" )"
             return 0
         fi

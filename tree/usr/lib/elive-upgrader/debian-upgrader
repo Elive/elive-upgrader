@@ -19,6 +19,27 @@ export TEXTDOMAIN
 # ==============================================================================
 # Debian Upgrade Script
 # Uses tmux for session management and runs non-interactively
+#
+# To manually simulate/run the upgrade in the same way:
+#   export DEBIAN_FRONTEND=noninteractive
+#   export DEBIAN_PRIORITY=critical
+#   export DEBCONF_NONINTERACTIVE_SEEN=true
+#   export DEBCONF_NOWARNINGS=true
+#   export UCF_FORCE_CONFFOLD=1
+#   export LC_ALL=C
+#   export TERM=linux
+#
+#   # Replace codenames (e.g., bookworm to trixie)
+#   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list
+#   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list.d/*
+#
+#   apt-get update
+#   apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+#   apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+#       --allow-downgrades --allow-remove-essential --allow-change-held-packages \
+#       -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
+#   apt-get autoremove --purge -y
+#   apt-get clean
 # ==============================================================================
 
 # Whether to use plymouth for boot-time messages.

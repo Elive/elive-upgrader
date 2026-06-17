@@ -269,11 +269,15 @@ main(){
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
     if ((is_force_upgrade)) ; then
         el_debug "beta test mode: checking for upgrades"
-        num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root --updates-available )"
-        if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
-            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
-                if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade --noaptupdate ; then
-                    was_anything_updated=1
+        if has_pending_distro_upgrade_hook ; then
+            el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
+        else
+            num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root --updates-available )"
+            if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
+                if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
+                    if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade --noaptupdate ; then
+                        was_anything_updated=1
+                    fi
                 fi
             fi
         fi
