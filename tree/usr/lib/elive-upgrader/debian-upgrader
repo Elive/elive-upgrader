@@ -26,15 +26,19 @@ set -e  # Exit on any error
 BOOT_MODE="false"
 
 # Source LSB functions for boot mode logging
-if [[ "$BOOT_MODE" == "true" ]]; then
-    if [[ -f /lib/lsb/init-functions ]]; then
-        . /lib/lsb/init-functions
-    else
-        # Provide dummy LSB functions if they don't exist
-        log_action_msg() { echo " * $*"; }
-        log_warning_msg() { echo " ! WARNING: $*"; }
-        log_failure_msg() { echo " ! FAILURE: $*"; }
-    fi
+if [[ -f /lib/lsb/init-functions ]]; then
+    . /lib/lsb/init-functions
+fi
+
+# Provide dummy LSB functions if they don't exist/weren't loaded
+if ! command -v log_action_msg &>/dev/null; then
+    log_action_msg() { echo " * $*"; }
+fi
+if ! command -v log_warning_msg &>/dev/null; then
+    log_warning_msg() { echo " ! WARNING: $*"; }
+fi
+if ! command -v log_failure_msg &>/dev/null; then
+    log_failure_msg() { echo " ! FAILURE: $*"; }
 fi
 
 # Debian version mapping

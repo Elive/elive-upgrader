@@ -109,6 +109,17 @@ displaytime(){
 
 
 notify_user_system_updated(){
+    # If a distro upgrade is scheduled/in progress but not yet completed, do not notify yet
+    if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
+        local upgrade_enabled upgrade_completed
+        upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+        upgrade_completed="$(grep "^UPGRADE_COMPLETED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+        if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_completed" != "yes" ]] ; then
+            el_info "Distro upgrade is scheduled or in progress. Suppressing system updated notification."
+            return 0
+        fi
+    fi
+
     hour="$(date +%k)"
     if [[ "${hour}" -ge "21" ]] || [[ "$hour" -lt "8" ]] ; then
         el_explain 2 "ignoring reproduction of sound because we may be sleeping at this hour"
