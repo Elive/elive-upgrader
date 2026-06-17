@@ -100,7 +100,7 @@ draw_banner() {
     local len=${#msg}
     local border=""
     for ((i=0; i<len+4; i++)); do border="${border}="; done
-    
+
     if [[ "$BOOT_MODE" == "true" && "$USE_PLYMOUTH" == "true" ]]; then
         log_action_msg "$msg"
     else
@@ -150,7 +150,7 @@ start_warning_loop() {
             echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" > "$target_out" 2>/dev/null || true
             echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" > "$target_out" 2>/dev/null || true
             echo -e "${RED}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
-            
+
             log_warning "Upgrade is still in progress. Do NOT reboot or power off!"
         done
     ) &
@@ -1160,21 +1160,15 @@ EOF
     local msg
     msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
 
+    # Ensure yad is available for the dialog
+    if ! el_dependencies_check "yad" &>/dev/null ; then
+        el_dependencies_install "yad"
+    fi
+
     while true; do
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
+            $yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
                 --button="$(eval_gettext "reboot now"):0" --button="$(eval_gettext "Cancel"):1"
-            if [[ $? -eq 0 ]]; then
-                break
-            fi
-        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
-            zenity --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" \
-                --ok-label="$(eval_gettext "reboot now")" --cancel-label="$(eval_gettext "Cancel")"
-            if [[ $? -eq 0 ]]; then
-                break
-            fi
-        elif [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]]; then
-            $guitool --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")"
             if [[ $? -eq 0 ]]; then
                 break
             fi
@@ -1279,7 +1273,7 @@ main_upgrade() {
     echo -e "${YELLOW}${BOLD}      )(__)(  )  (  \  /  ) _)    ) \/ ( ) __/ ) _ ( )   //    \) \ (  ${NC}" > "$target_out" 2>/dev/null || true
     echo -e "${YELLOW}${BOLD}     (______)(_/\_)  \/  (____)   \____/(__)  (____/(__\_)\_/\_/(____/  ${NC}" > "$target_out" 2>/dev/null || true
     echo -e "${MAGENTA}${BOLD}**********************************************************************${NC}" > "$target_out" 2>/dev/null || true
-    
+
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
     log_info "Please do ${BOLD}NOT${NC} turn off or reboot your computer during this process."
