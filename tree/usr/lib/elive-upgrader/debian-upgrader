@@ -1240,7 +1240,8 @@ main_upgrade() {
         current_codename="$step_codename"
     done
 
-    # Clear upgrade state - we're done
+    # Mark upgrade as completed so the user is notified on next boot
+    upgrade_state_write "UPGRADE_COMPLETED" "yes"
     upgrade_state_set_upgrade_in_progress "no"
     upgrade_state_set_current_step ""
     upgrade_state_write "REBOOT_COUNT" "0"

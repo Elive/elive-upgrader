@@ -514,12 +514,13 @@ run_hooks(){
             ;;
     esac
 
-    # Verify if a distro upgrade was scheduled but did not complete successfully
+    # Verify if a distro upgrade was scheduled, completed, or is in progress
     if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
-        local upgrade_enabled upgrade_in_progress target_codename current_codename
+        local upgrade_enabled upgrade_in_progress target_codename current_codename upgrade_completed
         upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
         upgrade_in_progress="$(grep "^UPGRADE_IN_PROGRESS=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
         target_codename="$(grep "^TARGET_CODENAME=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
+        upgrade_completed="$(grep "^UPGRADE_COMPLETED=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
 
         case "$( cat /etc/debian_version )" in
             15.*|"duke"*) current_codename="duke" ;;
@@ -530,6 +531,19 @@ run_hooks(){
             10.*|"buster"*) current_codename="buster" ;;
             *) current_codename="unknown" ;;
         esac
+
+        # If upgrade is completed, notify the user and clean up
+        if [[ "$upgrade_completed" = "yes" ]] ; then
+            if [[ "$mode" = "user" ]] && [[ "$prepost" = "post" ]] ; then
+                el_info "Distro upgrade completed successfully. Notifying user."
+                notify_user_system_updated
+                rm -f "/etc/default/elive-distro-upgrade"
+            elif [[ "$mode" = "root" ]] && [[ "$prepost" = "post" ]] ; then
+                # Root cleanup fallback if user mode didn't run
+                rm -f "/etc/default/elive-distro-upgrade"
+            fi
+            return 0
+        fi
 
         # If upgrade is enabled, in progress, and we haven't reached the target yet,
         # the upgrade is still running (possibly across reboots) - don't reset state
@@ -559,13 +573,6 @@ run_hooks(){
                     el_config_save "conf_version_upgrader"
                 fi
             fi
-        fi
-
-        # If we've reached the target, the upgrade completed successfully
-        if [[ "$upgrade_enabled" = "yes" ]] && [[ -n "$target_codename" ]] && [[ "$current_codename" = "$target_codename" ]] ; then
-            el_info "Distro upgrade to $target_codename completed successfully. Cleaning up upgrade state."
-            rm -f "/etc/default/elive-distro-upgrade"
-            # Don't disable systemd/init here since the debian-upgrader should have already done so
         fi
     fi
 
