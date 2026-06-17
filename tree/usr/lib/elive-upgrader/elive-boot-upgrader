@@ -213,6 +213,13 @@ main() {
         fi
     fi
 
+    echo "Rebooting system to apply changes..."
+    sync
+    if command -v systemctl &>/dev/null; then
+        systemctl reboot --no-block || systemctl reboot || reboot || reboot -f
+    else
+        reboot || reboot -f
+    fi
     exit 0
 }
 

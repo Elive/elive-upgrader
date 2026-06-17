@@ -356,6 +356,16 @@ log_info() {
     fi
 }
 
+trigger_reboot() {
+    log_info "Rebooting now..."
+    sync
+    if command -v systemctl &>/dev/null; then
+        systemctl reboot --no-block || systemctl reboot || reboot || /sbin/reboot || systemctl reboot -f || reboot -f
+    else
+        reboot || /sbin/reboot || reboot -f
+    fi
+}
+
 log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         if [[ "$USE_PLYMOUTH" == "true" ]]; then
@@ -1282,8 +1292,7 @@ main_upgrade() {
             release_lock
             log_info "Rebooting in 5 seconds..."
             for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
-            log_info "Rebooting now."
-            /sbin/reboot
+            trigger_reboot
             # If reboot fails, exit cleanly
             log_error "Reboot failed. Please reboot manually."
             exit 0
@@ -1420,8 +1429,7 @@ main_upgrade() {
         log_info "Upgrade completed successfully!"
         log_info "Rebooting in 5 seconds..."
         for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
-        log_info "Rebooting now."
-        /sbin/reboot
+        trigger_reboot
         # If reboot fails, exit cleanly
         log_error "Reboot failed. Please reboot manually."
         exit 0
