@@ -1156,6 +1156,10 @@ EOF
         fi
     done
 
+    if command -v systemctl &>/dev/null; then
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+
     # Show a warning/success message to the user and ask for agreement before rebooting
     local msg
     msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
@@ -1267,12 +1271,6 @@ main_upgrade() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         target_out="/dev/console"
     fi
-    echo -e "${MAGENTA}${BOLD}**********************************************************************${NC}" > "$target_out" 2>/dev/null || true
-    echo -e "${RED}${BOLD}      __  __  _  _  _  _  ____     _  _  ____  ___  ____   __  ____   ${NC}" > "$target_out" 2>/dev/null || true
-    echo -e "${RED}${BOLD}     (  )(  )( \/ )( \/ )(  __)   / )( \(  _ \(  _ \(  _ \ / _\(    \  ${NC}" > "$target_out" 2>/dev/null || true
-    echo -e "${YELLOW}${BOLD}      )(__)(  )  (  \  /  ) _)    ) \/ ( ) __/ ) _ ( )   //    \) \ (  ${NC}" > "$target_out" 2>/dev/null || true
-    echo -e "${YELLOW}${BOLD}     (______)(_/\_)  \/  (____)   \____/(__)  (____/(__\_)\_/\_/(____/  ${NC}" > "$target_out" 2>/dev/null || true
-    echo -e "${MAGENTA}${BOLD}**********************************************************************${NC}" > "$target_out" 2>/dev/null || true
 
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
