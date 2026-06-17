@@ -1129,6 +1129,39 @@ enable_boot_upgrade_conf() {
         exit 1
     fi
 
+    log_info "Simulating upgrade to verify compatibility..."
+    if ! apt-get -s dist-upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages >/dev/null 2>&1; then
+        log_error "Upgrade simulation failed! The upgrade cannot be performed safely."
+
+        # Restore sources
+        if [[ -d "$BACKUP_DIR/sources.list.d" ]]; then
+            rm -rf /etc/apt/sources.list.d
+            cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
+        fi
+        if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
+            cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
+        fi
+
+        log_info "Restoring package lists back to normal..."
+        apt-get update >/dev/null 2>&1 || true
+
+        # Disable boot upgrade trigger
+        disable_boot_upgrade
+
+        # Show message to user
+        local fail_msg
+        fail_msg="$(eval_gettext "The upgrade simulation failed. This usually means there are conflicting packages or broken dependencies that prevent a safe upgrade.\n\nTo upgrade your system, please download a new Elive ISO and perform a normal reinstall in upgrade mode, which will keep your files and settings.")"
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            # note the variable "$yad" comes from elive-tools functions which is a wrapper for yad
+            $yad --error --text="$fail_msg" --title="$(eval_gettext "Upgrade Simulation Failed")" --width=450
+        else
+            echo -e "\n*** ${RED}ERROR${NC} ***"
+            echo -e "$fail_msg"
+            echo -e "*****************\n"
+        fi
+        exit 1
+    fi
+
     log_info "Downloading packages (download-only)..."
     if ! apt-get dist-upgrade --download-only -y --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
         log_warning "Some packages failed to download. We will attempt to download remaining packages during boot."
@@ -1244,6 +1277,7 @@ EOF
 
     while true; do
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            # note the variable "$yad" comes from elive-tools functions which is a wrapper for yad
             $yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
                 --button="$(eval_gettext "reboot now"):0" --button="$(eval_gettext "Cancel"):1"
             if [[ $? -eq 0 ]]; then

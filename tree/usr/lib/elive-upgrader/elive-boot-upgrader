@@ -251,21 +251,35 @@ main() {
     # Handle exit code
     if [ "$exit_code" -ne 0 ]; then
         local err_msg
-        err_msg=$(cat "$err_log" | tail -n 10)
+        err_msg=$(cat "$err_log" 2>/dev/null || true)
         rm -f "$err_log"
+
+        # If empty due to script-level redirection, extract from the actual log file
+        if [ -z "$err_msg" ]; then
+            local latest_log
+            latest_log=$(ls -t /var/log/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)
+            if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
+                err_msg=$(grep -E "E:|Error:|Insufficient space|failed" "$latest_log" | tail -n 5 || tail -n 10 "$latest_log" || true)
+            fi
+        fi
+
+        if [ -z "$err_msg" ]; then
+            err_msg="Unknown error occurred during the boot upgrade process."
+        fi
+
         el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
         echo "Check logs at /var/log/debian-upgrade-*.log for details"
-        
+
         echo "Safely cancelling boot-time upgrade to prevent boot loop..."
         if [ -x "$SCRIPT_PATH" ]; then
             "$SCRIPT_PATH" --cancel || true
         fi
         cleanup_and_disable
-        
+
         # Create a notification flag file so the user is notified of the failure upon login
         mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
         echo "$err_msg" > /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
-        
+
         exit 0
     fi
     rm -f "$err_log"
