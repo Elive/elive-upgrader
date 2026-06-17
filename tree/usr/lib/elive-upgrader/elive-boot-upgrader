@@ -1,4 +1,21 @@
 #!/bin/bash
+SOURCE="$0"
+source /usr/lib/elive-tools/functions
+if el_check_version_is_days_recent 730; then
+    export FORCE_REPORTS="1"
+    export NOREPORTS="0"
+    export EL_REPORTS="1"
+else
+    export FORCE_REPORTS="0"
+    export NOREPORTS="1"
+    export EL_REPORTS="0"
+fi
+el_make_environment
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
+
+
 #
 # elive-boot-upgrader - Handles boot-time Debian distribution upgrades
 #
@@ -7,6 +24,16 @@
 #
 
 set -e
+
+source /usr/lib/elive-tools/functions 2>/dev/null || true
+
+# Fallback if elive-tools functions are not available
+if ! command -v el_error &>/dev/null; then
+    el_error() { echo "ERROR: $*" >&2; }
+fi
+if ! command -v el_warning &>/dev/null; then
+    el_warning() { echo "WARNING: $*" >&2; }
+fi
 
 DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
@@ -107,7 +134,7 @@ validate_upgrade_state() {
 
     # Safety: enforce reboot limit to prevent infinite loops
     if [ "${REBOOT_COUNT:-0}" -ge 20 ] 2>/dev/null; then
-        echo "FATAL: Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
+        el_error "Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
         echo "Check logs at /var/log/debian-upgrade-*.log for details."
         cleanup_and_disable
         return 1
@@ -146,7 +173,7 @@ main() {
 
     # Check if upgrade script exists
     if [ ! -x "$SCRIPT_PATH" ]; then
-        echo "ERROR: $SCRIPT_PATH not found or not executable"
+        el_error "$SCRIPT_PATH not found or not executable"
         cleanup_and_disable
         exit 1
     fi
@@ -154,17 +181,23 @@ main() {
     # Run the upgrade
     echo "Starting upgrade to $TARGET_CODENAME"
     set +e
-    "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME"
+    local err_log
+    err_log=$(mktemp)
+    "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME" 2> "$err_log"
     local exit_code=$?
     set -e
 
     # Handle exit code
     if [ "$exit_code" -ne 0 ]; then
-        echo "Upgrade exited with code $exit_code"
+        local err_msg
+        err_msg=$(cat "$err_log" | tail -n 10)
+        rm -f "$err_log"
+        el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
         echo "Check logs at /var/log/debian-upgrade-*.log for details"
         # Don't clean up state - allow retry on next boot
         exit "$exit_code"
     fi
+    rm -f "$err_log"
 
     echo "Upgrade completed successfully at $(date)"
 

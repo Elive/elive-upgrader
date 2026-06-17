@@ -7,8 +7,8 @@ ConditionPathExists=/etc/default/elive-distro-upgrade
 After=network.target local-fs.target syslog.target
 # Prevent the graphical interface / login manager from starting during the upgrade
 Before=graphical.target display-manager.service
-# Prevent running during shutdown/reboot to avoid conflicts
-Conflicts=shutdown.target reboot.target halt.target
+# Prevent running during shutdown/reboot to avoid conflicts, and prevent display manager from starting
+Conflicts=shutdown.target reboot.target halt.target display-manager.service
 # Don't run if the system is in emergency/rescue mode
 ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 

@@ -1,16 +1,30 @@
 #!/bin/bash
 SOURCE="$0"
-NOREPORTS="0"
 source /usr/lib/elive-tools/functions
-EL_REPORTS="1"
+if el_check_version_is_days_recent 730; then
+    export FORCE_REPORTS="1"
+    export NOREPORTS="0"
+    export EL_REPORTS="1"
+else
+    export FORCE_REPORTS="0"
+    export NOREPORTS="1"
+    export EL_REPORTS="0"
+fi
 el_make_environment
 . gettext.sh
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
 
+# ==============================================================================
 # Debian Upgrade Script
 # Uses tmux for session management and runs non-interactively
+# ==============================================================================
+
+# Whether to use plymouth for boot-time messages.
+# Set to "true" to display messages in Plymouth.
+# Set to "false" to display beautiful, friendly messages directly on the TTY/console.
+USE_PLYMOUTH="true"
 
 # Force non-interactive frontend and priority to prevent any prompts/freezes
 export DEBIAN_FRONTEND=noninteractive
@@ -21,7 +35,7 @@ export UCF_FORCE_CONFFOLD=1
 export LC_ALL=C
 export TERM=linux
 
-set -e  # Exit on any error
+# set -e disabled to prevent premature exits on minor failures
 
 BOOT_MODE="false"
 
@@ -70,23 +84,99 @@ UPGRADE_LOCK_FILE="/tmp/.debian-upgrader.lock"
 UPGRADE_RECOVERY_FLAG="/etc/default/elive-distro-upgrade-recovery"
 
 # Colors for output
-if [[ "$BOOT_MODE" == "true" ]]; then
-    RED=''
-    GREEN=''
-    YELLOW=''
-    NC=''
-else
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
-    NC='\033[0m' # No Color
-fi
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Helper to draw a beautiful visual banner
+draw_banner() {
+    local msg="$1"
+    local color="${2:-$CYAN}"
+    local len=${#msg}
+    local border=""
+    for ((i=0; i<len+4; i++)); do border="${border}="; done
+    
+    if [[ "$BOOT_MODE" == "true" && "$USE_PLYMOUTH" == "true" ]]; then
+        log_action_msg "$msg"
+    else
+        local target_out="/dev/stdout"
+        if [[ "$BOOT_MODE" == "true" ]]; then
+            target_out="/dev/console"
+        fi
+        echo -e "${color}${border}${NC}" > "$target_out"
+        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}" > "$target_out"
+        echo -e "${color}${border}${NC}" > "$target_out"
+    fi
+}
+
+disable_automatic_clean() {
+    if [[ -f /etc/apt/apt.conf.d/99AutomaticClean.conf ]]; then
+        log_info "Temporarily disabling automatic APT cleaning..."
+        # Comment out Clean always lines if they are not already commented
+        sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+    fi
+}
+
+enable_automatic_clean() {
+    if [[ -f /etc/apt/apt.conf.d/99AutomaticClean.conf ]]; then
+        log_info "Re-enabling automatic APT cleaning..."
+        # Uncomment Clean always lines
+        sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+        sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
+    fi
+}
+
+# Background loop to periodically print warning messages
+start_warning_loop() {
+    (
+        while true; do
+            sleep 300
+            local target_out="/dev/stdout"
+            if [[ "$BOOT_MODE" == "true" ]]; then
+                target_out="/dev/console"
+            fi
+            echo -e "\n${RED}${BOLD}======================================================================${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "${RED}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
+            
+            log_warning "Upgrade is still in progress. Do NOT reboot or power off!"
+        done
+    ) &
+    WARNING_LOOP_PID=$!
+}
+
+stop_warning_loop() {
+    if [[ -n "${WARNING_LOOP_PID:-}" ]]; then
+        kill "$WARNING_LOOP_PID" 2>/dev/null || true
+        unset WARNING_LOOP_PID
+    fi
+}
 
 # Logging setup
 DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-/var/log/debian-upgrade-$(date +%Y%m%d-%H%M%S).log}"
 export DEBIAN_UPGRADE_LOGFILE
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
+
+copy_log_to_root() {
+    if [[ -f "$LOG_FILE" ]]; then
+        mkdir -p /root/upgrade-logs/ 2>/dev/null || true
+        cp -f "$LOG_FILE" /root/upgrade-logs/ 2>/dev/null || true
+        cp -f "$LOG_FILE" /root/ 2>/dev/null || true
+    fi
+}
 
 # Lock mechanism to prevent concurrent execution
 acquire_lock() {
@@ -179,6 +269,7 @@ upgrade_state_increment_reboot() {
     # Safety: if too many reboots, something is seriously wrong
     if (( count > 20 )); then
         log_error "Too many reboots during upgrade ($count). Aborting upgrade to prevent infinite loop."
+        copy_log_to_root
         upgrade_state_set_upgrade_in_progress "no"
         # Restore sources to the original codename to leave system in consistent state
         local original_version
@@ -255,7 +346,11 @@ validate_state_file() {
 
 log_info() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        log_action_msg "$1"
+        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+            log_action_msg "$1"
+        else
+            echo -e "  ${GREEN}[  OK  ]${NC} $1" >/dev/console
+        fi
     else
         echo -e "${GREEN}[INFO]${NC} $1"
     fi
@@ -263,14 +358,22 @@ log_info() {
 
 log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        log_warning_msg "$1"
+        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+            log_warning_msg "$1"
+        else
+            echo -e "  ${YELLOW}[ WARN ]${NC} $1" >/dev/console
+        fi
     fi
     el_warning "$1"
 }
 
 log_error() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        log_failure_msg "$1"
+        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+            log_failure_msg "$1"
+        else
+            echo -e "  ${RED}[ FAIL ]${NC} $1" >/dev/console
+        fi
     fi
     el_error "$1"
 }
@@ -348,28 +451,34 @@ safe_apt_run() {
     local attempt=1
     local max_attempts=3
     local exit_code=0
+    local err_log
+    err_log=$(mktemp)
     while (( attempt <= max_attempts )); do
-        # Run the command and capture exit code explicitly to avoid set -e issues
-        set +e
-        run_and_show_plymouth_on_boot "$@"
+        # Run the command and capture exit code explicitly
+        run_and_show_plymouth_on_boot "$@" 2> "$err_log"
         exit_code=$?
-        set -e
         if [[ "$exit_code" -eq 0 ]]; then
+            rm -f "$err_log"
             return 0
         fi
-        log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts."
+        local err_msg
+        err_msg=$(cat "$err_log" | tail -n 5)
+        log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts. Error: $err_msg"
         # Don't repair on the last attempt - just fail
         if (( attempt < max_attempts )); then
             repair_apt
         fi
         (( attempt++ ))
     done
-    log_error "Command failed permanently after $max_attempts attempts: $*"
+    local err_msg
+    err_msg=$(cat "$err_log" | tail -n 5)
+    rm -f "$err_log"
+    log_error "Command failed permanently after $max_attempts attempts: $*. Error: $err_msg"
     return "$exit_code"
 }
 
 run_and_show_plymouth_on_boot() {
-    if [[ "$BOOT_MODE" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
+    if [[ "$BOOT_MODE" == "true" ]] && [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
         # Run command, tee output to both stdout and plymouth
         # Use a subshell to contain pipefail and handle plymouth failures gracefully
         # IMPORTANT: we do NOT use "|| true" here because safe_apt_run needs the
@@ -383,7 +492,12 @@ run_and_show_plymouth_on_boot() {
             done
         )
     else
-        "$@"
+        if [[ "$BOOT_MODE" == "true" ]] && [[ "$USE_PLYMOUTH" != "true" ]]; then
+            # If not using plymouth, redirect output to the active console/TTY to ensure visibility
+            "$@" >/dev/console 2>&1
+        else
+            "$@"
+        fi
     fi
 }
 
@@ -426,7 +540,6 @@ backup_system() {
 check_current_release() {
     local current_release_full
     current_release_full=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
-    local current_version_number
     current_version_number=$(echo "$current_release_full" | cut -d'.' -f1)
 
     if [[ "$current_version_number" =~ ^[0-9]+$ ]]; then
@@ -508,10 +621,10 @@ cleanup_packages() {
 
     # Remove obsolete packages
     log_info "Removing obsolete packages..."
-    run_and_show_plymouth_on_boot apt-get autoremove --purge -y
+    run_and_show_plymouth_on_boot apt-get autoremove --purge -y || true
 
     # Clean package cache
-    run_and_show_plymouth_on_boot apt-get clean
+    run_and_show_plymouth_on_boot apt-get clean || true
 
     # Remove non-Debian packages
     # Note: Elive packages are listead as non-Debian, so we skip this step
@@ -707,7 +820,7 @@ perform_upgrade() {
         log_info "Found older kernel packages to remove:"
         echo "$existing_kernel_packages"
         # shellcheck disable=SC2086
-        safe_apt_run apt-get remove --purge -y $existing_kernel_packages
+        safe_apt_run apt-get remove --purge -y $existing_kernel_packages || true
     else
         log_info "No older kernel packages found to remove."
     fi
@@ -749,10 +862,19 @@ perform_upgrade() {
     fi
 
     log_info "Rebuilding initramfs for all kernels..."
-    run_and_show_plymouth_on_boot update-initramfs -u -k all
+    if run_and_show_plymouth_on_boot update-initramfs -u -k all; then
+        log_info "Initramfs rebuilt successfully."
+    else
+        log_warning "Initramfs rebuild returned non-zero status. Attempting fallback rebuild..."
+        run_and_show_plymouth_on_boot update-initramfs -c -k all || log_error "Failed to rebuild initramfs!"
+    fi
 
     log_info "Updating GRUB configuration..."
-    run_and_show_plymouth_on_boot update-grub
+    if run_and_show_plymouth_on_boot update-grub; then
+        log_info "GRUB configuration updated successfully."
+    else
+        log_error "Failed to update GRUB configuration!"
+    fi
 }
 
 post_upgrade_cleanup() {
@@ -872,6 +994,9 @@ enable_boot_upgrade_conf() {
 
     # Backup system configuration before changing sources
     backup_system
+
+    # Disable automatic clean so downloaded packages are not deleted
+    disable_automatic_clean
 
     # Update sources to target codename to download packages
     # current_codename is set by check_current_release
@@ -1056,6 +1181,7 @@ disable_boot_upgrade() {
         log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
         upgrade_state_clear
     fi
+    enable_automatic_clean
 }
 
 restore_sources_on_cancel() {
@@ -1107,9 +1233,31 @@ main_upgrade() {
     fi
     TARGET_CODENAME=$1
 
-    log_info "Starting Debian upgrade to $TARGET_CODENAME"
+    # Show Elive logo if available
+    if command -v elive-logo-show &>/dev/null; then
+        elive-logo-show 2>/dev/null || true
+    fi
+
+    # Draw a highly visual, colorful banner
+    local target_out="/dev/stdout"
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        target_out="/dev/console"
+    fi
+    echo -e "${MAGENTA}${BOLD}**********************************************************************${NC}" > "$target_out" 2>/dev/null || true
+    echo -e "${RED}${BOLD}      __  __  _  _  _  _  ____     _  _  ____  ___  ____   __  ____   ${NC}" > "$target_out" 2>/dev/null || true
+    echo -e "${RED}${BOLD}     (  )(  )( \/ )( \/ )(  __)   / )( \(  _ \(  _ \(  _ \ / _\(    \  ${NC}" > "$target_out" 2>/dev/null || true
+    echo -e "${YELLOW}${BOLD}      )(__)(  )  (  \  /  ) _)    ) \/ ( ) __/ ) _ ( )   //    \) \ (  ${NC}" > "$target_out" 2>/dev/null || true
+    echo -e "${YELLOW}${BOLD}     (______)(_/\_)  \/  (____)   \____/(__)  (____/(__\_)\_/\_/(____/  ${NC}" > "$target_out" 2>/dev/null || true
+    echo -e "${MAGENTA}${BOLD}**********************************************************************${NC}" > "$target_out" 2>/dev/null || true
+    
+    draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
+    log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
+    log_info "Please do ${BOLD}NOT${NC} turn off or reboot your computer during this process."
+    draw_banner "PREPARING SYSTEM" "$CYAN"
 
     check_root
+    start_warning_loop
+    trap 'stop_warning_loop; release_lock' EXIT
     if [[ "$BOOT_MODE" == "false" ]]; then
         check_tmux
     fi
@@ -1126,6 +1274,7 @@ main_upgrade() {
         if [[ "$check_result" -eq 2 ]]; then
             # Target already reached - upgrade was completed
             log_info "Upgrade to $TARGET_CODENAME is already complete."
+            copy_log_to_root
             upgrade_state_set_upgrade_in_progress "no"
             upgrade_state_set_current_step ""
             upgrade_state_write "REBOOT_COUNT" "0"
@@ -1226,7 +1375,7 @@ main_upgrade() {
         upgrade_state_set_current_step "$step_codename"
         upgrade_state_set_upgrade_in_progress "yes"
 
-        log_info "--- Starting upgrade step to $step_codename ---"
+        draw_banner "STARTING UPGRADE STEP TO: $step_codename" "$YELLOW"
         run_pre_hooks "$step_codename"
 
         # If update_sources fails, abort to leave system in consistent state
@@ -1239,7 +1388,7 @@ main_upgrade() {
         perform_upgrade
         post_upgrade_cleanup
         run_post_hooks "$step_codename"
-        log_info "--- Completed upgrade step to $step_codename ---"
+        draw_banner "COMPLETED UPGRADE STEP TO: $step_codename" "$GREEN"
 
         # Update current_codename for the next iteration's update_sources
         current_codename="$step_codename"
@@ -1260,6 +1409,10 @@ main_upgrade() {
     fi
 
     verify_upgrade
+    copy_log_to_root
+    enable_automatic_clean
+
+    stop_warning_loop
 
     if [[ "$BOOT_MODE" == "true" ]]; then
         disable_boot_upgrade
@@ -1371,7 +1524,14 @@ main() {
     case "$1" in
         --enable-boot-upgrade)
             check_root
-            enable_boot_upgrade_conf "${2:-}"
+            if [[ -z "$TMUX" ]]; then
+                check_tmux
+                log_info "Starting pre-download in tmux session..."
+                tmux new-session -d -s elive-boot-pre-download "bash $0 $@"
+                tmux attach-session -t elive-boot-pre-download
+            else
+                enable_boot_upgrade_conf "${2:-}"
+            fi
             exit 0
             ;;
         --boot-mode)

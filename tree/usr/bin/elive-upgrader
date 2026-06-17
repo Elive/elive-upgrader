@@ -295,7 +295,21 @@ main(){
     fi
 
     if ((was_anything_updated)) ; then
-        notify_user_system_updated
+        local is_distro_upgrade_scheduled=0
+        if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
+            local upgrade_enabled upgrade_completed
+            upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+            upgrade_completed="$(grep "^UPGRADE_COMPLETED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+            if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_completed" != "yes" ]] ; then
+                is_distro_upgrade_scheduled=1
+            fi
+        fi
+
+        if ((is_distro_upgrade_scheduled)) ; then
+            el_info "Distro upgrade is scheduled or in progress. Suppressing system updated notification."
+        else
+            notify_user_system_updated
+        fi
     else
         el_info "$( eval_gettext "Your system is up to date." )"
     fi
