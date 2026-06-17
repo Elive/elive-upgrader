@@ -1535,8 +1535,11 @@ main() {
             if [[ -z "$TMUX" ]]; then
                 check_tmux
                 log_info "Starting pre-download in tmux session..."
-                tmux new-session -d -s elive-boot-pre-download "bash $0 $@"
-                tmux attach-session -t elive-boot-pre-download
+                tmux-attach-jobs "elive-upgrader" "distro-upgrade-predownload" "bash \"$0\" --enable-boot-upgrade \"$2\""
+                sleep 1 ; sync
+                if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                    urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                fi
             else
                 enable_boot_upgrade_conf "${2:-}"
             fi
@@ -1621,8 +1624,11 @@ main() {
             if [[ -z "$TMUX" ]]; then
                 log_info "Starting upgrade in tmux session..."
                 # Don't acquire lock in parent - the child tmux session will acquire it
-                tmux new-session -d -s elive-distro-upgrade "bash $0 $@"
-                tmux attach-session -t elive-distro-upgrade
+                tmux-attach-jobs "elive-upgrader" "distro-upgrade" "bash \"$0\" \"$@\""
+                sleep 1 ; sync
+                if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                    urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                fi
             else
                 # Already in tmux - acquire lock and run
                 acquire_lock
