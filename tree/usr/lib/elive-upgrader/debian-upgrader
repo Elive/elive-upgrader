@@ -1235,7 +1235,7 @@ EOF
 
     # Show a warning/success message to the user and ask for agreement before rebooting
     local msg
-    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nIf the system fails to upgrade and is in an unrecoverable state, the easiest and fastest way to fix it is to download an updated version of Elive and run the installer again. The installer will take care of repairing the system while maintaining the user and its files.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
+    msg="$( eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nIf the system fails to upgrade and is in an unrecoverable state, the easiest and fastest way to fix it is to download an updated version of Elive and run the installer again. The installer will take care of repairing the system while maintaining the user and its files.\n\nMake sure to read it before to continue.")"
 
     # Ensure yad is available for the dialog
     if ! el_dependencies_check "yad" &>/dev/null ; then
