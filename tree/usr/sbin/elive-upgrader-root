@@ -13,32 +13,44 @@
 # Hook Types & Execution Order:
 #   Inside the [root|user] directories, files are executed/processed in this order:
 #
-#   1. debian-upgrade
+#   1. pre-*.sh
+#      - Executed during the "pre" phase. Must be executable (chmod +x).
+#
+#   2. packages-to-remove.txt
+#      - List of packages to remove (one per line or space-separated).
+#
+#   3. packages-to-install.txt
+#      - List of packages to install (one per line or space-separated).
+#
+#   4. packages-to-upgrade.txt
+#      - List of packages to upgrade (only if already installed).
+#
+#   5. *.sh (Deprecated)
+#      - Executed if they don't start with "pre-" or "post-".
+#
+#   6. CHANGELOG.txt / pre-CHANGELOG.txt / post-CHANGELOG.txt
+#      - Text files containing release notes shown to the user.
+#
+#   7. post-*.sh
+#      - Executed during the "post" phase. Must be executable (chmod +x).
+#
+#   8. debian-upgrade
 #      - Contains the upgrade tier: "alpha", "beta", or "stable".
 #      - "alpha" requires the user to be a betatester (e.g., elive-upgrader --betatest).
 #      - "beta" requires the user to be a Premium user.
 #      - "stable" is available to all users.
 #
-#   2. pre-*.sh
-#      - Executed during the "pre" phase. Must be executable (chmod +x).
+#   9. debian-upgrade-packages-to-remove.txt
+#      - List of packages to remove specifically before a distro-upgrade.
 #
-#   3. packages-to-remove.txt
-#      - List of packages to remove (one per line or space-separated).
+#   10. debian-upgrade-pre-script.sh
+#      - Script executed specifically before starting a distro-upgrade.
 #
-#   4. packages-to-install.txt
-#      - List of packages to install (one per line or space-separated).
+#   11. debian-upgrade-packages-to-install.txt
+#      - List of packages to install specifically after a distro-upgrade.
 #
-#   5. packages-to-upgrade.txt
-#      - List of packages to upgrade (only if already installed).
-#
-#   6. *.sh (Deprecated)
-#      - Executed if they don't start with "pre-" or "post-".
-#
-#   7. CHANGELOG.txt / pre-CHANGELOG.txt / post-CHANGELOG.txt
-#      - Text files containing release notes shown to the user.
-#
-#   8. post-*.sh
-#      - Executed during the "post" phase. Must be executable (chmod +x).
+#   12. debian-upgrade-post-script.sh
+#      - Script executed specifically after completing a distro-upgrade.
 # ==============================================================================
 
 SOURCE="$0"
