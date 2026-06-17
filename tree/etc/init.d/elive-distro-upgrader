@@ -10,12 +10,10 @@
 #                    upgrade on boot, configured via /etc/default/elive-distro-upgrade.
 ### END INIT INFO
 
-# This script must be bash-compatible (not sh) due to using bash arrays and [[ ]] syntax
-
 . /lib/lsb/init-functions
 
 DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
-SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
+BOOT_UPGRADER="/usr/lib/elive-upgrader/elive-boot-upgrader"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
 
 # Read configuration
@@ -29,165 +27,36 @@ TARGET_CODENAME="${TARGET_CODENAME:-}"
 REBOOT_COUNT="${REBOOT_COUNT:-0}"
 CURRENT_STEP="${CURRENT_STEP:-}"
 
-# Map Debian version numbers to codenames
-debian_version_to_codename() {
-    local version="$1"
-    case "$version" in
-        15|15.*)  echo "duke" ;;
-        14|14.*)  echo "forky" ;;
-        13|13.*)  echo "trixie" ;;
-        12|12.*)  echo "bookworm" ;;
-        11|11.*)  echo "bullseye" ;;
-        10|10.*)  echo "buster" ;;
-        9|9.*)    echo "stretch" ;;
-        8|8.*)    echo "jessie" ;;
-        7|7.*)    echo "wheezy" ;;
-        *)
-            # Fallback: try to extract codename from version string
-            echo "$version" | grep -oE '^[a-z]+' | head -1
-            ;;
-    esac
-}
-
-# Get current Debian codename
-get_current_codename() {
-    local current_release_full
-    current_release_full="$(cat /etc/debian_version 2>/dev/null || echo "unknown")"
-    local current_version_number
-    current_version_number="$(echo "$current_release_full" | cut -d'.' -f1)"
-    debian_version_to_codename "$current_version_number"
-}
-
-# Check if the upgrade target has already been reached
-upgrade_check_target_reached() {
-    local target="$1"
-    local current_codename
-    current_codename="$(get_current_codename)"
-
-    if [ -n "$current_codename" ] && [ "$current_codename" = "$target" ]; then
-        return 0  # Target reached
-    fi
-    return 1  # Target not reached
-}
-
-# Clean up stale state - used for self-repair
-cleanup_stale_state() {
-    log_action_msg "Cleaning up stale upgrade state"
-    # Disable ourselves first to prevent re-triggering
-    if command -v update-rc.d &>/dev/null; then
-        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-    fi
-    rm -f "$DEFAULTS_FILE"
-    rm -f "$LOCK_FILE"
-}
-
 case "$1" in
     start)
-        # Self-repair: if state file is malformed or missing required values, clean up
-        if [ "$UPGRADE_ENABLED" = "yes" ] && [ -z "$TARGET_CODENAME" ]; then
-            log_failure_msg "UPGRADE_ENABLED is yes but TARGET_CODENAME is empty. Cleaning up malformed state."
-            cleanup_stale_state
+        log_daemon_msg "Starting Debian distribution upgrade" "elive-distro-upgrader"
+
+        if [ ! -x "$BOOT_UPGRADER" ]; then
+            log_failure_msg "$BOOT_UPGRADER not found or not executable"
             exit 1
         fi
 
-        if [ "$UPGRADE_ENABLED" != "yes" ]; then
-            if [ -f "$DEFAULTS_FILE" ]; then
-                log_action_msg "Debian upgrade disabled in $DEFAULTS_FILE."
-            fi
-            exit 0
-        fi
+        # Run the boot upgrader script
+        "$BOOT_UPGRADER"
+        exit_code=$?
 
-        if [ "$UPGRADE_IN_PROGRESS" != "yes" ]; then
-            log_action_msg "Debian upgrade is not marked as in-progress. Nothing to do."
-            exit 0
-        fi
-
-        if [ -z "$TARGET_CODENAME" ]; then
-            log_failure_msg "TARGET_CODENAME not set in $DEFAULTS_FILE."
-            cleanup_stale_state
-            exit 1
-        fi
-
-        # Check if target already reached (upgrade completed or was done manually)
-        if upgrade_check_target_reached "$TARGET_CODENAME" ; then
-            log_action_msg "Target $TARGET_CODENAME already reached. Cleaning up."
-            cleanup_stale_state
-            # Disable ourselves to prevent re-triggering
-            if command -v update-rc.d &>/dev/null; then
-                update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-            fi
-            exit 0
-        fi
-
-        # Safety: enforce reboot limit to prevent infinite loops
-        if [ "$REBOOT_COUNT" -ge 20 ] 2>/dev/null; then
-            log_failure_msg "Too many reboots during upgrade ($REBOOT_COUNT). Aborting to prevent infinite loop."
-            log_failure_msg "Please check the upgrade logs at /var/log/debian-upgrade-*.log"
-            cleanup_stale_state
-            exit 1
-        fi
-
-        # Clean up any stale lock files from crashed upgrades
-        rm -f "$LOCK_FILE" 2>/dev/null || true
-
-        log_daemon_msg "Starting Debian upgrade to $TARGET_CODENAME" "elive-distro-upgrader"
-        if [ ! -x "$SCRIPT_PATH" ]; then
-            log_failure_msg "$SCRIPT_PATH not found or not executable"
-            cleanup_stale_state
-            exit 1
-        fi
-
-        # Run the upgrade in boot mode. The script handles its own reboot.
-        # We run it directly (not as a daemon) since it manages its own lifecycle.
-        "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME"
-        local exit_code=$?
-
-        # If the script returned an error and didn't reboot, log it
         if [ "$exit_code" -ne 0 ]; then
             log_end_msg "$exit_code"
-            log_failure_msg "Upgrade script exited with code $exit_code"
-            log_failure_msg "Check logs at /var/log/debian-upgrade-*.log for details"
-            # Don't clean up state - allow retry on next boot unless it's a validation failure
-            # Check if state file still exists (debian-upgrader may have cleaned it up on success)
-            if [ ! -f "$DEFAULTS_FILE" ]; then
-                log_action_msg "State file removed by upgrade script - upgrade likely completed or was cancelled"
-                # Disable ourselves to prevent re-triggering
-                if command -v update-rc.d &>/dev/null; then
-                    update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-                fi
-            fi
         else
             log_end_msg 0
-            # Check if state file still exists
-            if [ ! -f "$DEFAULTS_FILE" ]; then
-                log_action_msg "Upgrade completed - state file cleaned up"
-                # Disable ourselves to prevent re-triggering
-                if command -v update-rc.d &>/dev/null; then
-                    update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-                fi
-            else
-                # State file still exists but script returned 0 - it may have
-                # finished the upgrade steps. Re-read and check.
-                . "$DEFAULTS_FILE"
-                if [ "$UPGRADE_IN_PROGRESS" = "no" ]; then
-                    log_action_msg "Upgrade marked as not in progress - cleaning up"
-                    cleanup_stale_state
-                fi
-            fi
         fi
+
+        exit "$exit_code"
         ;;
 
     stop)
-        # Attempt to stop any running upgrade process
         log_action_msg "Stopping elive-distro-upgrader..."
         if [ -f "$LOCK_FILE" ]; then
-            local lock_pid
             lock_pid="$(cat "$LOCK_FILE" 2>/dev/null)"
             if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
                 log_action_msg "Sending SIGTERM to upgrade process (PID: $lock_pid)..."
                 kill -TERM "$lock_pid" 2>/dev/null || true
                 sleep 2
-                # Force kill if still running
                 if kill -0 "$lock_pid" 2>/dev/null; then
                     log_action_msg "Force killing upgrade process (PID: $lock_pid)..."
                     kill -9 "$lock_pid" 2>/dev/null || true
@@ -212,11 +81,23 @@ case "$1" in
         log_action_msg "  Target: $TARGET_CODENAME"
         log_action_msg "  Reboot Count: $REBOOT_COUNT"
         log_action_msg "  Current Step: ${CURRENT_STEP:-none}"
-        local current_cn
-        current_cn="$(get_current_codename)"
-        log_action_msg "  Current Version: ${current_cn:-unknown}"
+
+        # Get current codename
+        current_release_full="$(cat /etc/debian_version 2>/dev/null || echo "unknown")"
+        current_version_number="$(echo "$current_release_full" | cut -d'.' -f1)"
+        current_cn=""
+        case "$current_version_number" in
+            15|15.*)  current_cn="duke" ;;
+            14|14.*)  current_cn="forky" ;;
+            13|13.*)  current_cn="trixie" ;;
+            12|12.*)  current_cn="bookworm" ;;
+            11|11.*)  current_cn="bullseye" ;;
+            10|10.*)  current_cn="buster" ;;
+            *)        current_cn="unknown" ;;
+        esac
+
+        log_action_msg "  Current Version: $current_cn"
         if [ -f "$LOCK_FILE" ]; then
-            local lock_pid
             lock_pid="$(cat "$LOCK_FILE" 2>/dev/null)"
             if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
                 log_action_msg "  Running: yes (PID: $lock_pid)"

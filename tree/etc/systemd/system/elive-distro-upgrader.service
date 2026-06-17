@@ -1,6 +1,7 @@
 [Unit]
 Description=Debian Distribution Upgrade
 Documentation=man:debian-upgrader(8)
+# Only run if the upgrade state file exists
 ConditionPathExists=/etc/default/elive-distro-upgrade
 # Ensure filesystems and network are ready before attempting upgrade
 After=network.target local-fs.target syslog.target
@@ -13,85 +14,7 @@ ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 
 [Service]
 Type=oneshot
-EnvironmentFile=-/etc/default/elive-distro-upgrade
-
-ExecStartPre=/bin/bash -c '\
-    set -e; \
-    DEFAULTS_FILE="/etc/default/elive-distro-upgrade"; \
-    LOCK_FILE="/tmp/.debian-upgrader.lock"; \
-    UPGRADE_ENABLED="${UPGRADE_ENABLED//\"}"; \
-    UPGRADE_IN_PROGRESS="${UPGRADE_IN_PROGRESS//\"}"; \
-    TARGET_CODENAME="${TARGET_CODENAME//\"}"; \
-    REBOOT_COUNT="${REBOOT_COUNT//\"}"; \
-    version_to_codename() { \
-        case "$1" in \
-            15|15.*) echo "duke" ;; \
-            14|14.*) echo "forky" ;; \
-            13|13.*) echo "trixie" ;; \
-            12|12.*) echo "bookworm" ;; \
-            11|11.*) echo "bullseye" ;; \
-            10|10.*) echo "buster" ;; \
-            *) echo "$1" | grep -oE "^[a-z]+" | head -1 ;; \
-        esac; \
-    }; \
-    cleanup_state() { \
-        echo "Cleaning up stale upgrade state"; \
-        rm -f "$DEFAULTS_FILE"; \
-        rm -f "$LOCK_FILE"; \
-        systemctl daemon-reload 2>/dev/null || true; \
-    }; \
-    if [[ "$UPGRADE_ENABLED" != "yes" ]]; then \
-        echo "UPGRADE_ENABLED is not yes (value: \"$UPGRADE_ENABLED\"), cleaning up state file"; \
-        cleanup_state; \
-        exit 1; \
-    fi; \
-    if [[ "$UPGRADE_IN_PROGRESS" != "yes" ]]; then \
-        echo "UPGRADE_IN_PROGRESS is not yes (value: \"$UPGRADE_IN_PROGRESS\"), cleaning up state file"; \
-        cleanup_state; \
-        exit 1; \
-    fi; \
-    if [[ -z "$TARGET_CODENAME" ]]; then \
-        echo "TARGET_CODENAME is empty, cleaning up malformed state file"; \
-        cleanup_state; \
-        exit 1; \
-    fi; \
-    if [[ "${REBOOT_COUNT:-0}" -ge 20 ]] 2>/dev/null; then \
-        echo "FATAL: Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."; \
-        echo "Check logs at /var/log/debian-upgrade-*.log for details."; \
-        cleanup_state; \
-        exit 1; \
-    fi; \
-    current_ver=$(cat /etc/debian_version 2>/dev/null | cut -d"." -f1); \
-    current_cn=$(version_to_codename "$current_ver"); \
-    if [[ -n "$current_cn" && "$current_cn" == "$TARGET_CODENAME" ]]; then \
-        echo "Target $TARGET_CODENAME already reached (current: $current_cn). Cleaning up."; \
-        cleanup_state; \
-        exit 1; \
-    fi; \
-    rm -f "$LOCK_FILE" 2>/dev/null || true; \
-    echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"'
-
-ExecStart=/bin/bash -c '\
-    set -e; \
-    DEFAULTS_FILE="/etc/default/elive-distro-upgrade"; \
-    if [[ ! -f "$DEFAULTS_FILE" ]]; then \
-        echo "State file removed - upgrade already completed or cancelled"; \
-        exit 1; \
-    fi; \
-    . "$DEFAULTS_FILE"; \
-    if [[ -z "$TARGET_CODENAME" ]]; then \
-        echo "TARGET_CODENAME is empty - nothing to do"; \
-        exit 1; \
-    fi; \
-    echo "Starting upgrade to $TARGET_CODENAME"; \
-    /usr/lib/elive-upgrader/debian-upgrader --boot-mode "$TARGET_CODENAME"; \
-    exit_code=$?; \
-    if [[ $exit_code -eq 0 ]]; then \
-        echo "Upgrade completed successfully"; \
-    else \
-        echo "Upgrade exited with code $exit_code"; \
-    fi; \
-    exit $exit_code'
+ExecStart=/usr/lib/elive-upgrader/elive-boot-upgrader
 StandardOutput=journal+console
 StandardError=journal+console
 RemainAfterExit=yes

@@ -98,6 +98,7 @@ acquire_lock() {
         fi
     fi
     echo $$ > "$UPGRADE_LOCK_FILE"
+    trap release_lock EXIT
 }
 
 release_lock() {
@@ -306,18 +307,18 @@ repair_apt() {
         if [[ -f /var/lib/dpkg/status-old ]]; then
             cp -a /var/lib/dpkg/status-old /var/lib/dpkg/status 2>/dev/null || true
         fi
-        # If status is empty or missing, try to rebuild
+        # If status is empty or missing, try to rebuild from backups
         if [[ ! -s /var/lib/dpkg/status ]]; then
-            log_warning "dpkg status is empty, attempting to rebuild from available packages..."
-            # Create a minimal status file
-            dpkg --clear-avail 2>/dev/null || true
-            # Try to scan installed packages
-            for control in /var/lib/dpkg/info/*.control; do
-                if [[ -f "$control" ]]; then
-                    cat "$control" >> /var/lib/dpkg/status 2>/dev/null || true
-                    echo "" >> /var/lib/dpkg/status 2>/dev/null || true
+            log_warning "dpkg status is empty, attempting to rebuild from backups..."
+            local backup
+            backup=$(ls -t /var/backups/dpkg.status.* 2>/dev/null | head -n 1)
+            if [[ -n "$backup" ]]; then
+                if [[ "$backup" == *.gz ]]; then
+                    zcat "$backup" > /var/lib/dpkg/status 2>/dev/null || true
+                else
+                    cp -a "$backup" /var/lib/dpkg/status 2>/dev/null || true
                 fi
-            done
+            fi
         fi
     fi
 
