@@ -223,6 +223,17 @@ copy_log_to_root() {
     fi
 }
 
+# Fix unsupported keyring filetypes (e.g., marillat key)
+fix_unsupported_keyrings() {
+    if [[ -f /etc/apt/trusted.gpg.d/marillat.key.binary.asc ]]; then
+        log_info "Fixing marillat keyring filetype..."
+        if command -v gpg &>/dev/null; then
+            gpg --dearmor < /etc/apt/trusted.gpg.d/marillat.key.binary.asc > /etc/apt/trusted.gpg.d/marillat.key.binary.gpg 2>/dev/null || true
+        fi
+        rm -f /etc/apt/trusted.gpg.d/marillat.key.binary.asc
+    fi
+}
+
 # Lock mechanism to prevent concurrent execution
 acquire_lock() {
     if [[ -f "$UPGRADE_LOCK_FILE" ]]; then
@@ -450,6 +461,9 @@ log_error() {
 }
 
 repair_apt() {
+    # Fix keyrings first
+    fix_unsupported_keyrings
+
     # Check if repair is actually needed
     if dpkg --audit >/dev/null 2>&1 && apt-get check >/dev/null 2>&1; then
         return 0

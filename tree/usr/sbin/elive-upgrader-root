@@ -109,6 +109,15 @@ apt_fixes(){
     # always update before to run (if the package has been updated we want to fetch new code too)
     source /usr/lib/elive-upgrader/functions.sh
 
+    # Fix unsupported keyring filetypes (e.g., marillat key)
+    if [[ -f /etc/apt/trusted.gpg.d/marillat.key.binary.asc ]]; then
+        el_info "Fixing marillat keyring filetype..."
+        if command -v gpg &>/dev/null; then
+            gpg --dearmor < /etc/apt/trusted.gpg.d/marillat.key.binary.asc > /etc/apt/trusted.gpg.d/marillat.key.binary.gpg 2>/dev/null || true
+        fi
+        rm -f /etc/apt/trusted.gpg.d/marillat.key.binary.asc
+    fi
+
     # wait unlock
     apt_get moo 1>/dev/null 2>&1
 
