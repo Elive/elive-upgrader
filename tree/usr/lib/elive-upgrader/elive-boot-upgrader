@@ -19,7 +19,7 @@ locales_source(){
     fi
     # wrapper for fix strange languages
     case "$LANG" in
-        bg*|bn*|el*|hi*|ja*|ko*|ru*|sr*|te*|uk*|vi*|zh*)
+        am*|ar*|bg*|bn*|el*|fa*|gu*|he*|hy*|hi*|iw*|ja*|ka*|kn*|ko*|ml*|mr*|ne*|pa*|ru*|sr*|ta*|te*|th*|uk*|vi*|zh*)
             export LC_ALL=en_US.UTF-8
             export LANG=en_US.UTF-8
             ;;

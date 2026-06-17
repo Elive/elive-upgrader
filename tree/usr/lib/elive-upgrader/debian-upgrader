@@ -11,6 +11,22 @@ else
     export EL_REPORTS="0"
 fi
 el_make_environment
+
+# wrapper for fix strange languages
+locales_source(){
+    if [[ -s "/etc/default/locale" ]] ; then
+        source /etc/default/locale
+    fi
+    # wrapper for fix strange languages
+    case "$LANG" in
+        am*|ar*|bg*|bn*|el*|fa*|gu*|he*|hy*|hi*|iw*|ja*|ka*|kn*|ko*|ml*|mr*|ne*|pa*|ru*|sr*|ta*|te*|th*|uk*|vi*|zh*)
+            export LC_ALL=en_US.UTF-8
+            export LANG=en_US.UTF-8
+            ;;
+    esac
+}
+locales_source
+
 . gettext.sh
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
@@ -123,7 +139,12 @@ draw_banner() {
     for ((i=0; i<len+4; i++)); do border="${border}="; done
 
     if [[ "$BOOT_MODE" == "true" && "$USE_PLYMOUTH" == "true" ]]; then
-        log_action_msg "$msg"
+        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+            # Display a persistent, prominent title message on the Plymouth screen
+            plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
+            plymouth message --text="*** $msg ***" 2>/dev/null || true
+        fi
+        log_action_msg "=== $msg ==="
     else
         local target_out="/dev/stdout"
         if [[ "$BOOT_MODE" == "true" ]]; then
@@ -136,25 +157,29 @@ draw_banner() {
 }
 
 disable_automatic_clean() {
-    if [[ -f /etc/apt/apt.conf.d/99AutomaticClean.conf ]]; then
-        log_info "Temporarily disabling automatic APT cleaning..."
-        # Comment out Clean always lines if they are not already commented
-        sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-    fi
+    log_info "Temporarily disabling automatic APT cleaning in all configuration files..."
+    for conf_file in /etc/apt/apt.conf.d/*; do
+        if [[ -f "$conf_file" ]]; then
+            # Comment out Clean always lines if they are not already commented
+            sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' "$conf_file" 2>/dev/null || true
+        fi
+    done
 }
 
 enable_automatic_clean() {
-    if [[ -f /etc/apt/apt.conf.d/99AutomaticClean.conf ]]; then
-        log_info "Re-enabling automatic APT cleaning..."
-        # Uncomment Clean always lines
-        sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-        sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' /etc/apt/apt.conf.d/99AutomaticClean.conf 2>/dev/null || true
-    fi
+    log_info "Re-enabling automatic APT cleaning in all configuration files..."
+    for conf_file in /etc/apt/apt.conf.d/*; do
+        if [[ -f "$conf_file" ]]; then
+            # Uncomment Clean always lines
+            sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "$conf_file" 2>/dev/null || true
+            sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "$conf_file" 2>/dev/null || true
+        fi
+    done
 }
 
 # Background loop to periodically print warning messages
@@ -516,6 +541,7 @@ run_and_show_plymouth_on_boot() {
         # real exit code to decide whether to retry.
         (
             set -o pipefail
+            # Execute command redirecting stderr to stdout so both are captured
             "$@" 2>&1 | while IFS= read -r line; do
                 echo "$line"
                 # Don't let plymouth failures abort the upgrade
@@ -815,11 +841,11 @@ stop_services() {
 perform_upgrade() {
     log_info "Starting upgrade process..."
 
-    # Ensure we start with a clean and repaired state
+    # Ensure we start with a repaired state
     repair_apt
 
-    # Update package lists
-    safe_apt_run apt-get update
+    # Update package lists (offline fallback if no internet, using local cache)
+    safe_apt_run apt-get update || log_warning "Failed to update package lists, proceeding with cached lists for offline upgrade."
 
     # Check disk space now that package lists are updated
     check_disk_space
@@ -1369,7 +1395,7 @@ main_upgrade() {
     fi
 
     backup_system
-    cleanup_packages
+    # Do not run cleanup_packages here as it runs apt-get clean/autoremove and deletes pre-downloaded packages!
     stop_services
 
     # current_codename and current_version_number are set by check_current_release
