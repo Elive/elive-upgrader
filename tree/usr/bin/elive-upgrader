@@ -268,9 +268,14 @@ main(){
     # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
     if ((is_force_upgrade)) ; then
-        el_debug "beta test mode: forcing upgrade system"
-        if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade ; then
-            was_anything_updated=1
+        el_debug "beta test mode: checking for upgrades"
+        num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root --updates-available )"
+        if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
+            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
+                if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade --noaptupdate ; then
+                    was_anything_updated=1
+                fi
+            fi
         fi
     else
         if upgrade_system_delayed ; then
