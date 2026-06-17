@@ -203,6 +203,23 @@ upgrade_system(){
 
         # check
         if ! [[ "$( updates_available_show )" -gt 0 ]] ; then
+            # No regular updates available - check if a distribution upgrade to a newer Debian release is possible
+            local _current_ver _next_codename
+            _current_ver="$( cat /etc/debian_version 2>/dev/null | cut -d'.' -f1 )"
+            case "$_current_ver" in
+                11) _next_codename="bookworm" ;;
+                12) _next_codename="trixie" ;;
+                13) _next_codename="forky" ;;
+                14) _next_codename="duke" ;;
+                *) _next_codename="" ;;
+            esac
+            if [[ -n "$_next_codename" ]] ; then
+                el_info "$( eval_gettext "No regular updates available, but a distribution upgrade is available" )"
+                el_info "Enabling distro upgrade to $_next_codename..."
+                if /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$_next_codename" ; then
+                    return 0
+                fi
+            fi
             el_info "$( eval_gettext "No updates available" )"
             return 0
         fi

@@ -164,6 +164,14 @@ case "$1" in
                 if command -v update-rc.d &>/dev/null; then
                     update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
                 fi
+            else
+                # State file still exists but script returned 0 - it may have
+                # finished the upgrade steps. Re-read and check.
+                . "$DEFAULTS_FILE"
+                if [ "$UPGRADE_IN_PROGRESS" = "no" ]; then
+                    log_action_msg "Upgrade marked as not in progress - cleaning up"
+                    cleanup_stale_state
+                fi
             fi
         fi
         ;;
