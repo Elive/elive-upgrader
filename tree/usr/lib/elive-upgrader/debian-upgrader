@@ -363,6 +363,17 @@ upgrade_state_increment_reboot() {
                             sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
                         fi
                     done
+                    if [[ -f /etc/elive-version ]]; then
+                        sed -i "s|$target_cn|$original_codename|g" /etc/elive-version 2>/dev/null || true
+                    fi
+                    if [[ -f /etc/lsb-release ]]; then
+                        local target_version=${DEBIAN_CODENAMES[$target_cn]:-}
+                        if [[ -n "$original_version" && -n "$target_version" ]]; then
+                            sed -i "s|DISTRIB_RELEASE=\"$target_version\"|DISTRIB_RELEASE=\"$original_version\"|g" /etc/lsb-release 2>/dev/null || true
+                        fi
+                        sed -i "s|DISTRIB_CODENAME=\"$target_cn\"|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
+                        sed -i "s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
+                    fi
                 fi
             fi
         fi
@@ -724,6 +735,24 @@ update_sources() {
             sed -i "s|$current_codename|$codename|g" "$file"
         fi
     done
+
+    # Update /etc/elive-version
+    if [[ -f /etc/elive-version ]]; then
+        cp /etc/elive-version "/etc/elive-version.bak.$(date +%s)" 2>/dev/null || true
+        sed -i "s|$current_codename|$codename|g" /etc/elive-version
+    fi
+
+    # Update /etc/lsb-release
+    if [[ -f /etc/lsb-release ]]; then
+        cp /etc/lsb-release "/etc/lsb-release.bak.$(date +%s)" 2>/dev/null || true
+        local new_ver=${DEBIAN_CODENAMES[$codename]:-}
+        local old_ver=${DEBIAN_CODENAMES[$current_codename]:-}
+        if [[ -n "$new_ver" && -n "$old_ver" ]]; then
+            sed -i "s|DISTRIB_RELEASE=\"$old_ver\"|DISTRIB_RELEASE=\"$new_ver\"|g" /etc/lsb-release
+        fi
+        sed -i "s|DISTRIB_CODENAME=\"$current_codename\"|DISTRIB_CODENAME=\"$codename\"|g" /etc/lsb-release
+        sed -i "s|$current_codename|$codename|g" /etc/lsb-release
+    fi
 
     log_info "APT sources, preferences, and configurations updated from $current_codename to $codename"
 }
@@ -1425,6 +1454,17 @@ restore_sources_on_cancel() {
                 sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
             fi
         done
+        if [[ -f /etc/elive-version ]]; then
+            sed -i "s|$target_cn|$original_codename|g" /etc/elive-version 2>/dev/null || true
+        fi
+        if [[ -f /etc/lsb-release ]]; then
+            local target_version=${DEBIAN_CODENAMES[$target_cn]:-}
+            if [[ -n "$original_version" && -n "$target_version" ]]; then
+                sed -i "s|DISTRIB_RELEASE=\"$target_version\"|DISTRIB_RELEASE=\"$original_version\"|g" /etc/lsb-release 2>/dev/null || true
+            fi
+            sed -i "s|DISTRIB_CODENAME=\"$target_cn\"|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
+            sed -i "s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
+        fi
         # Clean up apt cache after restoring sources
         apt-get clean 2>/dev/null || true
         log_info "APT sources, preferences, and configurations restored to $original_codename"
