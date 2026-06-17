@@ -1156,21 +1156,41 @@ EOF
         fi
     done
 
-    # Show a warning/success message to the user
+    # Show a warning/success message to the user and ask for agreement before rebooting
     local msg
-    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process.")"
+    msg="$(eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nDo you agree to let the upgrade finish without forcing any reboot?")"
 
-    if [[ -n "$DISPLAY" ]] && [[ -n "$yad" ]] &>/dev/null; then
-        $yad --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=400 --button="OK:0" || true
-    elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
-        zenity --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" || true
-    elif [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]]; then
-        $guitool --info --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" || true
-    else
-        echo -e "\n*** ${YELLOW}WARNING${NC} ***"
-        echo -e "$msg"
-        echo -e "*****************\n"
-    fi
+    while true; do
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
+                --button="$(eval_gettext "reboot now"):0" --button="$(eval_gettext "Cancel"):1"
+            if [[ $? -eq 0 ]]; then
+                break
+            fi
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" \
+                --ok-label="$(eval_gettext "reboot now")" --cancel-label="$(eval_gettext "Cancel")"
+            if [[ $? -eq 0 ]]; then
+                break
+            fi
+        elif [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]]; then
+            $guitool --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")"
+            if [[ $? -eq 0 ]]; then
+                break
+            fi
+        else
+            echo -e "\n*** ${YELLOW}WARNING${NC} ***"
+            echo -e "$msg"
+            echo -e "*****************\n"
+            read -p "$(eval_gettext "Type 'yes' to agree and reboot now: ")" choice
+            if [[ "$choice" = "yes" ]]; then
+                break
+            fi
+        fi
+    done
+
+    log_info "User agreed. Rebooting system using elive-pm..."
+    elive-pm reboot || trigger_reboot
 }
 
 disable_boot_upgrade() {
