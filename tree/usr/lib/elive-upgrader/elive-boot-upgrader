@@ -94,12 +94,54 @@ disable_boot_services() {
     fi
 }
 
+# Suspend TTY logins on non-systemd systems
+suspend_non_systemd_gettys() {
+    if [ ! -d /run/systemd/system ]; then
+        echo "Non-systemd system detected. Suspending TTY logins..."
+        # For SysVinit: comment out getty lines in /etc/inittab
+        if [ -f /etc/inittab ]; then
+            cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
+            sed -i 's/^\([0-9]\+:.*getty.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
+            # Tell init to reload inittab
+            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        fi
+        # For OpenRC: stop getty services
+        if command -v rc-service &>/dev/null; then
+            for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
+                rc-service "$srv" stop 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+# Restore TTY logins on non-systemd systems
+restore_non_systemd_gettys() {
+    if [ ! -d /run/systemd/system ]; then
+        echo "Restoring TTY logins..."
+        # For SysVinit: restore getty lines in /etc/inittab
+        if [ -f /etc/inittab.bak-upgrader ]; then
+            mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
+            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        elif [ -f /etc/inittab ]; then
+            sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
+            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        fi
+        # For OpenRC: start getty services
+        if command -v rc-service &>/dev/null; then
+            for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
+                rc-service "$srv" start 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
 # Clean up state and disable services
 cleanup_and_disable() {
     echo "Cleaning up upgrade state and disabling boot services"
     rm -f "$DEFAULTS_FILE"
     rm -f "$LOCK_FILE"
     disable_boot_services
+    restore_non_systemd_gettys
 }
 
 # Validate the upgrade state before proceeding
@@ -164,6 +206,9 @@ main() {
         exit 0
     fi
 
+    # Suspend TTY logins for non-systemd systems
+    suspend_non_systemd_gettys
+
     # Re-read config after validation (in case it was modified)
     . "$DEFAULTS_FILE"
 
@@ -194,6 +239,7 @@ main() {
         rm -f "$err_log"
         el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
         echo "Check logs at /var/log/debian-upgrade-*.log for details"
+        restore_non_systemd_gettys
         # Don't clean up state - allow retry on next boot
         exit "$exit_code"
     fi

@@ -4,9 +4,9 @@ Documentation=man:debian-upgrader(8)
 # Only run if the upgrade state file exists
 ConditionPathExists=/etc/default/elive-distro-upgrade
 # Ensure filesystems and network are ready before attempting upgrade
-After=network.target local-fs.target syslog.target
-# Prevent the graphical interface / login manager from starting during the upgrade
-Before=graphical.target display-manager.service
+After=network.target local-fs.target syslog.target plymouth-start.service
+# Prevent the graphical interface / login manager and TTY logins from starting during the upgrade
+Before=graphical.target display-manager.service plymouth-quit.service plymouth-quit-active.service getty.target
 # Prevent running during shutdown/reboot to avoid conflicts, and prevent display manager from starting
 Conflicts=shutdown.target reboot.target halt.target display-manager.service
 # Don't run if the system is in emergency/rescue mode
