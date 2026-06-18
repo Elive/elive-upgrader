@@ -54,8 +54,9 @@ export TEXTDOMAIN
 #   sed -i -e 's|DISTRIB_RELEASE="12"|DISTRIB_RELEASE="13"|g' -e 's|DISTRIB_CODENAME="bookworm"|DISTRIB_CODENAME="trixie"|g' -e 's|bookworm|trixie|g' /etc/lsb-release 2>/dev/null || true
 #
 #   apt-get update
-#   apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --allow-downgrades --allow-remove-essential --allow-change-held-packages
-#   apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+#   apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
+#       --allow-downgrades --allow-remove-essential --allow-change-held-packages
+#   apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
 #       --allow-downgrades --allow-remove-essential --allow-change-held-packages \
 #       -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
 #   apt-get autoremove --purge -y
