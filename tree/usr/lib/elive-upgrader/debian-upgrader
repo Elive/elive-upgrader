@@ -1304,8 +1304,27 @@ enable_boot_upgrade_conf() {
         exit 1
     fi
 
+    # Run pre-upgrade hooks for each step before simulating the upgrade
+    local start_version=$((current_version_number + 1))
+    for version in $(seq "$start_version" "$target_version_number"); do
+        local step_codename=${DEBIAN_VERSIONS[$version]}
+        if [[ -n "$step_codename" ]]; then
+            run_pre_hooks "$step_codename"
+        fi
+    done
+
     log_info "Simulating upgrade to verify compatibility..."
-    if ! apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
+    local sim_failed=0
+    local sim_log
+    sim_log=$(mktemp)
+    if ! apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages > "$sim_log" 2>&1; then
+        sim_failed=1
+    fi
+    # Print the filtered output (excluding extremely verbose Inst/Conf lines)
+    grep -v -E "^(Inst|Conf) " "$sim_log" || true
+    rm -f "$sim_log"
+
+    if ((sim_failed)); then
         log_error "Upgrade simulation failed! The upgrade cannot be performed safely."
 
         # Restore sources

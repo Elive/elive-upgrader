@@ -776,7 +776,7 @@ run_hooks(){
                                 done
                             fi
                             ;;
-                        */packages-to-install.txt)
+                        */packages-to-install.txt|*packages-to-install.txt)
                             # installs them
                             if [[ "$prepost" = "pre" ]] ; then
                                 was_updated=1
@@ -788,7 +788,7 @@ run_hooks(){
                                 done
                             fi
                             ;;
-                        */packages-to-remove.txt)
+                        */packages-to-remove.txt|*packages-to-remove.txt)
                             if [[ "$prepost" = "pre" ]] ; then
                                 was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
@@ -799,6 +799,9 @@ run_hooks(){
                                     fi
                                 done
                             fi
+                            ;;
+                        *debian-upgrade-pre-script.sh|*debian-upgrade-post-script.sh)
+                            # These are handled directly by debian-upgrader, ignore them here
                             ;;
                         *)
                             el_error "elive-upgrader: filetype unknown: $file"
