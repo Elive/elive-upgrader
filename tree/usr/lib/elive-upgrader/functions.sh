@@ -13,6 +13,7 @@ export DEBCONF_NONINTERACTIVE_SEEN=true
 export DEBCONF_NOWARNINGS=true
 # Force ucf to keep old configuration files to match --force-confold
 export UCF_FORCE_CONFFOLD=1
+export APT_LISTCHANGES_FRONTEND=none
 
 # get patreon status
 if [[ -s /etc/elive/settings ]] ; then
