@@ -251,6 +251,17 @@ main(){
         $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
     fi
 
+    # Check if recovery mode is pending (full OS backup was created before upgrade)
+    if [[ -f "/var/lib/elive-upgrader/recovery-mode-pending" ]]; then
+        local backup_info=""
+        if [[ -f "/var/lib/elive-upgrader/full-os-backup/backup-info.txt" ]]; then
+            backup_info="\n\n$(cat /var/lib/elive-upgrader/full-os-backup/backup-info.txt 2>/dev/null)"
+        fi
+        local recovery_msg
+        recovery_msg="$(eval_gettext "A system upgrade has failed and the system may be in an inconsistent state.\n\nA full OS backup was created before the upgrade attempt and is available for recovery.\n\nYou can restore the system by running:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup\n\nOr use the Elive Upgrader application to retry the upgrade.")${backup_info}"
+        $guitool --warning --text="$recovery_msg" --title="$(eval_gettext "System Upgrade Recovery")" --width=550 1>/dev/null 2>&1
+    fi
+
     # fixes first (if)
     #el_debug "going to: previous fixes"
     #sudo $sudo_opts elive-upgrader-root --fix

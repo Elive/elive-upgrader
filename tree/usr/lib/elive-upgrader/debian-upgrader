@@ -68,6 +68,19 @@ export TEXTDOMAIN
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.
 USE_PLYMOUTH="true"
 
+# Minimum free space in KB required on / to perform a full OS backup (50 GB)
+FULL_OS_BACKUP_MIN_SPACE_KB=$((50 * 1024 * 1024))
+
+# Full OS backup directory
+FULL_OS_BACKUP_DIR="/var/lib/elive-upgrader/full-os-backup"
+
+# Recovery notification file - placed where desktop session can find it
+RECOVERY_NOTIFICATION_FLAG="/var/lib/elive-upgrader/recovery-mode-pending"
+
+# Recovery desktop notification file (XDG autostart)
+RECOVERY_DESKTOP_NOTIFICATION_DIR="/etc/xdg/autostart"
+RECOVERY_DESKTOP_NOTIFICATION_FILE="elive-upgrade-recovery-notification.desktop"
+
 # Force non-interactive frontend and priority to prevent any prompts/freezes
 export DEBIAN_FRONTEND=noninteractive
 export DEBIAN_PRIORITY=critical
@@ -284,6 +297,538 @@ usage() {
     exit 1
 }
 
+# ==============================================================================
+# Full OS Backup and Recovery Functions
+# ==============================================================================
+
+# Check if the root filesystem is BTRFS
+is_btrfs() {
+    local fs_type
+    fs_type=$(stat -f -c %T / 2>/dev/null || echo "unknown")
+    if [[ "$fs_type" == "btrfs" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Check if the root device is a non-rotational disk (SSD/NVMe)
+is_non_rotational() {
+    # Find the block device for the root filesystem
+    local root_dev
+    root_dev=$(df / | awk 'NR==2 {print $1}' | sed 's|/dev/||;s|/.*||;s/[0-9]*$//')
+
+    # Handle device mapper (LVM, LUKS, etc.) - find underlying physical device
+    if [[ "$root_dev" == dm-* ]] || [[ "$root_dev" == mapper* ]]; then
+        # Try to find the underlying physical device
+        local slave_dir="/sys/class/block/${root_dev}/slaves"
+        if [[ -d "$slave_dir" ]]; then
+            for slave in "$slave_dir"/*; do
+                if [[ -L "$slave" ]]; then
+                    root_dev=$(basename "$(readlink -f "$slave")")
+                    root_dev=${root_dev%%[0-9]*}
+                    break
+                fi
+            done
+        fi
+        # If still dm-*, try NVMe or sd fallback
+        if [[ "$root_dev" == dm-* ]]; then
+            if [[ -f /sys/block/nvme0n1/queue/rotational ]]; then
+                root_dev="nvme0n1"
+            elif [[ -f /sys/block/sda/queue/rotational ]]; then
+                root_dev="sda"
+            fi
+        fi
+    fi
+
+    # Handle NVMe device names (nvme0n1p1 -> nvme0n1)
+    root_dev=${root_dev%%p*}
+
+    local rotational_file="/sys/block/${root_dev}/queue/rotational"
+    if [[ -f "$rotational_file" ]]; then
+        local rotational
+        rotational=$(cat "$rotational_file" 2>/dev/null || echo "1")
+        if [[ "$rotational" == "0" ]]; then
+            return 0
+        fi
+    fi
+
+    # Fallback: check if any NVMe device exists (always non-rotational)
+    if ls /sys/block/nvme* &>/dev/null; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Check if full OS backup should be performed
+should_full_os_backup() {
+    # Check free space on root partition
+    local free_space_kb
+    free_space_kb=$(df / | awk 'NR==2 {print $4}')
+
+    if (( free_space_kb < FULL_OS_BACKUP_MIN_SPACE_KB )); then
+        log_info "Not enough free space for full OS backup (need 50 GB, have $(( free_space_kb / 1024 / 1024 )) GB). Skipping."
+        return 1
+    fi
+
+    # Check if non-rotational disk or BTRFS
+    if is_non_rotational; then
+        log_info "Non-rotational disk detected. Full OS backup is recommended."
+        return 0
+    fi
+
+    if is_btrfs; then
+        log_info "BTRFS filesystem detected. Full OS backup with CoW is recommended."
+        return 0
+    fi
+
+    log_info "Conditions not met for full OS backup (need SSD/NVMe or BTRFS with 50 GB free). Skipping."
+    return 1
+}
+
+# Perform full OS backup
+full_os_backup() {
+    if ! should_full_os_backup; then
+        return 0
+    fi
+
+    draw_banner "CREATING FULL OS BACKUP FOR RECOVERY" "$MAGENTA"
+
+    # Clean up any previous backup
+    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
+        log_info "Removing previous OS backup..."
+        rm -rf "$FULL_OS_BACKUP_DIR"
+    fi
+
+    mkdir -p "$FULL_OS_BACKUP_DIR"
+
+    # Determine copy strategy based on filesystem
+    local cp_opts="-a"
+    local using_reflink=false
+
+    if is_btrfs; then
+        # On BTRFS, use reflink=auto for CoW (fast, space-efficient)
+        cp_opts="-a --reflink=auto"
+        using_reflink=true
+        log_info "Using BTRFS CoW reflink copy (fast and space-efficient)..."
+    else
+        log_info "Using standard archive copy..."
+    fi
+
+    # Directories to backup (OS-only, no user data)
+    local backup_dirs=(
+        "/usr"
+        "/boot"
+        "/etc"
+        "/var"
+        "/opt"
+        "/srv"
+        "/root"
+        "/lib"
+        "/lib32"
+        "/lib64"
+        "/libx32"
+        "/bin"
+        "/sbin"
+    )
+
+    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR..."
+
+    if [[ "$using_reflink" == "true" ]]; then
+        # BTRFS: Use cp --reflink=auto for CoW (fast, space-efficient)
+        # cp --reflink=auto is the most reliable way to get CoW on BTRFS
+        log_info "Copying with BTRFS reflink CoW..."
+
+        for src_dir in "${backup_dirs[@]}"; do
+            if [[ -d "$src_dir" ]]; then
+                local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
+                mkdir -p "$dest_dir"
+
+                log_info "Backing up $src_dir with cp --reflink=auto..."
+                # Use find + cp for proper exclusion support with reflink
+                # This handles the exclusions correctly while preserving CoW
+                (
+                    cd "$src_dir" || exit 1
+                    # Use find to list files, then copy with reflink
+                    find . \
+                        -not -path './home' \
+                        -not -path './home/*' \
+                        -not -path './var/www' \
+                        -not -path './var/www/*' \
+                        -not -path './var/cache/apt/archives' \
+                        -not -path './var/cache/apt/archives/*' \
+                        -not -path './var/lib/elive-upgrader/full-os-backup' \
+                        -not -path './var/lib/elive-upgrader/full-os-backup/*' \
+                        -not -path './tmp' \
+                        -not -path './tmp/*' \
+                        -not -path './proc' \
+                        -not -path './proc/*' \
+                        -not -path './sys' \
+                        -not -path './sys/*' \
+                        -not -path './dev' \
+                        -not -path './dev/*' \
+                        -not -path './run' \
+                        -not -path './run/*' \
+                        -not -path './mnt' \
+                        -not -path './mnt/*' \
+                        -not -path './media' \
+                        -not -path './media/*' \
+                        -not -path './lost+found' \
+                        -not -path './lost+found/*' \
+                        -not -path './swapfile' \
+                        -not -path './var/log/journal/*' \
+                        -not -path './var/cache/thumbnails/*' \
+                        -not -path './home/*/.cache/*' \
+                        -not -path './home/*/.local/share/Trash/*' \
+                        -print0 2>/dev/null | \
+                    cpio --null -pdmu "$dest_dir" 2>/dev/null
+                ) || {
+                    # Fallback: cp -a with reflink (less precise exclusions)
+                    log_warning "find+cpio failed for $src_dir, falling back to cp -a --reflink=auto..."
+                    # Remove partial copy
+                    rm -rf "$dest_dir"
+                    mkdir -p "$dest_dir"
+                    # Copy everything, then remove excluded dirs
+                    cp -a --reflink=auto "$src_dir" "$dest_dir"
+                    # Remove excluded directories from the copy
+                    rm -rf "$dest_dir/home" "$dest_dir/var/www" "$dest_dir/var/cache/apt/archives"
+                    rm -rf "$dest_dir/var/lib/elive-upgrader/full-os-backup"
+                    rm -rf "$dest_dir/tmp" "$dest_dir/proc" "$dest_dir/sys" "$dest_dir/dev" "$dest_dir/run"
+                    rm -rf "$dest_dir/mnt" "$dest_dir/media" "$dest_dir/lost+found" "$dest_dir/swapfile"
+                }
+            fi
+        done
+    else
+        # Non-BTRFS (SSD/NVMe): Use rsync for efficient copying
+        log_info "Copying with rsync archive mode..."
+
+        for src_dir in "${backup_dirs[@]}"; do
+            if [[ -d "$src_dir" ]]; then
+                local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
+                mkdir -p "$dest_dir"
+
+                if command -v rsync &>/dev/null; then
+                    log_info "Backing up $src_dir with rsync..."
+                    rsync -aAX --delete \
+                        --exclude='/home' \
+                        --exclude='/var/www' \
+                        --exclude='/var/cache/apt/archives' \
+                        --exclude='/var/lib/elive-upgrader/full-os-backup' \
+                        --exclude='/tmp' \
+                        --exclude='/proc' \
+                        --exclude='/sys' \
+                        --exclude='/dev' \
+                        --exclude='/run' \
+                        --exclude='/mnt' \
+                        --exclude='/media' \
+                        --exclude='/lost+found' \
+                        --exclude='/swapfile' \
+                        --exclude='var/log/journal/*' \
+                        --exclude='var/cache/thumbnails/*' \
+                        --exclude='home/*/.cache/*' \
+                        --exclude='home/*/.local/share/Trash/*' \
+                        "$src_dir/" "$dest_dir/" 2>/dev/null || {
+                            log_warning "rsync failed for $src_dir, falling back to cp -a..."
+                            cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                        }
+                else
+                    log_info "Backing up $src_dir with cp -a..."
+                    cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                fi
+            fi
+        done
+    fi
+
+    # Save backup metadata
+    local backup_info_file="${FULL_OS_BACKUP_DIR}/backup-info.txt"
+    {
+        echo "ELIVE FULL OS BACKUP"
+        echo "Created: $(date)"
+        echo "Debian version: $(cat /etc/debian_version 2>/dev/null || echo 'unknown')"
+        echo "Kernel: $(uname -r)"
+        echo "Filesystem: $(stat -f -c %T / 2>/dev/null || echo 'unknown')"
+        echo "Non-rotational: $(is_non_rotational && echo 'yes' || echo 'no')"
+        echo "BTRFS: $(is_btrfs && echo 'yes' || echo 'no')"
+        echo "Reflink used: $using_reflink"
+    } > "$backup_info_file"
+
+    # Save package list for recovery reference
+    dpkg --get-selections '*' 2>/dev/null > "${FULL_OS_BACKUP_DIR}/dpkg-selections.txt" || true
+
+    # Create a marker file indicating backup is valid
+    touch "${FULL_OS_BACKUP_DIR}/.backup-complete"
+
+    log_info "Full OS backup completed at: $FULL_OS_BACKUP_DIR"
+
+    # Show backup size
+    local backup_size
+    backup_size=$(du -sh "$FULL_OS_BACKUP_DIR" 2>/dev/null | awk '{print $1}')
+    log_info "Backup size: $backup_size"
+}
+
+# Restore from full OS backup (used by recovery mode)
+restore_from_backup() {
+    if [[ ! -f "${FULL_OS_BACKUP_DIR}/.backup-complete" ]]; then
+        log_error "No valid backup found at $FULL_OS_BACKUP_DIR"
+        return 1
+    fi
+
+    draw_banner "RESTORING SYSTEM FROM BACKUP" "$RED"
+
+    log_info "Restoring system from backup at $FULL_OS_BACKUP_DIR..."
+
+    # Determine copy strategy
+    local cp_opts="-a"
+    if is_btrfs; then
+        cp_opts="-a --reflink=auto"
+    fi
+
+    # Restore each backed-up directory
+    local backup_dirs=(
+        "/usr"
+        "/boot"
+        "/etc"
+        "/var"
+        "/opt"
+        "/srv"
+        "/root"
+        "/lib"
+        "/lib32"
+        "/lib64"
+        "/libx32"
+        "/bin"
+        "/sbin"
+    )
+
+    for src_dir in "${backup_dirs[@]}"; do
+        local backup_src="${FULL_OS_BACKUP_DIR}${src_dir}"
+        if [[ -d "$backup_src" ]]; then
+            log_info "Restoring $src_dir..."
+            if command -v rsync &>/dev/null; then
+                rsync -aAX --delete "$backup_src/" "$src_dir/" 2>/dev/null || {
+                    log_warning "rsync restore failed for $src_dir, falling back to cp..."
+                    cp -a "$backup_src/." "$src_dir/" 2>/dev/null || true
+                }
+            else
+                cp -a "$backup_src/." "$src_dir/" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    log_info "System restore from backup completed."
+}
+
+# Create desktop notification for recovery mode
+create_recovery_notification() {
+    log_info "Creating recovery notification for desktop..."
+
+    # Create the notification flag file
+    mkdir -p /var/lib/elive-upgrader
+    touch "$RECOVERY_NOTIFICATION_FLAG"
+
+    # Create XDG autostart desktop entry for recovery notification
+    mkdir -p "$RECOVERY_DESKTOP_NOTIFICATION_DIR"
+
+    cat > "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" << 'DESKTOP_ENTRY'
+[Desktop Entry]
+Type=Application
+Name=Elive Upgrade Recovery
+Comment=Recovery notification after failed system upgrade
+Exec=/usr/lib/elive-upgrader/recovery-notification
+Icon=dialog-warning
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+StartupNotify=false
+DESKTOP_ENTRY
+
+    # Create the recovery notification script
+    cat > "/usr/lib/elive-upgrader/recovery-notification" << 'RECOVERY_SCRIPT'
+#!/bin/bash
+# Recovery notification script - shown to user on desktop after failed upgrade
+
+RECOVERY_FLAG="/var/lib/elive-upgrader/recovery-mode-pending"
+BACKUP_DIR="/var/lib/elive-upgrader/full-os-backup"
+
+if [[ ! -f "$RECOVERY_FLAG" ]]; then
+    # No recovery needed, remove autostart entry and exit
+    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    exit 0
+fi
+
+# Only run if we have a display (graphical session)
+if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    exit 0
+fi
+
+# Wait a moment for desktop to fully load
+sleep 5
+
+# Determine which dialog tool to use
+show_notification() {
+    local title="$1"
+    local message="$2"
+
+    if command -v zenity &>/dev/null; then
+        zenity --warning --title="$title" --text="$message" --width=500 2>/dev/null
+        return
+    fi
+
+    if command -v yad &>/dev/null; then
+        yad --warning --title="$title" --text="$message" --width=500 2>/dev/null
+        return
+    fi
+
+    if command -v kdialog &>/dev/null; then
+        kdialog --title "$title" --msgbox "$message" 2>/dev/null
+        return
+    fi
+
+    if command -v xmessage &>/dev/null; then
+        xmessage -center "$message" 2>/dev/null
+        return
+    fi
+
+    # Fallback: try notify-send for a passive notification
+    if command -v notify-send &>/dev/null; then
+        notify-send -u critical "$title" "$message" 2>/dev/null
+        return
+    fi
+
+    echo "$title: $message" >&2
+}
+
+# Build the message
+MSG="A system upgrade has failed and the system may be in an inconsistent state.
+
+A full OS backup was created before the upgrade attempt.
+
+Options:
+1. Try to run the upgrade again
+2. Restore the system from the backup
+3. Get help from the Elive community
+
+The backup is located at: ${BACKUP_DIR}
+
+Would you like to restore the system from the backup now?"
+
+TITLE="Elive System Upgrade Recovery"
+
+# Show the notification
+show_notification "$TITLE" "$MSG"
+
+# Ask user what to do
+ask_user() {
+    if command -v zenity &>/dev/null; then
+        zenity --list --title="$TITLE" --text="What would you like to do?" \
+            --column="Action" --column="Description" \
+            "restore" "Restore system from backup (recommended)" \
+            "retry" "Try the upgrade again" \
+            "ignore" "Ignore for now (ask again next login)" \
+            --width=500 --height=300 2>/dev/null
+        return
+    fi
+
+    if command -v yad &>/dev/null; then
+        yad --list --title="$TITLE" --text="What would you like to do?" \
+            --column="Action" --column="Description" \
+            "restore" "Restore system from backup (recommended)" \
+            "retry" "Try the upgrade again" \
+            "ignore" "Ignore for now (ask again next login)" \
+            --width=500 --height=300 2>/dev/null
+        return
+    fi
+
+    # Fallback: use a simple text prompt
+    echo "What would you like to do?"
+    echo "1. Restore system from backup (recommended)"
+    echo "2. Try the upgrade again"
+    echo "3. Ignore for now"
+    read -p "Enter choice (1/2/3): " choice
+    case "$choice" in
+        1) echo "restore" ;;
+        2) echo "retry" ;;
+        *) echo "ignore" ;;
+    esac
+}
+
+CHOICE=$(ask_user)
+
+case "$CHOICE" in
+    restore)
+        # User wants to restore - needs root
+        if command -v pkexec &>/dev/null; then
+            pkexec /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
+        elif command -v gksu &>/dev/null; then
+            gksu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
+        elif command -v kdesu &>/dev/null; then
+            kdesu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
+        else
+            show_notification "Error" "Cannot restore: no graphical sudo tool found. Please run from terminal:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup"
+            exit 1
+        fi
+        ;;
+    retry)
+        # User wants to retry - launch the upgrader
+        if command -v pkexec &>/dev/null; then
+            pkexec /usr/lib/elive-upgrader/debian-upgrader --status
+        elif command -v gksu &>/dev/null; then
+            gksu /usr/lib/elive-upgrader/debian-upgrader --status
+        else
+            show_notification "Retry" "Please run the Elive Upgrader from the application menu or terminal to retry the upgrade."
+        fi
+        ;;
+    ignore)
+        # User ignores - will ask again next login
+        exit 0
+        ;;
+esac
+
+# Remove the notification flag and autostart entry if restore was chosen
+if [[ "$CHOICE" == "restore" ]]; then
+    rm -f "$RECOVERY_FLAG"
+    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    # Also remove from user's autostart if present
+    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+fi
+
+exit 0
+RECOVERY_SCRIPT
+
+    chmod +x "/usr/lib/elive-upgrader/recovery-notification"
+
+    # Also copy to user's autostart directories so it runs on login
+    for user_home in /home/*; do
+        if [[ -d "$user_home" ]]; then
+            local user_name
+            user_name=$(basename "$user_home")
+            local user_autostart="${user_home}/.config/autostart"
+            mkdir -p "$user_autostart" 2>/dev/null || true
+            cp -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" "$user_autostart/" 2>/dev/null || true
+            chown -R "${user_name}:${user_name}" "$user_autostart" 2>/dev/null || true
+        fi
+    done
+
+    log_info "Recovery notification created. User will be notified on next desktop login."
+}
+
+# Clear recovery notification (after successful upgrade or manual restore)
+clear_recovery_notification() {
+    log_info "Clearing recovery notification..."
+    rm -f "$RECOVERY_NOTIFICATION_FLAG"
+    rm -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
+    rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
+
+    # Remove from user autostart directories
+    for user_home in /home/*; do
+        if [[ -d "$user_home" ]]; then
+            local user_autostart="${user_home}/.config/autostart"
+            rm -f "${user_autostart}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
+        fi
+    done
+}
+
 # State management functions for tracking upgrade across reboots
 
 upgrade_state_read() {
@@ -455,25 +1000,12 @@ trigger_reboot() {
     log_info "Rebooting now..."
     sync
 
-    # Try standard systemctl reboot with a timeout
-    if command -v systemctl &>/dev/null; then
-        timeout 30 systemctl reboot --no-block 2>/dev/null || true
-        timeout 30 systemctl reboot 2>/dev/null || true
-    fi
+    # Run standard reboot directly as it is known to work
+    reboot || /sbin/reboot || reboot -f || true
 
-    # Try standard reboot commands
-    timeout 15 reboot 2>/dev/null || true
-    timeout 15 /sbin/reboot 2>/dev/null || true
-
-    # Forceful fallback if still running
-    log_warning "Standard reboot failed or timed out. Triggering forceful reboot..."
-    if command -v systemctl &>/dev/null; then
-        systemctl reboot -f 2>/dev/null || true
-    fi
-    reboot -f 2>/dev/null || true
-
-    # Ultimate kernel-level emergency reboot fallback (SysRq)
-    log_warning "Forceful reboot failed. Triggering emergency kernel reboot..."
+    # Ultimate kernel-level emergency reboot fallback (SysRq) if still running
+    sleep 5
+    log_warning "Standard reboot failed. Triggering emergency kernel reboot..."
     echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
     echo b > /proc/sysrq-trigger 2>/dev/null || true
 }
@@ -1527,6 +2059,8 @@ disable_boot_upgrade() {
         upgrade_state_clear
     fi
     enable_automatic_clean
+    # Clear recovery notification on clean disable
+    clear_recovery_notification
 }
 
 restore_sources_on_cancel() {
@@ -1645,6 +2179,7 @@ main_upgrade() {
             upgrade_state_set_current_step ""
             upgrade_state_write "REBOOT_COUNT" "0"
             disable_boot_upgrade
+            clear_recovery_notification
             release_lock
             log_info "Rebooting in 5 seconds..."
             for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
@@ -1677,6 +2212,7 @@ main_upgrade() {
             upgrade_state_set_current_step ""
             upgrade_state_write "REBOOT_COUNT" "0"
             disable_boot_upgrade
+            clear_recovery_notification
             exit 0
         fi
         if [[ "$check_result" -ne 0 ]]; then
@@ -1692,6 +2228,9 @@ main_upgrade() {
     fi
 
     backup_system
+
+    # Perform full OS backup if conditions are met (SSD/NVMe or BTRFS with 50GB+ free)
+    full_os_backup
 
     # Save list of installed packages before upgrade for later comparison
     mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
@@ -1773,6 +2312,9 @@ main_upgrade() {
     upgrade_state_set_upgrade_in_progress "no"
     upgrade_state_set_current_step ""
     upgrade_state_write "REBOOT_COUNT" "0"
+
+    # Clear any recovery notification from a previous failed attempt
+    clear_recovery_notification
 
     # Unhold any kernel packages that were held during the upgrade
     local held_packages
@@ -1926,6 +2468,7 @@ main() {
                     upgrade_state_set_current_step ""
                     upgrade_state_write "REBOOT_COUNT" "0"
                     disable_boot_upgrade
+                    clear_recovery_notification
                     release_lock
                     exit 0
                 fi
@@ -1963,6 +2506,7 @@ main() {
             log_warning "State file exists but no valid upgrade config found. Cleaning up."
             upgrade_state_clear
             disable_boot_upgrade
+            clear_recovery_notification
             release_lock
             exit 0
         fi
@@ -1982,6 +2526,8 @@ main() {
     case "$1" in
         --enable-boot-upgrade)
             check_root
+            # Clear any previous recovery notification when starting a new upgrade
+            clear_recovery_notification
             if [[ -z "$TMUX" ]]; then
                 check_tmux
                 log_info "Starting pre-download in tmux session..."
@@ -2038,6 +2584,7 @@ main() {
             restore_sources_on_cancel
             upgrade_state_clear
             disable_boot_upgrade
+            clear_recovery_notification
             release_lock
             log_info "Boot upgrade cancelled."
             exit 0
@@ -2059,6 +2606,26 @@ main() {
             else
                 log_info "No recovery flag found. Upgrade service is not blocked."
             fi
+            exit 0
+            ;;
+        --restore-from-backup)
+            check_root
+            log_info "Restoring system from full OS backup..."
+            restore_from_backup
+            clear_recovery_notification
+            log_info "System restored from backup. A reboot is recommended."
+            exit 0
+            ;;
+        --clear-recovery)
+            check_root
+            clear_recovery_notification
+            log_info "Recovery notification cleared."
+            exit 0
+            ;;
+        --setup-recovery-notification)
+            # Internal command used by elive-boot-upgrader to set up recovery notification
+            # after a failed upgrade. Creates desktop notification for next login.
+            create_recovery_notification
             exit 0
             ;;
         -h|--help)

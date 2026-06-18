@@ -280,6 +280,12 @@ main() {
         mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
         echo "$err_msg" > /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
 
+        # Set up recovery notification for desktop - user will be notified on next login
+        # This creates an autostart entry that shows a recovery dialog
+        if [ -x "$SCRIPT_PATH" ]; then
+            "$SCRIPT_PATH" --setup-recovery-notification 2>/dev/null || true
+        fi
+
         exit 0
     fi
     rm -f "$err_log"
@@ -300,12 +306,7 @@ main() {
 
     echo "Rebooting system to apply changes..."
     sync
-    if command -v systemctl &>/dev/null; then
-        systemctl reboot --no-block || systemctl reboot || reboot || reboot -f
-    else
-        reboot || reboot -f
-    fi
-    exit 0
+    reboot || /sbin/reboot || reboot -f || exit 0
 }
 
 # Run main function
