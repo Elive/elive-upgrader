@@ -1793,9 +1793,8 @@ main_upgrade() {
                 local output="$2"
                 while read -r pkg; do
                     local clean_pkg="${pkg%%:*}"
-                    if [[ "$clean_pkg" =~ ^lib ]]; then
-                        clean_pkg=$(echo "$clean_pkg" | sed -E 's/[0-9.-]+$//')
-                    fi
+                    # Strip trailing digits, dots, and hyphens from all packages to handle versioned packages (e.g. gcc-12, llvm-14, libxml2)
+                    clean_pkg=$(echo "$clean_pkg" | sed -E 's/[-.0-9]+$//')
                     echo "$clean_pkg"
                 done < "$input" | sort -u > "$output"
             }
@@ -1807,7 +1806,8 @@ main_upgrade() {
             while read -r pkg; do
                 if ! grep -qxF "$pkg" "$norm_after"; then
                     local orig_pkgs
-                    orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_before_file" | tr '\n' ' ')
+                    # Match exact package name, optionally followed by architecture or version numbers, but not letters
+                    orig_pkgs=$(grep -E "^${pkg}(:[a-zA-Z0-9]+)?([-0-9.]*)?$" "$pkgs_before_file" | tr '\n' ' ')
                     echo " - $pkg (original: ${orig_pkgs:-unknown})"
                     missing_found=1
                 fi
@@ -1825,7 +1825,8 @@ main_upgrade() {
             while read -r pkg; do
                 if ! grep -qxF "$pkg" "$norm_before"; then
                     local orig_pkgs
-                    orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_after_file" | tr '\n' ' ')
+                    # Match exact package name, optionally followed by architecture or version numbers, but not letters
+                    orig_pkgs=$(grep -E "^${pkg}(:[a-zA-Z0-9]+)?([-0-9.]*)?$" "$pkgs_after_file" | tr '\n' ' ')
                     echo " + $pkg (original: ${orig_pkgs:-unknown})"
                     new_found=1
                 fi
