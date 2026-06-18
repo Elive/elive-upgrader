@@ -884,7 +884,7 @@ upgrade_state_increment_reboot() {
     log_info "Reboot count during upgrade: $count"
 
     # Safety: if too many reboots, something is seriously wrong
-    if (( count > 20 )); then
+    if (( count > 5 )); then
         log_error "Too many reboots during upgrade ($count). Aborting upgrade to prevent infinite loop."
         copy_log_to_root
         upgrade_state_set_upgrade_in_progress "no"
@@ -2495,7 +2495,7 @@ main() {
                 fi
 
                 # Safety: check reboot count before resuming
-                if (( reboot_count >= 20 )); then
+                if (( reboot_count >= 5 )); then
                     log_error "Too many reboots during upgrade ($reboot_count). Aborting to prevent infinite loop."
                     upgrade_state_set_upgrade_in_progress "no"
                     disable_boot_upgrade

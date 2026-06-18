@@ -244,7 +244,7 @@ validate_upgrade_state() {
     fi
 
     # Safety: enforce reboot limit to prevent infinite loops
-    if [ "${REBOOT_COUNT:-0}" -ge 20 ] 2>/dev/null; then
+    if [ "${REBOOT_COUNT:-0}" -ge 5 ] 2>/dev/null; then
         el_error "Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
         echo "Check logs at /var/log/debian-upgrade-*.log for details."
         cleanup_and_disable
@@ -331,11 +331,7 @@ main() {
         el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
         echo "Check logs at /var/log/debian-upgrade-*.log for details"
 
-        echo "Safely cancelling boot-time upgrade to prevent boot loop..."
-        if [ -x "$SCRIPT_PATH" ]; then
-            "$SCRIPT_PATH" --cancel || true
-        fi
-        cleanup_and_disable
+        echo "Preserving upgrade state to resume on next boot (Reboot count: ${REBOOT_COUNT:-0}/5)"
 
         # Create a notification flag file so the user is notified of the failure upon login
         mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
