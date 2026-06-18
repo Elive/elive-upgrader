@@ -91,6 +91,13 @@ export APT_LISTCHANGES_FRONTEND=none
 export LC_ALL=C
 export TERM=linux
 
+# Pre-seed debconf to prevent Secure Boot / MOK enrollment prompts from hanging the boot upgrade
+if command -v debconf-set-selections &>/dev/null; then
+    echo "shim/enable_secureboot boolean false" | debconf-set-selections || true
+    echo "update-secureboot-policy/enable_secureboot boolean false" | debconf-set-selections || true
+    echo "dkms/sign_tool boolean false" | debconf-set-selections || true
+fi
+
 # set -e disabled to prevent premature exits on minor failures
 
 BOOT_MODE="false"
@@ -1583,9 +1590,30 @@ perform_upgrade() {
 
     # Full upgrade
     log_info "Performing full upgrade (building modules & configuring packages, please wait)..."
+
+    # Start a background monitor to stream DKMS compilation logs to Plymouth
+    (
+        while pgrep -f "apt-get|dpkg|dkms" >/dev/null; do
+            sleep 5
+            # Find the most recently modified dkms make.log
+            local latest_dkms_log
+            latest_dkms_log=$(ls -t /var/lib/dkms/*/*/build/make.log 2>/dev/null | head -n 1 || true)
+            if [[ -n "$latest_dkms_log" && -f "$latest_dkms_log" ]]; then
+                local last_line
+                last_line=$(tail -n 1 "$latest_dkms_log" | cut -c1-60)
+                if [[ -n "$last_line" ]]; then
+                    plymouth message --text="Compiling module: $last_line" 2>/dev/null || true
+                fi
+            fi
+        done
+    ) &
+    local dkms_monitor_pid=$!
+
     safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
         --allow-downgrades --allow-remove-essential --allow-change-held-packages \
         -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
+
+    kill "$dkms_monitor_pid" 2>/dev/null || true
 
     # Install latest kernel metapackage if not present and space permits
     if [[ "$can_install_new_kernel" == "true" ]]; then
