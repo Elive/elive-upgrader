@@ -1837,7 +1837,7 @@ main() {
             if [[ -z "$TMUX" ]]; then
                 check_tmux
                 log_info "Starting pre-download in tmux session..."
-                tmux-attach-jobs "elive-upgrader" "UpgradePredownload" "bash \"$0\" --enable-boot-upgrade \"$2\""
+                tmux-attach-jobs "elive-upgrader" "Predownloading" "bash \"$0\" --enable-boot-upgrade \"$2\""
                 sleep 1 ; sync
                 if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
                     urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
