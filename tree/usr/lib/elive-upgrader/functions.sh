@@ -668,7 +668,7 @@ run_hooks(){
 
                     case "$file" in
                         */debian-upgrade)
-                            if [[ "$prepost" = "post" ]] ; then
+                            if [[ "$prepost" = "pre" ]] ; then
                                 local upgrade_type
                                 upgrade_type=$(cat "$file")
                                 check_for_new_elive_version "$upgrade_type" "$is_betatester"
@@ -815,9 +815,10 @@ run_hooks(){
                 # update version, to know that we have run the hooks until here
                 if [[ "$prepost" = "post" ]] ; then
                     local should_update_version=1
-                    # if the debian-upgrade hook was run, and there's no other hooks in the same dir, don't update the version to allow it to be re-checked in the future
-                    if ((debian_upgrade_hook_run)) && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
-                        if [[ "$debian_upgrade_choice" -ne 0 ]] ; then
+                    # if the debian-upgrade hook exists, and there's no other hooks in the same dir, don't update the version if user chose to be reminded later
+                    if [[ -f "${hooks_d}/${version}/$mode/debian-upgrade" ]] && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
+                        el_config_get
+                        if [[ "${conf_debian_upgrade_notification:-}" = "remind" ]]; then
                             should_update_version=0
                         fi
                     fi
