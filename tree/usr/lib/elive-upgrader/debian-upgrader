@@ -560,7 +560,7 @@ safe_apt_run() {
 
     local cmd=("$@")
     if [[ "${cmd[0]}" == "apt-get" ]]; then
-        cmd=("apt-get" "-o" "Dpkg::Options::=--force-confdef" "-o" "Dpkg::Options::=--force-confold" "${cmd[@]:1}")
+        cmd=("apt-get" "-o" "Dpkg::Options::=--force-confdef" "-o" "Dpkg::Options::=--force-confold" "-o" "Dpkg::Options::=--force-overwrite" "${cmd[@]:1}")
     fi
 
     while (( attempt <= max_attempts )); do
@@ -976,7 +976,7 @@ perform_upgrade() {
 
     # Minimal upgrade first
     log_info "Performing minimal upgrade..."
-    safe_apt_run apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --allow-downgrades --allow-remove-essential --allow-change-held-packages
+    safe_apt_run apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages
 
     # Check space in /boot for two kernels (approx 100MB each * 1.3 tolerance = 260MB / 266240 KB)
     local boot_space_free
@@ -1018,7 +1018,7 @@ perform_upgrade() {
 
     # Full upgrade
     log_info "Performing full upgrade..."
-    safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+    safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
         --allow-downgrades --allow-remove-essential --allow-change-held-packages \
         -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
 
