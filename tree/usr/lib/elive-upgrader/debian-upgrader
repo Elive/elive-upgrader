@@ -985,6 +985,9 @@ log_info() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         if [[ "$USE_PLYMOUTH" == "true" ]]; then
             log_action_msg "$1"
+            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+                plymouth message --text="$1" 2>/dev/null || true
+            fi
         else
             echo -e "  ${GREEN}[  OK  ]${NC} $1" >/dev/console
         fi
@@ -1014,6 +1017,9 @@ log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         if [[ "$USE_PLYMOUTH" == "true" ]]; then
             log_warning_msg "$1"
+            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+                plymouth message --text="WARNING: $1" 2>/dev/null || true
+            fi
         else
             echo -e "  ${YELLOW}[ WARN ]${NC} $1" >/dev/console
         fi
@@ -1025,6 +1031,9 @@ log_error() {
     if [[ "$BOOT_MODE" == "true" ]]; then
         if [[ "$USE_PLYMOUTH" == "true" ]]; then
             log_failure_msg "$1"
+            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+                plymouth message --text="ERROR: $1" 2>/dev/null || true
+            fi
         else
             echo -e "  ${RED}[ FAIL ]${NC} $1" >/dev/console
         fi
@@ -1148,6 +1157,7 @@ run_and_show_plymouth_on_boot() {
         # Use a subshell to contain pipefail and handle plymouth failures gracefully
         # IMPORTANT: we do NOT use "|| true" here because safe_apt_run needs the
         # real exit code to decide whether to retry.
+        plymouth message --text="Running: $*" 2>/dev/null || true
         (
             set -o pipefail
             # Execute command redirecting stderr to stdout so both are captured
@@ -1530,7 +1540,7 @@ perform_upgrade() {
     check_disk_space
 
     # Minimal upgrade first
-    log_info "Performing minimal upgrade..."
+    log_info "Performing minimal upgrade (preparing packages)..."
     safe_apt_run apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages
 
     # Check space in /boot for two kernels (approx 100MB each * 1.3 tolerance = 260MB / 266240 KB)
@@ -1572,7 +1582,7 @@ perform_upgrade() {
     fi
 
     # Full upgrade
-    log_info "Performing full upgrade..."
+    log_info "Performing full upgrade (building modules & configuring packages, please wait)..."
     safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
         --allow-downgrades --allow-remove-essential --allow-change-held-packages \
         -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
@@ -1597,7 +1607,7 @@ perform_upgrade() {
         log_info "Skipping kernel metapackage installation/upgrade due to low space in /boot."
     fi
 
-    log_info "Rebuilding initramfs for all kernels..."
+    log_info "Rebuilding initramfs for all kernels (building modules, please wait)..."
     if run_and_show_plymouth_on_boot update-initramfs -u -k all; then
         log_info "Initramfs rebuilt successfully."
     else
@@ -1605,7 +1615,7 @@ perform_upgrade() {
         run_and_show_plymouth_on_boot update-initramfs -c -k all || log_error "Failed to rebuild initramfs!"
     fi
 
-    log_info "Updating GRUB configuration..."
+    log_info "Updating GRUB configuration (detecting operating systems)..."
     if run_and_show_plymouth_on_boot update-grub; then
         log_info "GRUB configuration updated successfully."
     else
