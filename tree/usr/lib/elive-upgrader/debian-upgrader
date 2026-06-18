@@ -72,10 +72,10 @@ USE_PLYMOUTH="true"
 FULL_OS_BACKUP_MIN_SPACE_KB=$((50 * 1024 * 1024))
 
 # Full OS backup directory
-FULL_OS_BACKUP_DIR="/var/lib/elive-upgrader/full-os-backup"
+FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 
 # Recovery notification file - placed where desktop session can find it
-RECOVERY_NOTIFICATION_FLAG="/var/lib/elive-upgrader/recovery-mode-pending"
+RECOVERY_NOTIFICATION_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 
 # Recovery desktop notification file (XDG autostart)
 RECOVERY_DESKTOP_NOTIFICATION_DIR="/etc/xdg/autostart"
@@ -457,8 +457,8 @@ full_os_backup() {
                         -not -path './var/www/*' \
                         -not -path './var/cache/apt/archives' \
                         -not -path './var/cache/apt/archives/*' \
-                        -not -path './var/lib/elive-upgrader/full-os-backup' \
-                        -not -path './var/lib/elive-upgrader/full-os-backup/*' \
+                        -not -path './var/cache/elive-upgrader/full-os-backup' \
+                        -not -path './var/cache/elive-upgrader/full-os-backup/*' \
                         -not -path './tmp' \
                         -not -path './tmp/*' \
                         -not -path './proc' \
@@ -492,7 +492,7 @@ full_os_backup() {
                     cp -a --reflink=auto "$src_dir" "$dest_dir"
                     # Remove excluded directories from the copy
                     rm -rf "$dest_dir/home" "$dest_dir/var/www" "$dest_dir/var/cache/apt/archives"
-                    rm -rf "$dest_dir/var/lib/elive-upgrader/full-os-backup"
+                    rm -rf "$dest_dir/var/cache/elive-upgrader/full-os-backup"
                     rm -rf "$dest_dir/tmp" "$dest_dir/proc" "$dest_dir/sys" "$dest_dir/dev" "$dest_dir/run"
                     rm -rf "$dest_dir/mnt" "$dest_dir/media" "$dest_dir/lost+found" "$dest_dir/swapfile"
                 }
@@ -513,7 +513,7 @@ full_os_backup() {
                         --exclude='/home' \
                         --exclude='/var/www' \
                         --exclude='/var/cache/apt/archives' \
-                        --exclude='/var/lib/elive-upgrader/full-os-backup' \
+                        --exclude='/var/cache/elive-upgrader/full-os-backup' \
                         --exclude='/tmp' \
                         --exclude='/proc' \
                         --exclude='/sys' \
@@ -623,7 +623,7 @@ create_recovery_notification() {
     log_info "Creating recovery notification for desktop..."
 
     # Create the notification flag file
-    mkdir -p /var/lib/elive-upgrader
+    mkdir -p /var/log/elive-upgrader
     touch "$RECOVERY_NOTIFICATION_FLAG"
 
     # Create XDG autostart desktop entry for recovery notification
@@ -647,8 +647,8 @@ DESKTOP_ENTRY
 #!/bin/bash
 # Recovery notification script - shown to user on desktop after failed upgrade
 
-RECOVERY_FLAG="/var/lib/elive-upgrader/recovery-mode-pending"
-BACKUP_DIR="/var/lib/elive-upgrader/full-os-backup"
+RECOVERY_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
+BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 
 if [[ ! -f "$RECOVERY_FLAG" ]]; then
     # No recovery needed, remove autostart entry and exit
@@ -1118,6 +1118,7 @@ safe_apt_run() {
 
     while (( attempt <= max_attempts )); do
         # Run the command and capture exit code explicitly
+        log_info "Running command: ${cmd[*]}"
         run_and_show_plymouth_on_boot "${cmd[@]}" 2> "$err_log"
         exit_code=$?
         if [[ "$exit_code" -eq 0 ]]; then
@@ -1141,6 +1142,7 @@ safe_apt_run() {
 }
 
 run_and_show_plymouth_on_boot() {
+    echo "Executing: $*"
     if [[ "$BOOT_MODE" == "true" ]] && [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
         # Run command, tee output to both stdout and plymouth
         # Use a subshell to contain pipefail and handle plymouth failures gracefully
@@ -2233,11 +2235,12 @@ main_upgrade() {
     full_os_backup
 
     # Save list of installed packages before upgrade for later comparison
-    mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
-    local pkgs_before_file="/var/lib/elive-upgrader/installed-packages-before.txt"
+    mkdir -p /var/log/elive-upgrader 2>/dev/null || true
+    local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${TARGET_CODENAME}.txt"
     if [[ ! -f "$pkgs_before_file" ]]; then
         log_info "Saving list of installed packages before upgrade..."
-        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | sort -u > "$pkgs_before_file"
+        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | cut -d':' -f1 | sort -u > "$pkgs_before_file"
+        chmod 644 "$pkgs_before_file" 2>/dev/null || true
     fi
 
     # Do not run cleanup_packages here as it runs apt-get clean/autoremove and deletes pre-downloaded packages!
@@ -2325,54 +2328,34 @@ main_upgrade() {
     fi
 
     # Generate package comparison report
-    local pkgs_before_file="/var/lib/elive-upgrader/installed-packages-before.txt"
+    local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${TARGET_CODENAME}.txt"
     if [[ -f "$pkgs_before_file" ]]; then
         log_info "Generating package comparison report..."
-        local pkgs_after_file="/tmp/installed-packages-after.txt"
-        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | sort -u > "$pkgs_after_file"
+        local pkgs_after_file="/var/log/elive-upgrader/debian-upgrade-packages-after-${TARGET_CODENAME}.txt"
+        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | cut -d':' -f1 | sort -u > "$pkgs_after_file"
+        chmod 644 "$pkgs_after_file" 2>/dev/null || true
 
-        local report_file="/root/upgrade-packages-comparison.txt"
+        # Append the comparison report to the end of the main log file ($LOG_FILE)
         {
+            echo ""
             echo "======================================================================"
             echo "ELIVE DISTRO UPGRADE - PACKAGE COMPARISON REPORT"
             echo "Generated on: $(date)"
             echo "======================================================================"
             echo ""
             echo "This report compares installed packages before and after the upgrade."
-            echo "Library package names are normalized (removing architecture suffixes"
-            echo "and trailing version numbers) to avoid false positives."
             echo ""
             echo "----------------------------------------------------------------------"
             echo "MISSING PACKAGES (Installed before, but not after):"
             echo "----------------------------------------------------------------------"
 
-            local norm_before="/tmp/norm-before.txt"
-            local norm_after="/tmp/norm-after.txt"
-
-            normalize_list() {
-                local input="$1"
-                local output="$2"
-                while read -r pkg; do
-                    local clean_pkg="${pkg%%:*}"
-                    # Strip trailing digits, dots, and hyphens from all packages to handle versioned packages (e.g. gcc-12, llvm-14, libxml2)
-                    clean_pkg=$(echo "$clean_pkg" | sed -E 's/[-.0-9]+$//')
-                    echo "$clean_pkg"
-                done < "$input" | sort -u > "$output"
-            }
-
-            normalize_list "$pkgs_before_file" "$norm_before"
-            normalize_list "$pkgs_after_file" "$norm_after"
-
             local missing_found=0
             while read -r pkg; do
-                if ! grep -qxF "$pkg" "$norm_after"; then
-                    local orig_pkgs
-                    # Match exact package name, optionally followed by architecture or version numbers, but not letters
-                    orig_pkgs=$(grep -E "^${pkg}(:[a-zA-Z0-9]+)?([-0-9.]*)?$" "$pkgs_before_file" | tr '\n' ' ')
-                    echo " - $pkg (original: ${orig_pkgs:-unknown})"
+                if ! grep -qxF "$pkg" "$pkgs_after_file"; then
+                    echo " - $pkg"
                     missing_found=1
                 fi
-            done < "$norm_before"
+            done < "$pkgs_before_file"
 
             if [[ "$missing_found" -eq 0 ]]; then
                 echo " No missing packages detected!"
@@ -2384,14 +2367,11 @@ main_upgrade() {
             echo "----------------------------------------------------------------------"
             local new_found=0
             while read -r pkg; do
-                if ! grep -qxF "$pkg" "$norm_before"; then
-                    local orig_pkgs
-                    # Match exact package name, optionally followed by architecture or version numbers, but not letters
-                    orig_pkgs=$(grep -E "^${pkg}(:[a-zA-Z0-9]+)?([-0-9.]*)?$" "$pkgs_after_file" | tr '\n' ' ')
-                    echo " + $pkg (original: ${orig_pkgs:-unknown})"
+                if ! grep -qxF "$pkg" "$pkgs_before_file"; then
+                    echo " + $pkg"
                     new_found=1
                 fi
-            done < "$norm_after"
+            done < "$pkgs_after_file"
 
             if [[ "$new_found" -eq 0 ]]; then
                 echo " No new packages detected!"
@@ -2399,14 +2379,7 @@ main_upgrade() {
 
             echo ""
             echo "======================================================================"
-        } > "$report_file"
-
-        mkdir -p /root/upgrade-logs/ 2>/dev/null || true
-        cp -f "$report_file" /root/upgrade-logs/ 2>/dev/null || true
-        log_info "Package comparison report saved to $report_file"
-
-        rm -f "$pkgs_after_file" "$norm_before" "$norm_after" 2>/dev/null || true
-        rm -f "$pkgs_before_file" 2>/dev/null || true
+        } >> "$LOG_FILE"
     fi
 
     verify_upgrade
