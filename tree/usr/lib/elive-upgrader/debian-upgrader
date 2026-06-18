@@ -1127,8 +1127,8 @@ run_pre_hooks() {
     fi
 
     if [[ -d "$hooks_base" ]]; then
-        for hook_dir in "$hooks_base"/*/root; do
-            if [[ -f "$hook_dir/debian-upgrade" ]]; then
+        for hook_dir in "$hooks_base"/*/{root,user}; do
+            if [[ -d "$hook_dir" ]] && [[ -f "$hook_dir/debian-upgrade" ]]; then
                 # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
                 if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
                     local pkgs
@@ -1180,8 +1180,8 @@ run_post_hooks() {
     fi
 
     if [[ -d "$hooks_base" ]]; then
-        for hook_dir in "$hooks_base"/*/root; do
-            if [[ -f "$hook_dir/debian-upgrade" ]]; then
+        for hook_dir in "$hooks_base"/*/{root,user}; do
+            if [[ -d "$hook_dir" ]] && [[ -f "$hook_dir/debian-upgrade" ]]; then
                 # 1. Install packages specified in debian-upgrade-packages-to-install.txt
                 if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
                     local pkgs
