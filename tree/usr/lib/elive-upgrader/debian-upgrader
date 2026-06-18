@@ -1663,6 +1663,11 @@ run_pre_hooks() {
     if [[ -d "$hooks_base" ]]; then
         for hook_dir in "$hooks_base"/*/{root,user}; do
             if [[ -d "$hook_dir" ]] && [[ -f "$hook_dir/debian-upgrade" ]]; then
+                # Save the path of the remove-if-not-before hook for the first boot of the upgraded system
+                if [[ -f "$hook_dir/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
+                    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+                    echo "$hook_dir/debian-upgrade-packages-to-remove-if-not-before.txt" >> /var/cache/elive-upgrader/pending-remove-if-not-before.txt
+                fi
                 # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
                 if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
                     local pkgs

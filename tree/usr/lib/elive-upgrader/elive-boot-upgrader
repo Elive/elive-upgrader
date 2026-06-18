@@ -151,6 +151,50 @@ restore_non_systemd_gettys() {
     fi
 }
 
+process_remove_if_not_before() {
+    local target_codename="$1"
+    local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename}.txt"
+    
+    if [ ! -f "$pkgs_before_file" ]; then
+        echo "No packages-before file found at $pkgs_before_file, skipping remove-if-not-before check."
+        return 0
+    fi
+
+    local pending_list="/var/cache/elive-upgrader/pending-remove-if-not-before.txt"
+    if [ ! -f "$pending_list" ]; then
+        echo "No pending remove-if-not-before hooks found."
+        return 0
+    fi
+
+    local hook_file
+    while read -r hook_file; do
+        [ -z "$hook_file" ] && continue
+        if [ -f "$hook_file" ]; then
+            echo "Processing remove-if-not-before hook: $hook_file"
+            local pattern
+            while read -r pattern; do
+                # Skip comments and empty lines
+                [ -z "$pattern" ] && continue
+                case "$pattern" in
+                    \#*) continue ;;
+                esac
+                
+                # Remove trailing wildcard * for searching in the packages-before file
+                local search_pattern="${pattern%\*}"
+                
+                # Check if search_pattern matches any package in pkgs_before_file
+                if ! grep -q "^${search_pattern}" "$pkgs_before_file"; then
+                    echo "Package pattern '$pattern' (search: '$search_pattern') was not present before upgrade. Removing..."
+                    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" remove --purge "$pattern" || true
+                else
+                    echo "Package pattern '$pattern' (search: '$search_pattern') was present before upgrade. Keeping."
+                fi
+            done < "$hook_file"
+        fi
+    done < "$pending_list"
+    rm -f "$pending_list"
+}
+
 # Clean up state and disable services
 cleanup_and_disable() {
     echo "Cleaning up upgrade state and disabling boot services"
@@ -179,6 +223,10 @@ validate_upgrade_state() {
     fi
 
     if [ "$UPGRADE_IN_PROGRESS" != "yes" ]; then
+        if [ "$UPGRADE_COMPLETED" = "yes" ]; then
+            echo "First boot of the new upgraded system detected. Running post-boot hooks..."
+            process_remove_if_not_before "$TARGET_CODENAME"
+        fi
         echo "UPGRADE_IN_PROGRESS is not yes (value: \"$UPGRADE_IN_PROGRESS\"), cleaning up state file"
         cleanup_and_disable
         return 1
