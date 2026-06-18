@@ -42,14 +42,19 @@ export TEXTDOMAIN
 #   export DEBCONF_NONINTERACTIVE_SEEN=true
 #   export DEBCONF_NOWARNINGS=true
 #   export UCF_FORCE_CONFFOLD=1
+#   export APT_LISTCHANGES_FRONTEND=none
 #   export LC_ALL=C
 #   export TERM=linux
 #
-#   # Replace codenames (e.g., bookworm to trixie)
+#   # Replace codenames (e.g., bookworm to trixie) in sources, preferences, and configurations
 #   sed -i -e 's|bookworm|trixie|g' /etc/apt/sources.list /etc/apt/sources.list.d/*
+#   sed -i -e 's|bookworm|trixie|g' /etc/apt/preferences /etc/apt/preferences.d/* 2>/dev/null || true
+#   sed -i -e 's|bookworm|trixie|g' /etc/apt/apt.conf /etc/apt/apt.conf.d/* 2>/dev/null || true
+#   sed -i -e 's|bookworm|trixie|g' /etc/elive-version 2>/dev/null || true
+#   sed -i -e 's|DISTRIB_RELEASE="12"|DISTRIB_RELEASE="13"|g' -e 's|DISTRIB_CODENAME="bookworm"|DISTRIB_CODENAME="trixie"|g' -e 's|bookworm|trixie|g' /etc/lsb-release 2>/dev/null || true
 #
 #   apt-get update
-#   apt-get upgrade --without-new-pkgs -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+#   apt-get upgrade --without-new-pkgs -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" --allow-downgrades --allow-remove-essential --allow-change-held-packages
 #   apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
 #       --allow-downgrades --allow-remove-essential --allow-change-held-packages \
 #       -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
@@ -149,6 +154,8 @@ draw_banner() {
         local target_out="/dev/stdout"
         if [[ "$BOOT_MODE" == "true" ]]; then
             target_out="/dev/console"
+            # Reset terminal settings to sane defaults to prevent broken formatting/tabs
+            stty sane < "$target_out" 2>/dev/null || true
         fi
         echo -e "${color}${border}${NC}" > "$target_out"
         echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}" > "$target_out"
