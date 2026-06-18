@@ -38,6 +38,11 @@ export TEXTDOMAIN
 # This script is called by the init.d or systemd service during boot
 # to perform the actual upgrade process.
 #
+# Hooks processed on first boot:
+#   - debian-upgrade-packages-to-remove-if-not-before.txt
+#     List of packages to remove after the first boot of the upgraded system
+#     if they were not present before the upgrade. Supports wildcards.
+#
 
 set -e
 
@@ -154,7 +159,7 @@ restore_non_systemd_gettys() {
 process_remove_if_not_before() {
     local target_codename="$1"
     local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename}.txt"
-    
+
     if [ ! -f "$pkgs_before_file" ]; then
         echo "No packages-before file found at $pkgs_before_file, skipping remove-if-not-before check."
         return 0
@@ -178,10 +183,10 @@ process_remove_if_not_before() {
                 case "$pattern" in
                     \#*) continue ;;
                 esac
-                
+
                 # Remove trailing wildcard * for searching in the packages-before file
                 local search_pattern="${pattern%\*}"
-                
+
                 # Check if search_pattern matches any package in pkgs_before_file
                 if ! grep -q "^${search_pattern}" "$pkgs_before_file"; then
                     echo "Package pattern '$pattern' (search: '$search_pattern') was not present before upgrade. Removing..."

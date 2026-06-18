@@ -51,6 +51,10 @@
 #
 #   12. debian-upgrade-post-script.sh
 #      - Script executed specifically after completing a distro-upgrade.
+#
+#   13. debian-upgrade-packages-to-remove-if-not-before.txt
+#      - List of packages to remove after the first boot of the upgraded system
+#        if they were not present before the upgrade. Supports wildcards.
 # ==============================================================================
 
 SOURCE="$0"

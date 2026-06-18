@@ -2321,6 +2321,11 @@ main_upgrade() {
     upgrade_state_set_current_step ""
     upgrade_state_write "REBOOT_COUNT" "0"
 
+    # Create a pending notification flag for the user session on first boot
+    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+    echo "$TARGET_CODENAME" > /var/cache/elive-upgrader/notify-upgrade-complete
+    chmod 666 /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true
+
     # Clear any recovery notification from a previous failed attempt
     clear_recovery_notification
 
