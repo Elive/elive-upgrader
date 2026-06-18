@@ -550,9 +550,15 @@ safe_apt_run() {
     local exit_code=0
     local err_log
     err_log=$(mktemp)
+
+    local cmd=("$@")
+    if [[ "${cmd[0]}" == "apt-get" ]]; then
+        cmd=("apt-get" "-o" "Dpkg::Options::=--force-confdef" "-o" "Dpkg::Options::=--force-confold" "${cmd[@]:1}")
+    fi
+
     while (( attempt <= max_attempts )); do
         # Run the command and capture exit code explicitly
-        run_and_show_plymouth_on_boot "$@" 2> "$err_log"
+        run_and_show_plymouth_on_boot "${cmd[@]}" 2> "$err_log"
         exit_code=$?
         if [[ "$exit_code" -eq 0 ]]; then
             rm -f "$err_log"
