@@ -449,13 +449,33 @@ log_info() {
 }
 
 trigger_reboot() {
+    log_info "=================================================="
+    log_info "  SYSTEM IS READY FOR REBOOT TO APPLY CHANGES"
+    log_info "=================================================="
     log_info "Rebooting now..."
     sync
+
+    # Try standard systemctl reboot with a timeout
     if command -v systemctl &>/dev/null; then
-        systemctl reboot --no-block || systemctl reboot || reboot || /sbin/reboot || systemctl reboot -f || reboot -f
-    else
-        reboot || /sbin/reboot || reboot -f
+        timeout 30 systemctl reboot --no-block 2>/dev/null || true
+        timeout 30 systemctl reboot 2>/dev/null || true
     fi
+
+    # Try standard reboot commands
+    timeout 15 reboot 2>/dev/null || true
+    timeout 15 /sbin/reboot 2>/dev/null || true
+
+    # Forceful fallback if still running
+    log_warning "Standard reboot failed or timed out. Triggering forceful reboot..."
+    if command -v systemctl &>/dev/null; then
+        systemctl reboot -f 2>/dev/null || true
+    fi
+    reboot -f 2>/dev/null || true
+
+    # Ultimate kernel-level emergency reboot fallback (SysRq)
+    log_warning "Forceful reboot failed. Triggering emergency kernel reboot..."
+    echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+    echo b > /proc/sysrq-trigger 2>/dev/null || true
 }
 
 log_warning() {
@@ -824,9 +844,9 @@ check_disk_space() {
     }
 
     # Run a quick simulation to estimate required space
-    log_info "Simulating upgrade to estimate required disk space..."
+    log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
     local sim_out
-    sim_out=$(apt-get -s dist-upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true)
+    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true)
 
     local download_kb=0
     local install_kb=0
@@ -1285,7 +1305,7 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Simulating upgrade to verify compatibility..."
-    if ! apt-get -s dist-upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages >/dev/null 2>&1; then
+    if ! apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
         log_error "Upgrade simulation failed! The upgrade cannot be performed safely."
 
         # Restore sources
@@ -1318,7 +1338,7 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Downloading packages (download-only)..."
-    if ! apt-get dist-upgrade --download-only -y --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
+    if ! apt-get dist-upgrade --download-only -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
         log_warning "Some packages failed to download. We will attempt to download remaining packages during boot."
     else
         log_info "All packages pre-downloaded successfully!"
@@ -1785,7 +1805,7 @@ main_upgrade() {
 
             local missing_found=0
             while read -r pkg; do
-                if ! grep -qxFG "$pkg" "$norm_after"; then
+                if ! grep -qxF "$pkg" "$norm_after"; then
                     local orig_pkgs
                     orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_before_file" | tr '\n' ' ')
                     echo " - $pkg (original: ${orig_pkgs:-unknown})"
@@ -1803,7 +1823,7 @@ main_upgrade() {
             echo "----------------------------------------------------------------------"
             local new_found=0
             while read -r pkg; do
-                if ! grep -qxFG "$pkg" "$norm_before"; then
+                if ! grep -qxF "$pkg" "$norm_before"; then
                     local orig_pkgs
                     orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_after_file" | tr '\n' ' ')
                     echo " + $pkg (original: ${orig_pkgs:-unknown})"
