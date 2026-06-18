@@ -1638,6 +1638,15 @@ main_upgrade() {
     fi
 
     backup_system
+
+    # Save list of installed packages before upgrade for later comparison
+    mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
+    local pkgs_before_file="/var/lib/elive-upgrader/installed-packages-before.txt"
+    if [[ ! -f "$pkgs_before_file" ]]; then
+        log_info "Saving list of installed packages before upgrade..."
+        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | sort -u > "$pkgs_before_file"
+    fi
+
     # Do not run cleanup_packages here as it runs apt-get clean/autoremove and deletes pre-downloaded packages!
     stop_services
 
@@ -1717,6 +1726,90 @@ main_upgrade() {
     if [[ -n "$held_packages" ]]; then
         log_info "Unholding packages that were held during upgrade: $held_packages"
         echo "$held_packages" | xargs -r apt-mark unhold 2>/dev/null || true
+    fi
+
+    # Generate package comparison report
+    local pkgs_before_file="/var/lib/elive-upgrader/installed-packages-before.txt"
+    if [[ -f "$pkgs_before_file" ]]; then
+        log_info "Generating package comparison report..."
+        local pkgs_after_file="/tmp/installed-packages-after.txt"
+        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | sort -u > "$pkgs_after_file"
+
+        local report_file="/root/upgrade-packages-comparison.txt"
+        {
+            echo "======================================================================"
+            echo "ELIVE DISTRO UPGRADE - PACKAGE COMPARISON REPORT"
+            echo "Generated on: $(date)"
+            echo "======================================================================"
+            echo ""
+            echo "This report compares installed packages before and after the upgrade."
+            echo "Library package names are normalized (removing architecture suffixes"
+            echo "and trailing version numbers) to avoid false positives."
+            echo ""
+            echo "----------------------------------------------------------------------"
+            echo "MISSING PACKAGES (Installed before, but not after):"
+            echo "----------------------------------------------------------------------"
+
+            local norm_before="/tmp/norm-before.txt"
+            local norm_after="/tmp/norm-after.txt"
+
+            normalize_list() {
+                local input="$1"
+                local output="$2"
+                while read -r pkg; do
+                    local clean_pkg="${pkg%%:*}"
+                    if [[ "$clean_pkg" =~ ^lib ]]; then
+                        clean_pkg=$(echo "$clean_pkg" | sed -E 's/[0-9.-]+$//')
+                    fi
+                    echo "$clean_pkg"
+                done < "$input" | sort -u > "$output"
+            }
+
+            normalize_list "$pkgs_before_file" "$norm_before"
+            normalize_list "$pkgs_after_file" "$norm_after"
+
+            local missing_found=0
+            while read -r pkg; do
+                if ! grep -qxFG "$pkg" "$norm_after"; then
+                    local orig_pkgs
+                    orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_before_file" | tr '\n' ' ')
+                    echo " - $pkg (original: ${orig_pkgs:-unknown})"
+                    missing_found=1
+                fi
+            done < "$norm_before"
+
+            if [[ "$missing_found" -eq 0 ]]; then
+                echo " No missing packages detected!"
+            fi
+
+            echo ""
+            echo "----------------------------------------------------------------------"
+            echo "NEWLY INSTALLED PACKAGES (Installed after, but not before):"
+            echo "----------------------------------------------------------------------"
+            local new_found=0
+            while read -r pkg; do
+                if ! grep -qxFG "$pkg" "$norm_before"; then
+                    local orig_pkgs
+                    orig_pkgs=$(grep -E "^${pkg}[0-9.:-]*" "$pkgs_after_file" | tr '\n' ' ')
+                    echo " + $pkg (original: ${orig_pkgs:-unknown})"
+                    new_found=1
+                fi
+            done < "$norm_after"
+
+            if [[ "$new_found" -eq 0 ]]; then
+                echo " No new packages detected!"
+            fi
+
+            echo ""
+            echo "======================================================================"
+        } > "$report_file"
+
+        mkdir -p /root/upgrade-logs/ 2>/dev/null || true
+        cp -f "$report_file" /root/upgrade-logs/ 2>/dev/null || true
+        log_info "Package comparison report saved to $report_file"
+
+        rm -f "$pkgs_after_file" "$norm_before" "$norm_after" 2>/dev/null || true
+        rm -f "$pkgs_before_file" 2>/dev/null || true
     fi
 
     verify_upgrade
