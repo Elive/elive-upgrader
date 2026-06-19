@@ -103,11 +103,13 @@ upgrade_check_target_reached() {
 
 # Disable boot upgrade services (both systemd and sysvinit)
 disable_boot_services() {
-    # Disable systemd service
+    # Disable systemd service in the background to prevent systemd from hanging/blocking this script
     if command -v systemctl &>/dev/null; then
-        systemctl disable elive-distro-upgrader.service 2>/dev/null || true
-        systemctl stop elive-distro-upgrader.service 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
+        (
+            sleep 2
+            systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+        ) &
     fi
     # Disable sysvinit script
     if command -v update-rc.d &>/dev/null; then
@@ -361,9 +363,10 @@ main() {
         fi
     fi
 
-    echo "Rebooting system to apply changes..."
+    echo "Rebooting system to apply changes in 10 seconds..."
     sync
-    reboot || /sbin/reboot || reboot -f || exit 0
+    ( sleep 10 ; sync ; reboot || /sbin/reboot || reboot -f ) &
+    exit 0
 }
 
 # Run main function

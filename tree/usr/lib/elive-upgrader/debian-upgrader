@@ -2086,13 +2086,15 @@ EOF
 }
 
 disable_boot_upgrade() {
-    # Disable services first, then clear the state file
+    sync
+    # Disable services in the background to prevent systemd from hanging/blocking this script
     if command -v systemctl &>/dev/null; then
-        log_info "Disabling elive-distro-upgrader.service..."
-        systemctl disable elive-distro-upgrader.service 2>/dev/null || true
-        systemctl stop elive-distro-upgrader.service 2>/dev/null || true
-        # Reload systemd to pick up the disabled state
-        systemctl daemon-reload 2>/dev/null || true
+        log_info "Disabling elive-distro-upgrader.service in background..."
+        (
+            sleep 2
+            systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+        ) &
     fi
     if command -v update-rc.d &>/dev/null; then
         log_info "Disabling elive-distro-upgrader init script..."
@@ -2106,6 +2108,7 @@ disable_boot_upgrade() {
     enable_automatic_clean
     # Clear recovery notification on clean disable
     clear_recovery_notification
+    sync
 }
 
 restore_sources_on_cancel() {
