@@ -337,7 +337,7 @@ main() {
             "$SCRIPT_PATH" --setup-recovery-notification 2>/dev/null || true
         fi
 
-        exit 0
+        exit "$exit_code"
     fi
     rm -f "$err_log"
 
