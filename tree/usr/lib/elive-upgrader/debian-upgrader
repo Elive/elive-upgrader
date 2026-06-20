@@ -1781,13 +1781,16 @@ enable_boot_upgrade_conf() {
     fi
 
     # Run pre-upgrade hooks for each step before simulating the upgrade
-    local start_version=$((current_version_number + 1))
-    for version in $(seq "$start_version" "$target_version_number"); do
-        local step_codename=${DEBIAN_VERSIONS[$version]}
-        if [[ -n "$step_codename" ]]; then
-            run_pre_hooks "$step_codename"
-        fi
-    done
+    local target_version_number=${DEBIAN_CODENAMES[$target_codename]:-}
+    if [[ -n "$current_version_number" && -n "$target_version_number" ]] && (( current_version_number < target_version_number )); then
+        local start_version=$((current_version_number + 1))
+        for version in $(seq "$start_version" "$target_version_number"); do
+            local step_codename=${DEBIAN_VERSIONS[$version]}
+            if [[ -n "$step_codename" ]]; then
+                run_pre_hooks "$step_codename"
+            fi
+        done
+    fi
 
     log_info "Simulating upgrade to verify compatibility..."
     local sim_failed=0
