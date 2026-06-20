@@ -104,7 +104,7 @@ has_pending_distro_upgrade_hook() {
         [[ -z "$version" ]] && continue
         el_debug "has_pending_distro_upgrade_hook: checking version ${version} against ${conf_ver}"
         if LC_ALL=C dpkg --compare-versions "$version" "gt" "$conf_ver" ; then
-            for file in "${hooks_d}/${version}/root/debian-upgrade" "${hooks_d}/${version}/user/debian-upgrade"; do
+            for file in "${hooks_d}/${version}/root/debian-upgrade"; do
                 el_debug "has_pending_distro_upgrade_hook: checking file ${file}"
                 if [[ -f "$file" ]]; then
                     upgrade_type=$(tr -d '\r\n ' < "$file")
@@ -668,7 +668,9 @@ run_hooks(){
 
                     case "$file" in
                         */debian-upgrade)
-                            if [[ "$prepost" = "pre" ]] ; then
+                            if [[ "$mode" = "user" ]] ; then
+                                el_warning "debian-upgrade hook found in user directory: $file. This hook must be placed in the root directory instead!"
+                            elif [[ "$prepost" = "pre" ]] ; then
                                 local upgrade_type
                                 upgrade_type=$(cat "$file")
                                 check_for_new_elive_version "$upgrade_type" "$is_betatester"

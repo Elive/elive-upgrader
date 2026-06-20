@@ -34,7 +34,7 @@
 #   7. post-*.sh
 #      - Executed during the "post" phase. Must be executable (chmod +x).
 #
-#   8. debian-upgrade
+#   8. debian-upgrade (Must be in 'root' directory only)
 #      - Contains the upgrade tier: "alpha", "beta", or "stable".
 #      - "alpha" requires the user to be a betatester (e.g., elive-upgrader --betatest).
 #      - "beta" requires the user to be a Premium user.
