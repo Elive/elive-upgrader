@@ -317,6 +317,16 @@ main(){
         was_anything_updated=1
     fi
 
+    # Check if a distro upgrade was scheduled during the pre-hooks
+    if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
+        local upgrade_enabled
+        upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+        if [[ "$upgrade_enabled" = "yes" ]] ; then
+            el_info "Distro upgrade has been scheduled. Exiting upgrader."
+            exit 0
+        fi
+    fi
+
     # hooks: user
     el_debug "going to: hooks user pre"
     if run_hooks "user" "pre" ; then

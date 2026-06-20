@@ -1,7 +1,7 @@
 #!/bin/bash
 SOURCE="$0"
 source /usr/lib/elive-tools/functions
-if el_check_version_is_days_recent 730; then
+if el_check_version_is_days_recent 120; then
     export FORCE_REPORTS="1"
     export NOREPORTS="0"
     export EL_REPORTS="1"
@@ -225,7 +225,6 @@ start_warning_loop() {
             echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" > "$target_out" 2>/dev/null || true
             echo -e "${RED}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
 
-            log_warning "Upgrade is still in progress. Do NOT reboot or power off!"
         done
     ) &
     WARNING_LOOP_PID=$!
@@ -272,7 +271,6 @@ acquire_lock() {
             log_error "Another instance of debian-upgrader is already running (PID: $lock_pid)"
             exit 1
         else
-            log_warning "Stale lock file found (PID: $lock_pid is not running). Removing."
             rm -f "$UPGRADE_LOCK_FILE"
         fi
     fi
@@ -2579,7 +2577,13 @@ main() {
                 tmux-attach-jobs "elive-upgrader" "Predownloading" "bash \"$0\" --enable-boot-upgrade \"$2\""
                 sleep 1 ; sync
                 if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
-                    urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                    if command -v urxvt &>/dev/null; then
+                        urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                    elif command -v x-terminal-emulator &>/dev/null; then
+                        x-terminal-emulator -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                    elif command -v xterm &>/dev/null; then
+                        xterm -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                    fi
                 fi
             else
                 enable_boot_upgrade_conf "${2:-}"

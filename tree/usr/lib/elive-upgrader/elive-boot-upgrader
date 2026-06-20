@@ -1,7 +1,7 @@
 #!/bin/bash
 SOURCE="$0"
 source /usr/lib/elive-tools/functions
-if el_check_version_is_days_recent 730; then
+if el_check_version_is_days_recent 120; then
     export FORCE_REPORTS="1"
     export NOREPORTS="0"
     export EL_REPORTS="1"
