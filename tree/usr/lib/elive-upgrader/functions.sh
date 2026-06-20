@@ -140,6 +140,9 @@ has_pending_distro_upgrade_hook() {
                 if [[ -f "$file" ]]; then
                     upgrade_type=$(tr -d '\r\n ' < "$file")
                     el_debug "has_pending_distro_upgrade_hook: upgrade_type=${upgrade_type}, is_betatester=${is_betatester}, is_premium_user=${is_premium_user}"
+                    if [[ -z "$upgrade_type" ]]; then
+                        el_warning "debian-upgrade file is empty: $file"
+                    fi
                     case "$upgrade_type" in
                         alpha)
                             if [[ "${is_betatester:-0}" -eq 1 ]] ; then
