@@ -68,9 +68,6 @@ export TEXTDOMAIN
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.
 USE_PLYMOUTH="true"
 
-# Minimum free space in KB required on / to perform a full OS backup (50 GB)
-FULL_OS_BACKUP_MIN_SPACE_KB=$((50 * 1024 * 1024))
-
 # Full OS backup directory
 FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 
@@ -365,59 +362,11 @@ is_non_rotational() {
     return 1
 }
 
-# Check if full OS backup should be performed
-should_full_os_backup() {
-    # Check free space on root partition
-    local free_space_kb
-    free_space_kb=$(df / | awk 'NR==2 {print $4}')
-
-    if (( free_space_kb < FULL_OS_BACKUP_MIN_SPACE_KB )); then
-        log_info "Not enough free space for full OS backup (need 50 GB, have $(( free_space_kb / 1024 / 1024 )) GB). Skipping."
-        return 1
-    fi
-
-    # Check if non-rotational disk or BTRFS
-    if is_non_rotational; then
-        log_info "Non-rotational disk detected. Full OS backup is recommended."
-        return 0
-    fi
-
-    if is_btrfs; then
-        log_info "BTRFS filesystem detected. Full OS backup with CoW is recommended."
-        return 0
-    fi
-
-    log_info "Conditions not met for full OS backup (need SSD/NVMe or BTRFS with 50 GB free). Skipping."
-    return 1
-}
-
 # Perform full OS backup
 full_os_backup() {
-    if ! should_full_os_backup; then
+    if ! command -v rsync &>/dev/null; then
+        log_warning "rsync is not installed. Skipping full OS backup."
         return 0
-    fi
-
-    draw_banner "CREATING FULL OS BACKUP FOR RECOVERY" "$MAGENTA"
-
-    # Clean up any previous backup
-    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
-        log_info "Removing previous OS backup..."
-        rm -rf "$FULL_OS_BACKUP_DIR"
-    fi
-
-    mkdir -p "$FULL_OS_BACKUP_DIR"
-
-    # Determine copy strategy based on filesystem
-    local cp_opts="-a"
-    local using_reflink=false
-
-    if is_btrfs; then
-        # On BTRFS, use reflink=auto for CoW (fast, space-efficient)
-        cp_opts="-a --reflink=auto"
-        using_reflink=true
-        log_info "Using BTRFS CoW reflink copy (fast and space-efficient)..."
-    else
-        log_info "Using standard archive copy..."
     fi
 
     # Directories to backup (OS-only, no user data)
@@ -437,165 +386,74 @@ full_os_backup() {
         "/sbin"
     )
 
-    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR..."
-
-    if [[ "$using_reflink" == "true" ]]; then
-        # BTRFS: Use cp --reflink=auto for CoW (fast, space-efficient)
-        # cp --reflink=auto is the most reliable way to get CoW on BTRFS
-        log_info "Copying with BTRFS reflink CoW..."
-
-        for src_dir in "${backup_dirs[@]}"; do
-            if [[ -d "$src_dir" ]]; then
-                local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
-                mkdir -p "$dest_dir"
-
-                log_info "Backing up $src_dir with cp --reflink=auto..."
-                # Use find + cp for proper exclusion support with reflink
-                # This handles the exclusions correctly while preserving CoW
-                (
-                    cd "$src_dir" || exit 1
-                    # Use find to list files, then copy with reflink
-                    find . \
-                        -not -path './home' \
-                        -not -path './home/*' \
-                        -not -path './var/www' \
-                        -not -path './var/www/*' \
-                        -not -path './var/cache/apt/archives' \
-                        -not -path './var/cache/apt/archives/*' \
-                        -not -path './var/cache/elive-upgrader' \
-                        -not -path './var/cache/elive-upgrader/*' \
-                        -not -path './tmp' \
-                        -not -path './tmp/*' \
-                        -not -path './proc' \
-                        -not -path './proc/*' \
-                        -not -path './sys' \
-                        -not -path './sys/*' \
-                        -not -path './dev' \
-                        -not -path './dev/*' \
-                        -not -path './run' \
-                        -not -path './run/*' \
-                        -not -path './mnt' \
-                        -not -path './mnt/*' \
-                        -not -path './media' \
-                        -not -path './media/*' \
-                        -not -path './lost+found' \
-                        -not -path './lost+found/*' \
-                        -not -path './swapfile' \
-                        -not -path './var/log/journal/*' \
-                        -not -path './var/cache/thumbnails/*' \
-                        -not -path './home/*/.cache/*' \
-                        -not -path './home/*/.local/share/Trash/*' \
-                        -print0 2>/dev/null | \
-                    cpio --null -pdmu "$dest_dir" 2>/dev/null
-                ) || {
-                    # Fallback: cp -a with reflink (less precise exclusions)
-                    log_warning "find+cpio failed for $src_dir, falling back to cp -a --reflink=auto..."
-                    # Remove partial copy
-                    rm -rf "$dest_dir"
-                    mkdir -p "$dest_dir"
-                    # Copy everything, then remove excluded dirs
-                    # To avoid infinite recursion on /var, we must not use cp -a directly on /var if it contains the destination.
-                    if [[ "$src_dir" == "/var" ]]; then
-                        # Copy subdirectories of /var individually, skipping cache/elive-upgrader
-                        for sub in "$src_dir"/*; do
-                            local sub_base
-                            sub_base=$(basename "$sub")
-                            if [[ "$sub_base" != "cache" ]]; then
-                                cp -a --reflink=auto "$sub" "$dest_dir/" 2>/dev/null || true
-                            else
-                                mkdir -p "$dest_dir/cache"
-                                for cache_sub in "$src_dir/cache"/*; do
-                                    if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
-                                        cp -a --reflink=auto "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
-                                    fi
-                                done
-                            fi
-                        done
-                    else
-                        cp -a --reflink=auto "$src_dir" "$dest_dir"
-                    fi
-                    # Remove excluded directories from the copy
-                    rm -rf "$dest_dir/home" "$dest_dir/var/www" "$dest_dir/var/cache/apt/archives"
-                    rm -rf "$dest_dir/var/cache/elive-upgrader"
-                    rm -rf "$dest_dir/tmp" "$dest_dir/proc" "$dest_dir/sys" "$dest_dir/dev" "$dest_dir/run"
-                    rm -rf "$dest_dir/mnt" "$dest_dir/media" "$dest_dir/lost+found" "$dest_dir/swapfile"
-                }
+    # Calculate total size of OS directories to backup in KB
+    log_info "Calculating OS size for backup..."
+    local total_os_size_kb=0
+    for d in "${backup_dirs[@]}"; do
+        if [[ -d "$d" ]]; then
+            local size_kb
+            size_kb=$(du -s "$d" 2>/dev/null | awk '{print $1}')
+            if [[ "$size_kb" =~ ^[0-9]+$ ]]; then
+                total_os_size_kb=$((total_os_size_kb + size_kb))
             fi
-        done
-    else
-        # Non-BTRFS (SSD/NVMe): Use rsync for efficient copying
-        log_info "Copying with rsync archive mode..."
+        fi
+    done
 
-        for src_dir in "${backup_dirs[@]}"; do
-            if [[ -d "$src_dir" ]]; then
-                local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
-                mkdir -p "$dest_dir"
+    # Required space: OS_SIZE * 1.2 + 20 GB (20971520 KB)
+    local required_space_kb
+    required_space_kb=$(awk -v os="$total_os_size_kb" 'BEGIN { printf "%.0f", (os * 1.2) + 20971520 }')
 
-                if command -v rsync &>/dev/null; then
-                    log_info "Backing up $src_dir with rsync..."
-                    rsync -aAX --delete \
-                        --exclude='/home' \
-                        --exclude='/var/www' \
-                        --exclude='/var/cache/apt/archives' \
-                        --exclude='/var/cache/elive-upgrader' \
-                        --exclude='/tmp' \
-                        --exclude='/proc' \
-                        --exclude='/sys' \
-                        --exclude='/dev' \
-                        --exclude='/run' \
-                        --exclude='/mnt' \
-                        --exclude='/media' \
-                        --exclude='/lost+found' \
-                        --exclude='/swapfile' \
-                        --exclude='var/log/journal/*' \
-                        --exclude='var/cache/thumbnails/*' \
-                        --exclude='home/*/.cache/*' \
-                        --exclude='home/*/.local/share/Trash/*' \
-                        "$src_dir/" "$dest_dir/" 2>/dev/null || {
-                            log_warning "rsync failed for $src_dir, falling back to cp -a..."
-                            if [[ "$src_dir" == "/var" ]]; then
-                                for sub in "$src_dir"/*; do
-                                    local sub_base
-                                    sub_base=$(basename "$sub")
-                                    if [[ "$sub_base" != "cache" ]]; then
-                                        cp -a "$sub" "$dest_dir/" 2>/dev/null || true
-                                    else
-                                        mkdir -p "$dest_dir/cache"
-                                        for cache_sub in "$src_dir/cache"/*; do
-                                            if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
-                                                cp -a "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
-                                            fi
-                                        done
-                                    fi
-                                done
-                            else
-                                cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
-                            fi
-                        }
-                else
-                    log_info "Backing up $src_dir with cp -a..."
-                    if [[ "$src_dir" == "/var" ]]; then
-                        for sub in "$src_dir"/*; do
-                            local sub_base
-                            sub_base=$(basename "$sub")
-                            if [[ "$sub_base" != "cache" ]]; then
-                                cp -a "$sub" "$dest_dir/" 2>/dev/null || true
-                            else
-                                mkdir -p "$dest_dir/cache"
-                                for cache_sub in "$src_dir/cache"/*; do
-                                    if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
-                                        cp -a "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
-                                    fi
-                                done
-                            fi
-                        done
-                    else
-                        cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
-                    fi
-                fi
-            fi
-        done
+    # Check free space on root partition
+    local free_space_kb
+    free_space_kb=$(df / | awk 'NR==2 {print $4}')
+
+    log_info "OS Size: $((total_os_size_kb / 1024)) MB. Required free space: $((required_space_kb / 1024)) MB. Available: $((free_space_kb / 1024)) MB."
+
+    if (( free_space_kb < required_space_kb )); then
+        log_warning "Not enough free space for full OS backup. Skipping."
+        return 0
     fi
+
+    draw_banner "CREATING FULL OS BACKUP FOR RECOVERY" "$MAGENTA"
+
+    # Clean up any previous backup
+    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
+        log_info "Removing previous OS backup..."
+        rm -rf "$FULL_OS_BACKUP_DIR"
+    fi
+
+    mkdir -p "$FULL_OS_BACKUP_DIR"
+
+    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR using rsync..."
+
+    # Perform backup using rsync with precise excludes
+    for src_dir in "${backup_dirs[@]}"; do
+        if [[ -d "$src_dir" ]]; then
+            local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
+            mkdir -p "$dest_dir"
+
+            log_info "Backing up $src_dir..."
+            rsync -aAX --delete \
+                --exclude='/home' \
+                --exclude='/var/www' \
+                --exclude='/var/cache/apt/archives' \
+                --exclude='/var/cache/elive-upgrader' \
+                --exclude='/tmp' \
+                --exclude='/proc' \
+                --exclude='/sys' \
+                --exclude='/dev' \
+                --exclude='/run' \
+                --exclude='/mnt' \
+                --exclude='/media' \
+                --exclude='/lost+found' \
+                --exclude='/swapfile' \
+                --exclude='var/log/journal/*' \
+                --exclude='var/cache/thumbnails/*' \
+                --exclude='home/*/.cache/*' \
+                --exclude='home/*/.local/share/Trash/*' \
+                "$src_dir/" "$dest_dir/" 2>/dev/null || true
+        fi
+    done
 
     # Save backup metadata
     local backup_info_file="${FULL_OS_BACKUP_DIR}/backup-info.txt"
@@ -605,9 +463,6 @@ full_os_backup() {
         echo "Debian version: $(cat /etc/debian_version 2>/dev/null || echo 'unknown')"
         echo "Kernel: $(uname -r)"
         echo "Filesystem: $(stat -f -c %T / 2>/dev/null || echo 'unknown')"
-        echo "Non-rotational: $(is_non_rotational && echo 'yes' || echo 'no')"
-        echo "BTRFS: $(is_btrfs && echo 'yes' || echo 'no')"
-        echo "Reflink used: $using_reflink"
     } > "$backup_info_file"
 
     # Save package list for recovery reference
