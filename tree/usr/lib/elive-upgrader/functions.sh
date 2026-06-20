@@ -800,8 +800,8 @@ run_hooks(){
                                 done
                             fi
                             ;;
-                        *debian-upgrade-pre-script.sh|*debian-upgrade-post-script.sh)
-                            # These are handled directly by debian-upgrader, ignore them here
+                        *debian-upgrade-pre-script.sh|*debian-upgrade-post-script.sh|*debian-upgrade-packages-to-remove-if-not-before.txt)
+                            # These are handled directly by debian-upgrader or elive-boot-upgrader, ignore them here
                             ;;
                         *)
                             el_error "elive-upgrader: filetype unknown: $file"
