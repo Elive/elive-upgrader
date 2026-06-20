@@ -424,36 +424,26 @@ full_os_backup() {
 
     mkdir -p "$FULL_OS_BACKUP_DIR"
 
-    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR using rsync..."
+    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR using a single rsync run..."
 
-    # Perform backup using rsync with precise excludes
-    for src_dir in "${backup_dirs[@]}"; do
-        if [[ -d "$src_dir" ]]; then
-            local dest_dir="${FULL_OS_BACKUP_DIR}${src_dir}"
-            mkdir -p "$dest_dir"
-
-            log_info "Backing up $src_dir..."
-            rsync -aAX --delete \
-                --exclude='/home' \
-                --exclude='/var/www' \
-                --exclude='/var/cache/apt/archives' \
-                --exclude='/var/cache/elive-upgrader' \
-                --exclude='/tmp' \
-                --exclude='/proc' \
-                --exclude='/sys' \
-                --exclude='/dev' \
-                --exclude='/run' \
-                --exclude='/mnt' \
-                --exclude='/media' \
-                --exclude='/lost+found' \
-                --exclude='/swapfile' \
-                --exclude='var/log/journal/*' \
-                --exclude='var/cache/thumbnails/*' \
-                --exclude='home/*/.cache/*' \
-                --exclude='home/*/.local/share/Trash/*' \
-                "$src_dir/" "$dest_dir/" 2>/dev/null || true
-        fi
-    done
+    # Perform a single, clean rsync run from / to the backup directory
+    rsync -aAX --delete \
+        --exclude='/home/*' \
+        --exclude='/proc/*' \
+        --exclude='/sys/*' \
+        --exclude='/dev/*' \
+        --exclude='/run/*' \
+        --exclude='/tmp/*' \
+        --exclude='/mnt/*' \
+        --exclude='/media/*' \
+        --exclude='/lost+found' \
+        --exclude='/swapfile' \
+        --exclude='/var/cache/elive-upgrader/*' \
+        --exclude='/var/tmp/*' \
+        --exclude='/var/lib/apt/lists/*' \
+        --exclude='/var/log/journal/*' \
+        --exclude='/var/cache/thumbnails/*' \
+        / "$FULL_OS_BACKUP_DIR/" 2>/dev/null || true
 
     # Save backup metadata
     local backup_info_file="${FULL_OS_BACKUP_DIR}/backup-info.txt"
