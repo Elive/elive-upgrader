@@ -93,9 +93,9 @@ export TERM=linux
 
 # Pre-seed debconf to prevent Secure Boot / MOK enrollment prompts from hanging the boot upgrade
 if command -v debconf-set-selections &>/dev/null; then
-    echo "shim/enable_secureboot boolean false" | debconf-set-selections || true
-    echo "update-secureboot-policy/enable_secureboot boolean false" | debconf-set-selections || true
-    echo "dkms/sign_tool boolean false" | debconf-set-selections || true
+    printf "shim\tshim/enable_secureboot\tboolean\tfalse\n" | debconf-set-selections || true
+    printf "update-secureboot-policy\tupdate-secureboot-policy/enable_secureboot\tboolean\tfalse\n" | debconf-set-selections || true
+    printf "dkms\tdkms/sign_tool\tboolean\tfalse\n" | debconf-set-selections || true
 fi
 
 # set -e disabled to prevent premature exits on minor failures

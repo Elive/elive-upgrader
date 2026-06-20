@@ -96,57 +96,60 @@ TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
 # Lock system (good one) {{{
-lockfile="/tmp/.$(basename $0)-${USER}.lock"
-#set -x
-
-exit_ok(){
-    rm -f "$lockfile"
-
-    #killall apt-get 2>/dev/null 1>&2 || true
-    tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
-
-    #while read -ru 3 line
-    #do
-        #[[ -z "$line" ]] && continue
-        #kill "$line" 2>/dev/null 1>&2 || true
-    #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
-}
-exit_error(){
-    rm -f "$lockfile"
-
-    #tmux kill-session -t elive-upgrader
-    tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
-
-    #killall apt-get 2>/dev/null 1>&2 || true
-
-    #while read -ru 3 line
-    #do
-        #[[ -z "$line" ]] && continue
-        #kill "$line" 2>/dev/null 1>&2 || true
-    #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
-    exit 1
-}
-
-if [[ -r "$lockfile" ]] ; then
-    PROCCESS="$(cat $lockfile)"
+if [[ "$1" = "--enable-distro-upgrade" ]] || [[ "$1" = "--cancel-distro-upgrade" ]] || [[ "$1" = "--distro-upgrade-status" ]] || [[ "$1" = "--ping" ]] ; then
+    # Bypass lock for quick/non-disruptive commands
+    :
 else
-    PROCCESS=" "
+    lockfile="/tmp/.$(basename $0)-${USER}.lock"
+    #set -x
+
+    exit_ok(){
+        rm -f "$lockfile"
+
+        #killall apt-get 2>/dev/null 1>&2 || true
+        tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+
+        #while read -ru 3 line
+        #do
+            #[[ -z "$line" ]] && continue
+            #kill "$line" 2>/dev/null 1>&2 || true
+        #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
+    }
+    exit_error(){
+        rm -f "$lockfile"
+
+        #tmux kill-session -t elive-upgrader
+        tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+
+        #killall apt-get 2>/dev/null 1>&2 || true
+
+        #while read -ru 3 line
+        #do
+            #[[ -z "$line" ]] && continue
+            #kill "$line" 2>/dev/null 1>&2 || true
+        #done 3<<< "$( ps ux | grep -v grep | grep -E "(bash.*apt-get|apt-get.*dist-upgrade)" )"
+        exit 1
+    }
+
+    if [[ -r "$lockfile" ]] ; then
+        PROCCESS="$(cat $lockfile)"
+    else
+        PROCCESS=" "
+    fi
+    if (ps up $PROCCESS) 1>/dev/null 2>&1 ; then
+        NOREPORTS=1 el_error "$(basename $0) already running"
+        exit
+    else
+        echo $$ > "$lockfile"
+    fi
+
+    # traps needs to be after the lock verification, in order to not remove it when we are already running
+    trap "exit_ok" EXIT
+    trap "exit_error" 1 2 3 5 6 14 ERR
+
+    # SET the lock file
+    echo "$$" > "$lockfile"
 fi
-if (ps up $PROCCESS) 1>/dev/null 2>&1 ; then
-    NOREPORTS=1 el_error "$(basename $0) already running"
-    exit
-else
-    echo $$ > "$lockfile"
-fi
-
-# traps needs to be after the lock verification, in order to not remove it when we are already running
-trap "exit_ok" EXIT
-trap "exit_error" 1 2 3 5 6 14 ERR
-
-# SET the lock file
-echo "$$" > "$lockfile"
-
-
 # end lock system }}}
 
 # run fixes for apt in case we have lead to broken states
