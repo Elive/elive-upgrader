@@ -63,12 +63,22 @@ export TEXTDOMAIN
 #   apt-get clean
 # ==============================================================================
 
+. /usr/lib/elive-upgrader/functions.sh
+
 # Whether to use plymouth for boot-time messages.
 # Set to "true" to display messages in Plymouth.
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.
-USE_PLYMOUTH="false"
-if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-    plymouth quit 2>/dev/null || true
+if [[ "${is_bookworm:-0}" -eq 1 ]]; then
+    USE_PLYMOUTH="false"
+    if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+        plymouth quit 2>/dev/null || true
+    fi
+else
+    if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+        USE_PLYMOUTH="true"
+    else
+        USE_PLYMOUTH="false"
+    fi
 fi
 
 # Full OS backup directory
@@ -117,8 +127,6 @@ fi
 if ! command -v log_failure_msg &>/dev/null; then
     log_failure_msg() { echo " ! FAILURE: $*"; }
 fi
-
-. /usr/lib/elive-upgrader/functions.sh
 
 # Will be set from command-line argument
 TARGET_CODENAME=""

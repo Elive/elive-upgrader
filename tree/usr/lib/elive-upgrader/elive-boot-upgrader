@@ -60,8 +60,6 @@ DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
 SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
 
-. /usr/lib/elive-upgrader/functions.sh
-
 # Get current Debian codename
 get_current_codename() {
     local current_release_full
