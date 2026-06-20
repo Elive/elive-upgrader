@@ -1982,19 +1982,19 @@ EOF
 
 disable_boot_upgrade() {
     sync
-    # Disable services in the background to prevent systemd from hanging/blocking this script
-    if command -v systemctl &>/dev/null; then
-        log_info "Disabling elive-distro-upgrader.service in background..."
-        (
-            sleep 2
-            systemctl disable elive-distro-upgrader.service 2>/dev/null || true
-            systemctl daemon-reload 2>/dev/null || true
-        ) &
-    fi
-    if command -v update-rc.d &>/dev/null; then
-        log_info "Disabling elive-distro-upgrader init script..."
-        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-    fi
+    # Disable services in the background to prevent systemd from hanging/blocking this script while still running
+    log_info "Disabling elive-distro-upgrader service..."
+    (
+        if command -v systemctl &>/dev/null; then
+                sleep 2
+                systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+                systemctl daemon-reload 2>/dev/null || true
+        fi
+        if command -v update-rc.d &>/dev/null; then
+            log_info "Disabling elive-distro-upgrader init script..."
+            update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+        fi
+    ) &
 
     if [ -f /etc/default/elive-distro-upgrade ]; then
         log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
