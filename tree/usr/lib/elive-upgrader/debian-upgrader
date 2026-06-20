@@ -999,6 +999,7 @@ log_info() {
     else
         echo -e "${GREEN}[INFO]${NC} $1"
     fi
+    copy_log_to_root
 }
 
 trigger_reboot() {
@@ -1030,6 +1031,7 @@ log_warning() {
         fi
     fi
     el_warning "$1"
+    copy_log_to_root
 }
 
 log_error() {
@@ -1044,6 +1046,7 @@ log_error() {
         fi
     fi
     el_error "$1"
+    copy_log_to_root
 }
 
 repair_apt() {
@@ -1135,6 +1138,7 @@ safe_apt_run() {
         log_info "Running command: ${cmd[*]}"
         run_and_show_plymouth_on_boot "${cmd[@]}" 2> "$err_log"
         exit_code=$?
+        copy_log_to_root
         if [[ "$exit_code" -eq 0 ]]; then
             rm -f "$err_log"
             return 0
@@ -1157,28 +1161,25 @@ safe_apt_run() {
 
 run_and_show_plymouth_on_boot() {
     echo "Executing: $*"
-    if [[ "$BOOT_MODE" == "true" ]] && [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
-        # Run command, tee output to both stdout and plymouth
-        # Use a subshell to contain pipefail and handle plymouth failures gracefully
-        # IMPORTANT: we do NOT use "|| true" here because safe_apt_run needs the
-        # real exit code to decide whether to retry.
-        plymouth message --text="Running: $*" 2>/dev/null || true
-        (
-            set -o pipefail
-            # Execute command redirecting stderr to stdout so both are captured
-            "$@" 2>&1 | while IFS= read -r line; do
-                echo "$line"
-                # Don't let plymouth failures abort the upgrade
-                plymouth message --text="$line" 2>/dev/null || true
-            done
-        )
-    else
-        if [[ "$BOOT_MODE" == "true" ]] && [[ "$USE_PLYMOUTH" != "true" ]]; then
-            # If not using plymouth, redirect output to the active console/TTY to ensure visibility
-            "$@" >/dev/console 2>&1
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        local target_out="/dev/console"
+        # Reset terminal settings to sane defaults to prevent broken formatting/tabs
+        stty sane < "$target_out" 2>/dev/null || true
+
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
+            plymouth message --text="Running: $*" 2>/dev/null || true
+            (
+                set -o pipefail
+                "$@" 2>&1 | while IFS= read -r line; do
+                    echo "$line" > "$target_out"
+                    plymouth message --text="$line" 2>/dev/null || true
+                done
+            )
         else
-            "$@"
+            "$@" > "$target_out" 2>&1
         fi
+    else
+        "$@"
     fi
 }
 
