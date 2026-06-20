@@ -814,7 +814,9 @@ run_hooks(){
                             ;;
                         */packages-to-upgrade.txt)
                             # only installs (update) if they are already installed
-                            if [[ "$prepost" = "pre" ]] ; then
+                            if [[ "$file" == *"debian-upgrade"* ]]; then
+                                :
+                            elif [[ "$prepost" = "pre" ]] ; then
                                 was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
@@ -829,7 +831,9 @@ run_hooks(){
                             ;;
                         */packages-to-install.txt|*packages-to-install.txt)
                             # installs them
-                            if [[ "$prepost" = "pre" ]] ; then
+                            if [[ "$file" == *"debian-upgrade"* ]]; then
+                                :
+                            elif [[ "$prepost" = "pre" ]] ; then
                                 was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
@@ -840,7 +844,9 @@ run_hooks(){
                             fi
                             ;;
                         */packages-to-remove.txt|*packages-to-remove.txt)
-                            if [[ "$prepost" = "pre" ]] ; then
+                            if [[ "$file" == *"debian-upgrade"* ]]; then
+                                :
+                            elif [[ "$prepost" = "pre" ]] ; then
                                 was_updated=1
                                 for package in $( cat "$file" | grep -v "^#" | tr ' ' '\n' )
                                 do
@@ -851,7 +857,7 @@ run_hooks(){
                                 done
                             fi
                             ;;
-                        *debian-upgrade-pre-script.sh|*debian-upgrade-post-script.sh|*debian-upgrade-packages-to-remove-if-not-before.txt)
+                        *debian-upgrade-pre-script.sh|*debian-upgrade-post-script.sh|*debian-upgrade-packages-to-remove-if-not-before.txt|*debian-upgrade-packages-to-remove.txt|*debian-upgrade-packages-to-install.txt)
                             # These are handled directly by debian-upgrader or elive-boot-upgrader, ignore them here
                             ;;
                         *)
@@ -935,7 +941,7 @@ run_hooks(){
             # remove {{{
             if [[ -n "$packages_to_remove" ]] ; then
                 el_debug "packages wanted to remove: $packages_to_remove"
-                el_warning "removing packages not implemented yet; note: it will requrie the user confirmation to make sure that the system is not break?"
+                el_warning "removing packages not implemented yet; note: it will requrie the user confirmation to make sure that the system is not break?: '$packages_to_remove' "
             fi
 
             # }}}

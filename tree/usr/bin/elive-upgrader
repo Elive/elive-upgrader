@@ -172,14 +172,6 @@ main(){
         sudo_args+=("XAUTHORITY=$XAUTHORITY")
     fi
 
-    # Arguments to pass to elive-upgrader-root
-    local root_args=()
-    if ((is_betatester)) ; then
-        root_args+=("--betatest")
-    fi
-
-    # }}}
-
     # TODO:
     #   - packages-list to install include with a diff or something
     # - E conf upgrader? (diff something?)
@@ -205,7 +197,7 @@ main(){
                 shift
                 ;;
             -u|--upgrade)
-                sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade
+                # Temporary placeholder, will be executed below with correct root_args
                 ;;
             #-s|--simulate)
                 ## simulates the normal run / start from the daemon mode
@@ -219,6 +211,24 @@ main(){
                 ;;
         esac
     done
+
+    # Arguments to pass to elive-upgrader-root (constructed after parsing arguments)
+    local root_args=()
+    if ((is_betatester)) ; then
+        root_args+=("--betatest")
+    fi
+
+    # Handle immediate upgrade action if requested
+    for arg in "$@"
+    do
+        case "$arg" in
+            -u|--upgrade)
+                sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade
+                ;;
+        esac
+    done
+
+    # }}}
 
     # wait 3 minutes that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
