@@ -2116,7 +2116,7 @@ main_upgrade() {
         repair_apt
 
         # Check if target is already reached BEFORE incrementing reboot count
-        # This prevents the counter from incrementing on every boot after completion
+        # This prevents the counter from incrementing on every boot after completion (verified)
         check_current_release
         local check_result=$?
         if [[ "$check_result" -eq 2 ]]; then
