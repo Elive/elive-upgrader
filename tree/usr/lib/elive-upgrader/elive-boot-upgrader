@@ -229,6 +229,14 @@ validate_upgrade_state() {
         return 1
     fi
 
+    # Check if target already reached and marked as completed
+    if [ "$UPGRADE_COMPLETED" = "yes" ] && upgrade_check_target_reached "$TARGET_CODENAME"; then
+        echo "Target $TARGET_CODENAME already reached and completed. Running post-boot hooks and cleaning up."
+        process_remove_if_not_before "$TARGET_CODENAME"
+        cleanup_and_disable
+        return 1
+    fi
+
     if [ "$UPGRADE_IN_PROGRESS" != "yes" ]; then
         if [ "$UPGRADE_COMPLETED" = "yes" ]; then
             echo "First boot of the new upgraded system detected. Running post-boot hooks..."
@@ -249,13 +257,6 @@ validate_upgrade_state() {
     if [ "${REBOOT_COUNT:-0}" -ge 5 ] 2>/dev/null; then
         el_error "Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
         echo "Check logs at /var/log/debian-upgrade-*.log for details."
-        cleanup_and_disable
-        return 1
-    fi
-
-    # Check if target already reached and marked as completed
-    if [ "$UPGRADE_COMPLETED" = "yes" ] && upgrade_check_target_reached "$TARGET_CODENAME"; then
-        echo "Target $TARGET_CODENAME already reached and completed. Cleaning up."
         cleanup_and_disable
         return 1
     fi
