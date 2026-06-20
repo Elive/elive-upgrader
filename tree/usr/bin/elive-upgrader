@@ -172,6 +172,12 @@ main(){
         sudo_args+=("XAUTHORITY=$XAUTHORITY")
     fi
 
+    # Arguments to pass to elive-upgrader-root
+    local root_args=()
+    if ((is_betatester)) ; then
+        root_args+=("--betatest")
+    fi
+
     # }}}
 
     # TODO:
@@ -195,10 +201,11 @@ main(){
             --betatest)
                 is_betatester=1
                 is_force_upgrade=1
+                touch /tmp/.elive-upgrader-betatest
                 shift
                 ;;
             -u|--upgrade)
-                sudo "${sudo_args[@]}" elive-upgrader-root --upgrade
+                sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade
                 ;;
             #-s|--simulate)
                 ## simulates the normal run / start from the daemon mode
@@ -289,13 +296,13 @@ main(){
 
     # update tool first (if)
     el_debug "going to: update-tool"
-    sudo "${sudo_args[@]}" elive-upgrader-root --update-tool
+    sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --update-tool
     source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
     el_debug "going to: hooks root pre"
     # XXX this is ugly, includes also the upgrading of packages
-    if sudo "${sudo_args[@]}" elive-upgrader-root --hooks-root-pre ; then
+    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-pre ; then
         was_anything_updated=1
     fi
 
@@ -313,10 +320,10 @@ main(){
         if has_pending_distro_upgrade_hook ; then
             el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
         else
-            num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root --updates-available )"
+            num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --updates-available )"
             if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
                 if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
-                    if sudo "${sudo_args[@]}" elive-upgrader-root --upgrade --noaptupdate ; then
+                    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade --noaptupdate ; then
                         was_anything_updated=1
                     fi
                 fi
@@ -334,7 +341,7 @@ main(){
 
     # hooks: root
     el_debug "going to: hooks root post"
-    if sudo "${sudo_args[@]}" elive-upgrader-root --hooks-root-post ; then
+    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-post ; then
         was_anything_updated=1
     fi
 

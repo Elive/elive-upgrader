@@ -2362,6 +2362,27 @@ main_upgrade() {
     upgrade_state_set_current_step ""
     upgrade_state_write "REBOOT_COUNT" "0"
 
+    # Update /etc/elive-version with the latest hook version of the original system
+    local original_version
+    original_version=$(upgrade_state_read "CURRENT_VERSION" "")
+    if [[ -n "$original_version" ]]; then
+        local original_codename=${DEBIAN_VERSIONS[$original_version]:-}
+        if [[ -n "$original_codename" ]]; then
+            local old_hooks_dir="/usr/lib/elive-upgrader/hooks-${original_codename}"
+            if [[ "$original_codename" == "wheezy" ]]; then
+                old_hooks_dir="/usr/lib/elive-upgrader/hooks"
+            fi
+            if [[ -d "$old_hooks_dir" ]]; then
+                local latest_old_version
+                latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+                if [[ -n "$latest_old_version" ]]; then
+                    log_info "Setting elive-fixes to $latest_old_version in /etc/elive-version"
+                    sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${latest_old_version}/" "/etc/elive-version" 2>/dev/null || true
+                fi
+            fi
+        fi
+    fi
+
     # Create a pending notification flag for the user session on first boot
     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
     echo "$TARGET_CODENAME" > /var/cache/elive-upgrader/notify-upgrade-complete

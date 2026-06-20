@@ -466,12 +466,29 @@ check_for_new_elive_version() {
 
         local title
         title="$(eval_gettext "New Distro Upgrade Available")"
-        $yad --title="$title" --text="$message_new_version" --text-align=center \
-            --button="$(eval_gettext "Run Distro Upgrade"):0" \
-            --button="$(eval_gettext "Remind Me Later"):1" \
-            --button="$(eval_gettext "Never Ask Again"):2"
-
-        local choice=$?
+        
+        # Show a dialog with 3 options, with the first one to proceed with the upgrade
+        local choice
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            $yad --title="$title" --text="$message_new_version" --text-align=center \
+                --button="$(eval_gettext "Run Distro Upgrade"):0" \
+                --button="$(eval_gettext "Remind Me Later"):1" \
+                --button="$(eval_gettext "Never Ask Again"):2"
+            choice=$?
+        else
+            echo -e "\n*** ${GREEN}$title${NC} ***"
+            echo -e "$message_new_version\n"
+            echo "1) $(eval_gettext "Run Distro Upgrade")"
+            echo "2) $(eval_gettext "Remind Me Later")"
+            echo "3) $(eval_gettext "Never Ask Again")"
+            read -p "$(eval_gettext "Enter choice [1-3]: ")" opt
+            case "$opt" in
+                1) choice=0 ;;
+                2) choice=1 ;;
+                3) choice=2 ;;
+                *) choice=1 ;;
+            esac
+        fi
 
         case $choice in
             0) # Run Distro Upgrade
@@ -520,6 +537,7 @@ check_for_new_elive_version() {
 run_hooks(){
     # pre {{{
     local mode changelog file was_updated=0
+    local packages_to_install=() packages_to_remove=() packages_to_upgrade=()
     el_debug
     el_security_function_loop || return 0
 
@@ -530,7 +548,16 @@ run_hooks(){
 
     el_check_variables "mode"
 
-    el_debug "running hooks in mode $mode"
+    # Ensure is_betatester is visible in run_hooks
+    if [[ -z "${is_betatester:-}" ]]; then
+        if grep -qs "^is_betatester=1" /tmp/.elive-upgrader-env 2>/dev/null || [[ -f /tmp/.elive-upgrader-betatest ]]; then
+            is_betatester=1
+        else
+            is_betatester=0
+        fi
+    fi
+
+    el_debug "running hooks in mode $mode (is_betatester=$is_betatester)"
     # }}}
 
     case "$mode" in
@@ -604,6 +631,28 @@ run_hooks(){
             if [[ "$mode" = "user" ]] && [[ "$prepost" = "post" ]] ; then
                 el_info "Distro upgrade completed successfully. Notifying user."
                 notify_user_system_updated
+
+                # Update user's conf_version_upgrader to the latest hook version of the original system
+                local original_version
+                original_version="$(grep "^CURRENT_VERSION=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+                if [[ -n "$original_version" ]]; then
+                    local original_codename="${DEBIAN_VERSIONS[$original_version]:-}"
+                    if [[ -n "$original_codename" ]]; then
+                        local old_hooks_dir="/usr/lib/elive-upgrader/hooks-${original_codename}"
+                        if [[ "$original_codename" == "wheezy" ]]; then
+                            old_hooks_dir="/usr/lib/elive-upgrader/hooks"
+                        fi
+                        if [[ -d "$old_hooks_dir" ]]; then
+                            local latest_old_version
+                            latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+                            if [[ -n "$latest_old_version" ]]; then
+                                conf_version_upgrader="$latest_old_version"
+                                el_config_save "conf_version_upgrader"
+                            fi
+                        fi
+                    fi
+                fi
+
                 rm -f "/etc/default/elive-distro-upgrade"
             elif [[ "$mode" = "root" ]] && [[ "$prepost" = "post" ]] ; then
                 # Root cleanup fallback if user mode didn't run
@@ -817,12 +866,10 @@ run_hooks(){
                 # update version, to know that we have run the hooks until here
                 if [[ "$prepost" = "post" ]] ; then
                     local should_update_version=1
-                    # if the debian-upgrade hook exists, and there's no other hooks in the same dir, don't update the version if user chose to be reminded later
-                    if [[ -f "${hooks_d}/${version}/$mode/debian-upgrade" ]] && ! find "${hooks_d}/${version}/$mode" -mindepth 1 -maxdepth 1 -type f -not -name "debian-upgrade" | read -r ; then
-                        el_config_get
-                        if [[ "${conf_debian_upgrade_notification:-}" = "remind" ]]; then
-                            should_update_version=0
-                        fi
+                    # If a debian-upgrade hook exists for this version, do NOT update the version yet
+                    # because it requires user GUI interaction and the actual upgrade hasn't completed.
+                    if [[ -f "${hooks_d}/${version}/root/debian-upgrade" ]] ; then
+                        should_update_version=0
                     fi
 
                     if ((should_update_version)); then
