@@ -66,7 +66,11 @@ export TEXTDOMAIN
 # Whether to use plymouth for boot-time messages.
 # Set to "true" to display messages in Plymouth.
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.
-USE_PLYMOUTH="true"
+if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+    USE_PLYMOUTH="true"
+else
+    USE_PLYMOUTH="false"
+fi
 
 # Full OS backup directory
 FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
