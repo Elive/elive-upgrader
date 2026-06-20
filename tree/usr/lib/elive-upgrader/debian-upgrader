@@ -422,13 +422,15 @@ full_os_backup() {
         rm -rf "$FULL_OS_BACKUP_DIR"
     fi
 
+    # Ensure the parent and backup directories exist before rsync starts
+    mkdir -p "/var/cache/elive-upgrader"
     mkdir -p "$FULL_OS_BACKUP_DIR"
 
     log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR using a single rsync run..."
 
     # Perform a single, clean rsync run from / to the backup directory
-    # We exclude '/var/cache/elive-upgrader' completely (without trailing /*)
-    # to prevent rsync from traversing or copying its own destination directory.
+    # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
+    # from traversing or copying its own destination directory.
     rsync -aAX --delete \
         --exclude='/home/*' \
         --exclude='/proc/*' \
@@ -441,6 +443,7 @@ full_os_backup() {
         --exclude='/lost+found' \
         --exclude='/swapfile' \
         --exclude='/var/cache/elive-upgrader' \
+        --exclude='/var/cache/elive-upgrader/*' \
         --exclude='/var/tmp/*' \
         --exclude='/var/lib/apt/lists/*' \
         --exclude='/var/log/journal/*' \
