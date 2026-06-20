@@ -824,13 +824,15 @@ run_hooks(){
                     fi
 
                     if ((should_update_version)); then
-                        if [[ "$mode" = "root" ]] ; then
-                            sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
-                            conf_version_upgrader="$version"
-                        fi
-                        if [[ "$mode" = "user" ]] ; then
-                            conf_version_upgrader="$version"
-                            el_config_save "conf_version_upgrader"
+                        if [[ -d "${hooks_d}/${version}/${mode}" ]]; then
+                            if [[ "$mode" = "root" ]] ; then
+                                sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${version}/" "/etc/elive-version"
+                                conf_version_upgrader="$version"
+                            fi
+                            if [[ "$mode" = "user" ]] ; then
+                                conf_version_upgrader="$version"
+                                el_config_save "conf_version_upgrader"
+                            fi
                         fi
                     fi
                 fi
