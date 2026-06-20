@@ -2052,10 +2052,10 @@ restore_sources_on_cancel() {
         if [[ -f /etc/lsb-release ]]; then
             local target_version=${DEBIAN_CODENAMES[$target_cn]:-}
             if [[ -n "$original_version" && -n "$target_version" ]]; then
-                sed -i "s|DISTRIB_RELEASE=\"$target_version\"|DISTRIB_RELEASE=\"$original_version\"|g" /etc/lsb-release 2>/dev/null || true
+                sed -i "s|^DISTRIB_RELEASE=.*|DISTRIB_RELEASE=\"$original_version\"|g" /etc/lsb-release 2>/dev/null || true
             fi
-            sed -i "s|DISTRIB_CODENAME=\"$target_cn\"|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
-            sed -i "s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
+            sed -i "s|^DISTRIB_CODENAME=.*|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
+            sed -i "/^DISTRIB_DESCRIPTION=/s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
         fi
         # Clean up apt cache after restoring sources
         apt-get clean 2>/dev/null || true
