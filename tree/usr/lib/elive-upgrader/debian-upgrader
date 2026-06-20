@@ -1874,6 +1874,9 @@ enable_boot_upgrade_conf() {
         fi
     done
 
+    log_info "Restoring package lists back to normal..."
+    apt-get update >/dev/null 2>&1 || true
+
     log_info "Enabling boot-time upgrade to $target_codename..."
 
     # Get current Debian version to track starting point
