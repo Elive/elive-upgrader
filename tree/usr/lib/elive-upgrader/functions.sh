@@ -425,8 +425,8 @@ check_for_new_elive_version() {
     esac
 
     el_config_get
-    if [[ "${conf_debian_upgrade_notification}" = "never" ]]; then
-        el_info "User opted out for new Debian version notifications. Ignoring..."
+    if [[ "${conf_debian_upgrade_notification}" = "never" ]] || [[ "${conf_debian_upgrade_notification}" = "never-${next_codename}" ]]; then
+        el_info "User opted out for new Debian version notifications for ${next_codename}. Ignoring..."
         return 0
     fi
 
@@ -516,7 +516,7 @@ check_for_new_elive_version() {
                 return 1
                 ;;
             2) # Never Ask Again
-                conf_debian_upgrade_notification="never"
+                conf_debian_upgrade_notification="never-${next_codename}"
                 el_config_save "conf_debian_upgrade_notification"
                 return 0
                 ;;
