@@ -47,6 +47,7 @@ export TEXTDOMAIN
 set -e
 
 source /usr/lib/elive-tools/functions 2>/dev/null || true
+source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
 
 # Fallback if elive-tools functions are not available
 if ! command -v el_error &>/dev/null; then
