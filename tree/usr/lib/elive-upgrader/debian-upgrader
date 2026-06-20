@@ -416,7 +416,7 @@ full_os_backup() {
     mkdir -p "/var/cache/elive-upgrader"
     mkdir -p "$FULL_OS_BACKUP_DIR"
 
-    log_info "Starting full OS backup to $FULL_OS_BACKUP_DIR using a single rsync run..."
+    log_info "Backuping your OS to $FULL_OS_BACKUP_DIR ..."
 
     # Perform a single, clean rsync run from / to the backup directory
     # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
