@@ -160,6 +160,13 @@ restore_non_systemd_gettys() {
 
 process_remove_if_not_before() {
     local target_codename="$1"
+    local marker_file="/var/cache/elive-upgrader/remove-if-not-before-done"
+
+    if [ -f "$marker_file" ]; then
+        echo "remove-if-not-before check already completed previously, skipping."
+        return 0
+    fi
+
     local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename}.txt"
 
     if [ ! -f "$pkgs_before_file" ]; then
@@ -200,6 +207,8 @@ process_remove_if_not_before() {
         fi
     done < "$pending_list"
     rm -f "$pending_list"
+    mkdir -p "$(dirname "$marker_file")"
+    touch "$marker_file"
 }
 
 # Clean up state and disable services
