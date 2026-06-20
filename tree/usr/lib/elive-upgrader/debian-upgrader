@@ -462,8 +462,8 @@ full_os_backup() {
                         -not -path './var/www/*' \
                         -not -path './var/cache/apt/archives' \
                         -not -path './var/cache/apt/archives/*' \
-                        -not -path './var/cache/elive-upgrader/full-os-backup' \
-                        -not -path './var/cache/elive-upgrader/full-os-backup/*' \
+                        -not -path './var/cache/elive-upgrader' \
+                        -not -path './var/cache/elive-upgrader/*' \
                         -not -path './tmp' \
                         -not -path './tmp/*' \
                         -not -path './proc' \
@@ -494,10 +494,29 @@ full_os_backup() {
                     rm -rf "$dest_dir"
                     mkdir -p "$dest_dir"
                     # Copy everything, then remove excluded dirs
-                    cp -a --reflink=auto "$src_dir" "$dest_dir"
+                    # To avoid infinite recursion on /var, we must not use cp -a directly on /var if it contains the destination.
+                    if [[ "$src_dir" == "/var" ]]; then
+                        # Copy subdirectories of /var individually, skipping cache/elive-upgrader
+                        for sub in "$src_dir"/*; do
+                            local sub_base
+                            sub_base=$(basename "$sub")
+                            if [[ "$sub_base" != "cache" ]]; then
+                                cp -a --reflink=auto "$sub" "$dest_dir/" 2>/dev/null || true
+                            else
+                                mkdir -p "$dest_dir/cache"
+                                for cache_sub in "$src_dir/cache"/*; do
+                                    if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
+                                        cp -a --reflink=auto "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
+                                    fi
+                                done
+                            fi
+                        done
+                    else
+                        cp -a --reflink=auto "$src_dir" "$dest_dir"
+                    fi
                     # Remove excluded directories from the copy
                     rm -rf "$dest_dir/home" "$dest_dir/var/www" "$dest_dir/var/cache/apt/archives"
-                    rm -rf "$dest_dir/var/cache/elive-upgrader/full-os-backup"
+                    rm -rf "$dest_dir/var/cache/elive-upgrader"
                     rm -rf "$dest_dir/tmp" "$dest_dir/proc" "$dest_dir/sys" "$dest_dir/dev" "$dest_dir/run"
                     rm -rf "$dest_dir/mnt" "$dest_dir/media" "$dest_dir/lost+found" "$dest_dir/swapfile"
                 }
@@ -518,7 +537,7 @@ full_os_backup() {
                         --exclude='/home' \
                         --exclude='/var/www' \
                         --exclude='/var/cache/apt/archives' \
-                        --exclude='/var/cache/elive-upgrader/full-os-backup' \
+                        --exclude='/var/cache/elive-upgrader' \
                         --exclude='/tmp' \
                         --exclude='/proc' \
                         --exclude='/sys' \
@@ -534,11 +553,45 @@ full_os_backup() {
                         --exclude='home/*/.local/share/Trash/*' \
                         "$src_dir/" "$dest_dir/" 2>/dev/null || {
                             log_warning "rsync failed for $src_dir, falling back to cp -a..."
-                            cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                            if [[ "$src_dir" == "/var" ]]; then
+                                for sub in "$src_dir"/*; do
+                                    local sub_base
+                                    sub_base=$(basename "$sub")
+                                    if [[ "$sub_base" != "cache" ]]; then
+                                        cp -a "$sub" "$dest_dir/" 2>/dev/null || true
+                                    else
+                                        mkdir -p "$dest_dir/cache"
+                                        for cache_sub in "$src_dir/cache"/*; do
+                                            if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
+                                                cp -a "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
+                                            fi
+                                        done
+                                    fi
+                                done
+                            else
+                                cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                            fi
                         }
                 else
                     log_info "Backing up $src_dir with cp -a..."
-                    cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                    if [[ "$src_dir" == "/var" ]]; then
+                        for sub in "$src_dir"/*; do
+                            local sub_base
+                            sub_base=$(basename "$sub")
+                            if [[ "$sub_base" != "cache" ]]; then
+                                cp -a "$sub" "$dest_dir/" 2>/dev/null || true
+                            else
+                                mkdir -p "$dest_dir/cache"
+                                for cache_sub in "$src_dir/cache"/*; do
+                                    if [[ $(basename "$cache_sub") != "elive-upgrader" ]]; then
+                                        cp -a "$cache_sub" "$dest_dir/cache/" 2>/dev/null || true
+                                    fi
+                                done
+                            fi
+                        done
+                    else
+                        cp -a "$src_dir/." "$dest_dir/" 2>/dev/null || true
+                    fi
                 fi
             fi
         done
