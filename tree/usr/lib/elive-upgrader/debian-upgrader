@@ -1842,6 +1842,35 @@ enable_boot_upgrade_conf() {
         log_info "All packages pre-downloaded successfully!"
     fi
 
+    # Restore sources.list and preferences to the original codename immediately after download
+    # to prevent external tools from showing premature "system has been updated" notifications
+    # and to eliminate the race condition window if the system crashes/reboots early.
+    log_info "Restoring APT sources, preferences, and configurations to $current_codename..."
+    if [[ -f /etc/apt/sources.list ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/apt/sources.list
+    fi
+    for file in /etc/apt/sources.list.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$target_codename|$current_codename|g" "$file"
+        fi
+    done
+    if [[ -f /etc/apt/preferences ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/apt/preferences
+    fi
+    for file in /etc/apt/preferences.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$target_codename|$current_codename|g" "$file"
+        fi
+    done
+    if [[ -f /etc/apt/apt.conf ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/apt/apt.conf
+    fi
+    for file in /etc/apt/apt.conf.d/*; do
+        if [[ -f "$file" ]]; then
+            sed -i "s|$target_codename|$current_codename|g" "$file"
+        fi
+    done
+
     log_info "Enabling boot-time upgrade to $target_codename..."
 
     # Get current Debian version to track starting point
@@ -1919,37 +1948,6 @@ EOF
 
     log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
     log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
-
-    # Restore sources.list and preferences to the original codename to prevent external tools
-    # (e.g. elive-upgrader GUI) from showing premature "system has been
-    # updated" notifications. The packages are already downloaded to
-    # /var/cache/apt/archives/ and the boot-time upgrade script will
-    # re-apply the target sources when it runs.
-    log_info "Restoring APT sources, preferences, and configurations to $current_codename to prevent false update notifications..."
-    if [[ -f /etc/apt/sources.list ]]; then
-        sed -i "s|$target_codename|$current_codename|g" /etc/apt/sources.list
-    fi
-    for file in /etc/apt/sources.list.d/*; do
-        if [[ -f "$file" ]]; then
-            sed -i "s|$target_codename|$current_codename|g" "$file"
-        fi
-    done
-    if [[ -f /etc/apt/preferences ]]; then
-        sed -i "s|$target_codename|$current_codename|g" /etc/apt/preferences
-    fi
-    for file in /etc/apt/preferences.d/*; do
-        if [[ -f "$file" ]]; then
-            sed -i "s|$target_codename|$current_codename|g" "$file"
-        fi
-    done
-    if [[ -f /etc/apt/apt.conf ]]; then
-        sed -i "s|$target_codename|$current_codename|g" /etc/apt/apt.conf
-    fi
-    for file in /etc/apt/apt.conf.d/*; do
-        if [[ -f "$file" ]]; then
-            sed -i "s|$target_codename|$current_codename|g" "$file"
-        fi
-    done
 
     if command -v systemctl &>/dev/null; then
         systemctl daemon-reload 2>/dev/null || true
