@@ -60,25 +60,7 @@ DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
 SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
 
-# Map Debian version numbers to codenames
-debian_version_to_codename() {
-    local version="$1"
-    case "$version" in
-        15|15.*)  echo "duke" ;;
-        14|14.*)  echo "forky" ;;
-        13|13.*)  echo "trixie" ;;
-        12|12.*)  echo "bookworm" ;;
-        11|11.*)  echo "bullseye" ;;
-        10|10.*)  echo "buster" ;;
-        9|9.*)    echo "stretch" ;;
-        8|8.*)    echo "jessie" ;;
-        7|7.*)    echo "wheezy" ;;
-        *)
-            # Fallback: try to extract codename from version string
-            echo "$version" | grep -oE '^[a-z]+' | head -1
-            ;;
-    esac
-}
+. /usr/lib/elive-upgrader/functions.sh
 
 # Get current Debian codename
 get_current_codename() {

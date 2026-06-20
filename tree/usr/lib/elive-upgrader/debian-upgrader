@@ -115,21 +115,7 @@ if ! command -v log_failure_msg &>/dev/null; then
     log_failure_msg() { echo " ! FAILURE: $*"; }
 fi
 
-# Debian version mapping
-declare -A DEBIAN_CODENAMES=(
-    ["bullseye"]=11
-    ["bookworm"]=12
-    ["trixie"]=13
-    ["forky"]=14
-    ["duke"]=15
-)
-declare -A DEBIAN_VERSIONS=(
-    [11]="bullseye"
-    [12]="bookworm"
-    [13]="trixie"
-    [14]="forky"
-    [15]="duke"
-)
+. /usr/lib/elive-upgrader/functions.sh
 
 # Will be set from command-line argument
 TARGET_CODENAME=""

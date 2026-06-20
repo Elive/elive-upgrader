@@ -6,6 +6,37 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
+# Shared Debian version mapping
+declare -g -A DEBIAN_CODENAMES=(
+    ["wheezy"]=7
+    ["buster"]=10
+    ["bullseye"]=11
+    ["bookworm"]=12
+    ["trixie"]=13
+    ["forky"]=14
+    ["duke"]=15
+)
+declare -g -A DEBIAN_VERSIONS=(
+    [7]="wheezy"
+    [10]="buster"
+    [11]="bullseye"
+    [12]="bookworm"
+    [13]="trixie"
+    [14]="forky"
+    [15]="duke"
+)
+
+debian_version_to_codename() {
+    local version="$1"
+    local major="${version%%.*}"
+    if [[ -n "${DEBIAN_VERSIONS[$major]:-}" ]]; then
+        echo "${DEBIAN_VERSIONS[$major]}"
+    else
+        # Fallback: try to extract codename from version string
+        echo "$version" | grep -oE '^[a-z]+' | head -1
+    fi
+}
+
 # Non-interactive environment variables to prevent prompts and freezes
 export DEBIAN_FRONTEND=noninteractive
 export DEBIAN_PRIORITY=critical
