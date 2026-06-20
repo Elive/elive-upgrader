@@ -55,6 +55,33 @@
 #   13. debian-upgrade-packages-to-remove-if-not-before.txt
 #      - List of packages to remove after the first boot of the upgraded system
 #        if they were not present before the upgrade. Supports wildcards.
+#
+# ==============================================================================
+# DIFFERENCE BETWEEN 'root' AND 'user' HOOK DIRECTORIES
+# ==============================================================================
+# Hooks are split into 'root' and 'user' directories to separate system-wide
+# administration tasks from user-specific desktop environment configurations.
+#
+# 1. 'root' Directory Hooks:
+#    - Triggered: Run by the system-wide upgrader service (root context) during
+#      system boot or when running system-wide upgrades (e.g., elive-upgrader-root).
+#    - Context: Executed with full root privileges.
+#    - When to use:
+#      * Installing, upgrading, or removing system packages.
+#      * Modifying system-wide configuration files in /etc, /var, /boot, etc.
+#      * Rebuilding initramfs, updating GRUB, or managing system services.
+#      * Performing system-wide cleanups or hardware-specific configurations.
+#
+# 2. 'user' Directory Hooks:
+#    - Triggered: Run within the user's graphical desktop session context upon
+#      login (via autostart desktop entries or user-level upgrader triggers).
+#    - Context: Executed with the logged-in user's privileges (non-root).
+#    - When to use:
+#      * Modifying user-specific configurations in $HOME (e.g., ~/.config, ~/.local).
+#      * Changing desktop themes, wallpapers, panel settings, or application configs.
+#      * Showing graphical notifications, dialogs, or changelogs to the user.
+#      * Triggering interactive prompts (like the distro upgrade prompt) that
+#        require user consent or interaction within the GUI.
 # ==============================================================================
 
 SOURCE="$0"
