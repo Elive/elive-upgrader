@@ -180,7 +180,15 @@ process_remove_if_not_before() {
                 # Check if search_pattern matches any package in pkgs_before_file
                 if ! grep -q "^${search_pattern}" "$pkgs_before_file"; then
                     echo "Package pattern '$pattern' (search: '$search_pattern') was not present before upgrade. Removing..."
-                    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" remove --purge "$pattern" || true
+                    
+                    # Expand wildcard patterns to actual installed packages
+                    local expanded_pkgs
+                    expanded_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pattern" 2>/dev/null | grep '^installed ' | cut -d' ' -f2- || true)
+                    
+                    if [ -n "$expanded_pkgs" ]; then
+                        echo "Expanded packages to remove: $expanded_pkgs"
+                        TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" remove --purge $expanded_pkgs || true
+                    fi
                 else
                     echo "Package pattern '$pattern' (search: '$search_pattern') was present before upgrade. Keeping."
                 fi
@@ -188,6 +196,7 @@ process_remove_if_not_before() {
         fi
     done < "$pending_list"
     rm -f "$pending_list"
+    rm -rf /var/cache/elive-upgrader/active-distro-upgrade-hook 2>/dev/null || true
     mkdir -p "$(dirname "$marker_file")"
     touch "$marker_file"
 }

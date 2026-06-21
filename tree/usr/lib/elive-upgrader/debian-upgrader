@@ -1669,13 +1669,20 @@ run_pre_hooks() {
     fi
 
     if [[ -d "$hooks_base" ]]; then
-        for hook_dir in "$hooks_base"/*/{root,user}; do
-            if [[ -d "$hook_dir" ]] && [[ -f "$hook_dir/debian-upgrade" ]]; then
-                # Save the path of the remove-if-not-before hook for the first boot of the upgraded system
-                if [[ -f "$hook_dir/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
+        for version_dir in "$hooks_base"/*; do
+            if [[ -d "$version_dir" ]] && [[ -f "$version_dir/root/debian-upgrade" ]]; then
+                # Cache the entire active hook version directory to var/cache
+                local cache_dir="/var/cache/elive-upgrader/active-distro-upgrade-hook"
+                mkdir -p "$cache_dir" 2>/dev/null || true
+                cp -a "$version_dir"/* "$cache_dir/" 2>/dev/null || true
+
+                # Save the path of the remove-if-not-before hook pointing to the cached location
+                if [[ -f "$cache_dir/root/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
                     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
-                    echo "$hook_dir/debian-upgrade-packages-to-remove-if-not-before.txt" >> /var/cache/elive-upgrader/pending-remove-if-not-before.txt
+                    echo "$cache_dir/root/debian-upgrade-packages-to-remove-if-not-before.txt" > /var/cache/elive-upgrader/pending-remove-if-not-before.txt
                 fi
+
+                local hook_dir="$version_dir/root"
                 # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
                 if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
                     local pkgs
