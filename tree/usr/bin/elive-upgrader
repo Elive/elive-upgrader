@@ -284,7 +284,7 @@ main(){
 
         # Friendly, non-intrusive Patreon motivation
         local patreon_msg
-        patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you. If you enjoy these continuous updates, improvements, and next unique features, consider supporting this work. Every contribution helps keep the project alive and growing.\n\nJump directly to the Patreon page to see what Premium features there's available for you." )"
+        patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you. If you enjoy these continuous updates, improvements, and next unique features, consider supporting this work. Every contribution helps keep the project alive and growing.\n\nSee the Patreon page to check what Premium features there's available." )"
         if $guitool --question --text="$patreon_msg" --title="$(eval_gettext "Elive Premium available" )" 1>/dev/null 2>&1; then
             web-launcher "https://patreon.com/c/elive" &
         fi
