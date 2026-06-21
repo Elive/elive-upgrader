@@ -260,20 +260,22 @@ main(){
     # source functions
     source /usr/lib/elive-upgrader/functions.sh
 
-    if [[ -f "/var/log/elive-upgrader/last-boot-upgrade-failure" ]]; then
+    if [[ -s "/var/log/elive-upgrader/last-boot-upgrade-failure" ]]; then
         local fail_msg
         fail_msg=$(cat /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null)
         rm -f /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        true > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         local user_msg
         user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
         $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
     fi
 
     # Check if a successful upgrade notification is pending
-    if [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
+    if [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         local target_distro
         target_distro="$(cat /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true)"
         rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
+        true > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
         local success_msg
         if [[ -n "$target_distro" ]]; then
             success_msg="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to the new version (%s). All your files, settings, and applications have been preserved.")" "$target_distro")"
@@ -291,7 +293,7 @@ main(){
     fi
 
     # Check if recovery mode is pending (full OS backup was created before upgrade)
-    if [[ -f "/var/log/elive-upgrader/recovery-mode-pending" ]]; then
+    if [[ -s "/var/log/elive-upgrader/recovery-mode-pending" ]]; then
         local backup_info=""
         if [[ -f "/var/cache/elive-upgrader/full-os-backup/backup-info.txt" ]]; then
             backup_info="\n\n$(cat /var/cache/elive-upgrader/full-os-backup/backup-info.txt 2>/dev/null)"
@@ -299,6 +301,8 @@ main(){
         local recovery_msg
         recovery_msg="$(eval_gettext "A system upgrade has failed and the system may be in an inconsistent state.\n\nA full OS backup was created before the upgrade attempt and is available for recovery.\n\nYou can restore the system by running:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup\n\nOr use the Elive Upgrader application to retry the upgrade.")${backup_info}"
         $guitool --warning --text="$recovery_msg" --title="$(eval_gettext "System Upgrade Recovery")" --width=550 1>/dev/null 2>&1
+        rm -f "/var/log/elive-upgrader/recovery-mode-pending" 2>/dev/null || true
+        true > "/var/log/elive-upgrader/recovery-mode-pending" 2>/dev/null || true
     fi
 
     # fixes first (if)

@@ -530,6 +530,7 @@ create_recovery_notification() {
     # Create the notification flag file
     mkdir -p /var/log/elive-upgrader
     touch "$RECOVERY_NOTIFICATION_FLAG"
+    chmod 666 "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
 
     # Create XDG autostart desktop entry for recovery notification
     mkdir -p "$RECOVERY_DESKTOP_NOTIFICATION_DIR"
@@ -1973,6 +1974,7 @@ REBOOT_COUNT="0"
 CURRENT_VERSION="$current_version_number"
 CURRENT_STEP=""
 EOF
+    chmod 666 "$config_file" 2>/dev/null || true
 
     # Verify the state file was written correctly
     if [[ ! -f "$config_file" ]]; then

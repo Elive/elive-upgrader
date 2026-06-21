@@ -44,6 +44,8 @@ case "$1" in
             log_end_msg "$exit_code"
         else
             log_end_msg 0
+            # Clean up the state file on successful completion
+            rm -f "$DEFAULTS_FILE" 2>/dev/null || true
         fi
 
         exit "$exit_code"

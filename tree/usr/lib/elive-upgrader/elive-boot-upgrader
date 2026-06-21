@@ -336,8 +336,9 @@ main() {
         echo "Preserving upgrade state to resume on next boot (Reboot count: ${REBOOT_COUNT:-0}/5)"
 
         # Create a notification flag file so the user is notified of the failure upon login
-        mkdir -p /var/lib/elive-upgrader 2>/dev/null || true
-        echo "$err_msg" > /var/lib/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        mkdir -p /var/log/elive-upgrader 2>/dev/null || true
+        echo "$err_msg" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        chmod 666 /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
 
         # Set up recovery notification for desktop - user will be notified on next login
         # This creates an autostart entry that shows a recovery dialog

@@ -687,10 +687,11 @@ run_hooks(){
                     fi
                 fi
 
-                rm -f "/etc/default/elive-distro-upgrade"
+                # Use passwordless sudo to clean up the root-owned state file
+                sudo -n elive-upgrader-root --cancel-distro-upgrade >/dev/null 2>&1 || rm -f "/etc/default/elive-distro-upgrade" 2>/dev/null || true
             elif [[ "$mode" = "root" ]] && [[ "$prepost" = "post" ]] ; then
                 # Root cleanup fallback if user mode didn't run
-                rm -f "/etc/default/elive-distro-upgrade"
+                rm -f "/etc/default/elive-distro-upgrade" 2>/dev/null || true
             fi
             return 0
         fi
