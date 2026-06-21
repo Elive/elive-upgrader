@@ -2169,7 +2169,9 @@ main_upgrade() {
 
     # Show Elive logo if available
     if command -v elive-logo-show &>/dev/null; then
+        echo ; echo "" 1>&2
         elive-logo-show 2>/dev/null || true
+        echo ; echo "" 1>&2
     fi
 
     # Draw a highly visual, colorful banner
