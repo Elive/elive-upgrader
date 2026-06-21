@@ -1,1 +1,3 @@
 gnome-settings-daemon-compat-notinstalled
+virtualbox-dkms
+virtualbox-source
