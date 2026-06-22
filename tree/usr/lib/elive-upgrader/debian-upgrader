@@ -213,11 +213,11 @@ start_warning_loop() {
             if [[ "$BOOT_MODE" == "true" ]]; then
                 target_out="/dev/console"
             fi
-            echo -e "\n${RED}${BOLD}======================================================================${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "\n${YELLOW}${BOLD}======================================================================${NC}" > "$target_out" 2>/dev/null || true
+            echo -e "${CYAN}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" > "$target_out" 2>/dev/null || true
             echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" > "$target_out" 2>/dev/null || true
             echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${RED}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
 
         done
     ) &
@@ -2288,7 +2288,15 @@ main_upgrade() {
 
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
-    log_info "Please do ${BOLD}NOT${NC} turn off or reboot your computer during this process."
+    
+    # Display the warning prominently in bold yellow/cyan instead of standard green info
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        local target_out="/dev/console"
+        echo -e "  ${YELLOW}[ WARN ]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}" > "$target_out" 2>/dev/null || true
+    else
+        echo -e "${YELLOW}[WARN]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}"
+    fi
+    
     draw_banner "PREPARING SYSTEM" "$CYAN"
 
     check_root
