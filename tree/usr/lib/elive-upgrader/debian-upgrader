@@ -1611,24 +1611,48 @@ perform_upgrade() {
 
     kill "$dkms_monitor_pid" 2>/dev/null || true
 
-    # Install latest kernel metapackage if not present and space permits
+    # Install latest kernel and headers metapackages if not present and space permits
     if [[ "$can_install_new_kernel" == "true" ]]; then
         if ! dpkg -l 'linux-image*' | grep -q '^ii.*meta'; then
             arch=$(dpkg --print-architecture)
             case $arch in
-                amd64) kernel_meta="linux-image-amd64" ;;
-                i386) kernel_meta="linux-image-686" ;;
-                arm64) kernel_meta="linux-image-arm64" ;;
-                *) kernel_meta="linux-image-$arch" ;;
+                amd64)
+                    kernel_meta="linux-image-amd64"
+                    headers_meta="linux-headers-amd64"
+                    ;;
+                i386)
+                    kernel_meta="linux-image-686"
+                    headers_meta="linux-headers-686"
+                    ;;
+                arm64)
+                    kernel_meta="linux-image-arm64"
+                    headers_meta="linux-headers-arm64"
+                    ;;
+                *)
+                    kernel_meta="linux-image-$arch"
+                    headers_meta="linux-headers-$arch"
+                    ;;
             esac
 
+            local pkgs_to_install=""
             if apt-cache show "$kernel_meta" &> /dev/null; then
-                set_progress 80 "Installing kernel metapackage: $kernel_meta"
-                safe_apt_run apt-get install -y "$kernel_meta"
+                pkgs_to_install="$kernel_meta"
+            fi
+            if [[ -n "$headers_meta" ]] && apt-cache show "$headers_meta" &> /dev/null; then
+                if [[ -n "$pkgs_to_install" ]]; then
+                    pkgs_to_install="$pkgs_to_install $headers_meta"
+                else
+                    pkgs_to_install="$headers_meta"
+                fi
+            fi
+
+            if [[ -n "$pkgs_to_install" ]]; then
+                set_progress 80 "Installing kernel and headers metapackages: $pkgs_to_install"
+                safe_apt_run apt-get install -y $pkgs_to_install
             fi
         fi
     else
-        set_progress 80 "Skipping kernel metapackage installation/upgrade due to low space in /boot."
+        set_progress 80 "Skipping kernel and headers metapackages installation/upgrade due to low space in /boot."
     fi
 
     set_progress 85 "Rebuilding initramfs for all kernels (building modules, please wait)..."
