@@ -687,6 +687,9 @@ run_hooks(){
                     fi
                 fi
 
+                # Clean up backup directories, keeping only logs
+                cleanup_distro_upgrade_backups
+
                 # Use passwordless sudo to clean up the root-owned state file
                 sudo -n elive-upgrader-root --cancel-distro-upgrade >/dev/null 2>&1 || rm -f "/etc/default/elive-distro-upgrade" 2>/dev/null || true
             elif [[ "$mode" = "root" ]] && [[ "$prepost" = "post" ]] ; then
@@ -1086,6 +1089,54 @@ run_hooks(){
     else
         return 1
     fi
+}
+
+# Cleanup backup directories after successful distro upgrade, keeping only logs
+cleanup_distro_upgrade_backups() {
+    local backup_dir log_file log_name
+    local count=0
+
+    el_info "Cleaning up distro upgrade backup directories, preserving logs..."
+
+    # Find and remove backup directories
+    for backup_dir in /root/debian-upgrade-backup-*; do
+        if [[ -d "$backup_dir" ]]; then
+            el_debug "Removing backup directory: $backup_dir"
+            rm -rf "$backup_dir"
+            if [[ $? -eq 0 ]]; then
+                el_info "Removed backup: $backup_dir"
+                ((count++))
+            else
+                el_warning "Failed to remove backup: $backup_dir"
+            fi
+        fi
+    done
+
+    if [[ $count -gt 0 ]]; then
+        el_info "Cleaned up $count backup directory(ies)"
+    else
+        el_info "No backup directories found to clean up"
+    fi
+
+    # Verify logs are preserved in both locations
+    local log_count_root=0
+    local log_count_upgrade=0
+
+    for log_file in /root/debian-upgrade-*.log; do
+        if [[ -f "$log_file" ]]; then
+            ((log_count_root++))
+        fi
+    done
+
+    if [[ -d "/root/upgrade-logs" ]]; then
+        for log_file in /root/upgrade-logs/debian-upgrade-*.log; do
+            if [[ -f "$log_file" ]]; then
+                ((log_count_upgrade++))
+            fi
+        done
+    fi
+
+    el_info "Preserved logs: $log_count_root in /root, $log_count_upgrade in /root/upgrade-logs"
 }
 
 # function replacement for apt-get calls with a wait for unlock apt before to run
