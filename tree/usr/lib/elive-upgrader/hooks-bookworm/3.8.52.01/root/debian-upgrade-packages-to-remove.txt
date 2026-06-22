@@ -1,3 +1,4 @@
 gnome-settings-daemon-compat-notinstalled
 virtualbox-dkms
 virtualbox-source
+at-spi2-core
