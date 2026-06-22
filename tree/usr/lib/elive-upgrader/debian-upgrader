@@ -1727,33 +1727,52 @@ run_post_hooks() {
     local codename=$1
     log_info "Running post-upgrade hooks for $codename..."
 
-    # Run dynamic post-upgrade hooks from the triggering hook directory
-    local hooks_base
-    hooks_base="/usr/lib/elive-upgrader/hooks-${current_codename}"
-    if [[ "$current_codename" == "wheezy" ]]; then
-        hooks_base="/usr/lib/elive-upgrader/hooks"
+    local cache_dir="/var/cache/elive-upgrader/active-distro-upgrade-hook"
+    local hook_dirs=()
+
+    if [[ -d "$cache_dir" ]]; then
+        # Use the cached hook directories
+        if [[ -d "$cache_dir/root" ]]; then
+            hook_dirs+=("$cache_dir/root")
+        fi
+        if [[ -d "$cache_dir/user" ]]; then
+            hook_dirs+=("$cache_dir/user")
+        fi
+    else
+        # Fallback to the triggering hook directory
+        local hooks_base
+        hooks_base="/usr/lib/elive-upgrader/hooks-${current_codename}"
+        if [[ "$current_codename" == "wheezy" ]]; then
+            hooks_base="/usr/lib/elive-upgrader/hooks"
+        fi
+
+        if [[ -d "$hooks_base" ]]; then
+            for d in "$hooks_base"/*/{root,user}; do
+                if [[ -d "$d" ]]; then
+                    hook_dirs+=("$d")
+                fi
+            done
+        fi
     fi
 
-    if [[ -d "$hooks_base" ]]; then
-        for hook_dir in "$hooks_base"/*/{root,user}; do
-            if [[ -d "$hook_dir" ]] && [[ -f "$hook_dir/debian-upgrade" ]]; then
-                # 1. Install packages specified in debian-upgrade-packages-to-install.txt
-                if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
-                    local pkgs
-                    pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
-                    if [[ -n "$pkgs" ]]; then
-                        log_info "Installing supporting packages: $pkgs"
-                        safe_apt_run apt-get install -y $pkgs || true
-                    fi
-                fi
-                # 2. Run post-upgrade script
-                if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
-                    log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
-                    "$hook_dir/debian-upgrade-post-script.sh" || true
+    for hook_dir in "${hook_dirs[@]}"; do
+        if [[ -f "$hook_dir/debian-upgrade" ]]; then
+            # 1. Install packages specified in debian-upgrade-packages-to-install.txt
+            if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
+                local pkgs
+                pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
+                if [[ -n "$pkgs" ]]; then
+                    log_info "Installing supporting packages: $pkgs"
+                    safe_apt_run apt-get install -y $pkgs || true
                 fi
             fi
-        done
-    fi
+            # 2. Run post-upgrade script
+            if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
+                log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
+                "$hook_dir/debian-upgrade-post-script.sh" || true
+            fi
+        fi
+    done
 
     case "$codename" in
         "bookworm")
