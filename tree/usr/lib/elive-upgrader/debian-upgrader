@@ -1684,6 +1684,37 @@ verify_upgrade() {
     fi
 }
 
+# Expand wildcard patterns and filter to only installed packages
+# Input: space/newline separated package names, may include wildcards like "exim4*"
+# Output: space separated list of actually installed packages
+filter_installed_packages() {
+    local input_pkgs="$1"
+    local installed_pkgs=""
+
+    for pkg in $input_pkgs; do
+        # Skip empty entries
+        [[ -z "$pkg" ]] && continue
+
+        # Check if the package name contains a wildcard
+        if [[ "$pkg" == *"*"* ]]; then
+            # Expand wildcard to actual installed packages
+            local expanded
+            expanded=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pkg" 2>/dev/null | grep '^installed ' | cut -d' ' -f2- || true)
+            if [[ -n "$expanded" ]]; then
+                installed_pkgs="$installed_pkgs $expanded"
+            fi
+        else
+            # Check if the specific package is installed
+            if dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null | grep -q '^installed'; then
+                installed_pkgs="$installed_pkgs $pkg"
+            fi
+        fi
+    done
+
+    # Trim leading space and output
+    echo "${installed_pkgs# }"
+}
+
 run_pre_hooks() {
     local codename=$1
     log_info "Running pre-upgrade hooks for $codename..."
@@ -1713,10 +1744,14 @@ run_pre_hooks() {
                 # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
                 if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
                     local pkgs
-                    pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-remove.txt" | grep -v "^#" | tr '\n' ' ')
+                    local raw_pkgs
+                    raw_pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-remove.txt" | grep -v "^#" | tr '\n' ' ')
+                    pkgs=$(filter_installed_packages "$raw_pkgs")
                     if [[ -n "$pkgs" ]]; then
                         log_info "Removing blocking packages: $pkgs"
                         safe_apt_run apt-get remove --purge -y $pkgs || true
+                    else
+                        log_info "No blocking packages need to be removed (none are installed)."
                     fi
                 fi
                 # 2. Run pre-upgrade script
