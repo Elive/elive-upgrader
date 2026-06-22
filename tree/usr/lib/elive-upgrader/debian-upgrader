@@ -407,7 +407,7 @@ full_os_backup() {
     log_info "OS Size: $((total_os_size_kb / 1024)) MB. Required free space: $((required_space_kb / 1024)) MB. Available: $((free_space_kb / 1024)) MB."
 
     if (( free_space_kb < required_space_kb )); then
-        log_warning "Not enough free space for full OS backup. Skipping."
+        log_info "Not enough free space for full OS backup. Skipping."
         return 0
     fi
 
@@ -1564,8 +1564,8 @@ perform_upgrade() {
     local can_install_new_kernel=true
 
     if (( boot_space_free < required_boot_kb )); then
-        log_warning "Low space in /boot (${boot_space_free} KB free). We need at least ${required_boot_kb} KB to safely keep two kernels."
-        log_warning "Only the current kernel will be kept, and new kernel installation will be skipped."
+        log_info "Low space in /boot (${boot_space_free} KB free). We need at least ${required_boot_kb} KB to safely keep two kernels."
+        log_info "Only the current kernel will be kept, and new kernel installation will be skipped."
         can_install_new_kernel=false
     fi
 
@@ -2299,7 +2299,7 @@ main_upgrade() {
 
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
-    
+
     # Display the warning prominently in bold yellow/cyan instead of standard green info
     if [[ "$BOOT_MODE" == "true" ]]; then
         local target_out="/dev/console"
@@ -2307,7 +2307,7 @@ main_upgrade() {
     else
         echo -e "${YELLOW}[WARN]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}"
     fi
-    
+
     draw_banner "PREPARING SYSTEM" "$CYAN"
 
     check_root
