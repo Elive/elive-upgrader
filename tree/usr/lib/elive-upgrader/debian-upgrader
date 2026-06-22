@@ -926,6 +926,10 @@ log_info() {
     copy_log_to_root
 }
 
+log_debug() {
+    el_debug "$1"
+}
+
 trigger_reboot() {
     log_info "=================================================="
     log_info "  SYSTEM IS READY FOR REBOOT TO APPLY CHANGES"
@@ -1367,33 +1371,55 @@ check_disk_space() {
     # Run a quick simulation to estimate required space
     log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
     local sim_out
-    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true)
+    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
+
+    log_debug "Simulation output:\n$sim_out"
 
     local download_kb=0
     local install_kb=0
 
     local dl_val dl_unit
-    dl_val=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
-    dl_unit=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+    dl_val=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\1/' | head -n 1)
+    dl_unit=$(echo "$sim_out" | grep -i "Need to get" | sed -E 's/.*Need to get ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\2/' | head -n 1)
 
     if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
         download_kb=$(to_kb "$dl_val" "$dl_unit")
+        log_debug "Parsed download size: $dl_val $dl_unit = ${download_kb} KB"
+    else
+        # Fallback: try to sum up individual package sizes from the Inst lines
+        log_debug "Primary download parsing failed, trying fallback from Inst lines..."
+        local sum_bytes=0
+        while IFS= read -r line; do
+            local bytes
+            bytes=$(echo "$line" | sed -E 's/.*\[([0-9.,]+)[[:space:]]*([a-zA-Z]+)\].*/\1 \2/')
+            local b_val b_unit
+            b_val=$(echo "$bytes" | awk '{print $1}')
+            b_unit=$(echo "$bytes" | awk '{print $2}')
+            if [[ -n "$b_val" && -n "$b_unit" ]]; then
+                sum_bytes=$(( sum_bytes + $(to_kb "$b_val" "$b_unit") ))
+            fi
+        done <<< "$(echo "$sim_out" | grep -E "^Inst " || true)"
+        if (( sum_bytes > 0 )); then
+            download_kb=$sum_bytes
+            log_debug "Fallback download size from Inst lines: ${download_kb} KB"
+        fi
     fi
 
     local inst_val inst_unit inst_sign=1
-    if echo "$sim_out" | grep -q "additional disk space will be used"; then
-        inst_val=$(echo "$sim_out" | grep "additional disk space will be used" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
-        inst_unit=$(echo "$sim_out" | grep "additional disk space will be used" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+    if echo "$sim_out" | grep -qi "additional disk space will be used"; then
+        inst_val=$(echo "$sim_out" | grep -i "additional disk space will be used" | sed -E 's/.*operation,? ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\1/' | head -n 1)
+        inst_unit=$(echo "$sim_out" | grep -i "additional disk space will be used" | sed -E 's/.*operation,? ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\2/' | head -n 1)
         inst_sign=1
-    elif echo "$sim_out" | grep -q "disk space will be freed"; then
-        inst_val=$(echo "$sim_out" | grep "disk space will be freed" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\1/' | head -n 1)
-        inst_unit=$(echo "$sim_out" | grep "disk space will be freed" | sed -E 's/.*operation, ([0-9.,]+)\s*([a-zA-Z]+).*/\2/' | head -n 1)
+    elif echo "$sim_out" | grep -qi "disk space will be freed"; then
+        inst_val=$(echo "$sim_out" | grep -i "disk space will be freed" | sed -E 's/.*operation,? ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\1/' | head -n 1)
+        inst_unit=$(echo "$sim_out" | grep -i "disk space will be freed" | sed -E 's/.*operation,? ([0-9.,]+)[[:space:]]*([a-zA-Z]+).*/\2/' | head -n 1)
         inst_sign=-1
     fi
 
     if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
         install_kb=$(to_kb "$inst_val" "$inst_unit")
         install_kb=$(( install_kb * inst_sign ))
+        log_debug "Parsed install size: $inst_val $inst_unit (sign: $inst_sign) = ${install_kb} KB"
     fi
 
     # Fallback to safe defaults if simulation didn't yield results
