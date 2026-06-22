@@ -2557,11 +2557,13 @@ main_upgrade() {
     stop_warning_loop
 
     if [[ "$BOOT_MODE" == "true" ]]; then
-        disable_boot_upgrade
         release_lock
         set_progress 100 "Upgrade completed successfully!"
         log_info "Rebooting in 5 seconds..."
         for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
+        # Do NOT disable boot upgrade here - elive-boot-upgrader needs to run
+        # one more time to process remove-if-not-before hooks, then it will
+        # call cleanup_and_disable itself
         trigger_reboot
         # If reboot fails, exit cleanly
         log_error "Reboot failed. Please reboot manually."

@@ -174,23 +174,55 @@ process_remove_if_not_before() {
                     \#*) continue ;;
                 esac
 
-                # Remove trailing wildcard * for searching in the packages-before file
-                local search_pattern="${pattern%\*}"
+                # Debug: show what we're checking
+                echo "DEBUG: Checking pattern '$pattern' against packages-before file"
 
-                # Check if search_pattern matches any package in pkgs_before_file
-                if ! grep -q "^${search_pattern}" "$pkgs_before_file"; then
-                    echo "Package pattern '$pattern' (search: '$search_pattern') was not present before upgrade. Removing..."
-                    
-                    # Expand wildcard patterns to actual installed packages
-                    local expanded_pkgs
-                    expanded_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pattern" 2>/dev/null | grep '^installed ' | cut -d' ' -f2- || true)
-                    
+                # Expand wildcard patterns to actual installed packages
+                # Use --show with --showformat for reliable wildcard matching
+                local expanded_pkgs
+                expanded_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pattern" 2>/dev/null | grep '^installed ' | cut -d' ' -f2-)
+                
+                # Fallback: if dpkg-query with wildcard didn't work, try apt list
+                if [ -z "$expanded_pkgs" ]; then
+                    echo "DEBUG: dpkg-query returned no results, trying apt list fallback..."
+                    expanded_pkgs=$(apt list --installed "$pattern" 2>/dev/null | grep -v "^Listing" | cut -d'/' -f1 | grep -v "^$" || true)
+                    # Filter to only actually installed ones
                     if [ -n "$expanded_pkgs" ]; then
-                        echo "Expanded packages to remove: $expanded_pkgs"
-                        TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" remove --purge $expanded_pkgs || true
+                        local filtered=""
+                        for pkg in $expanded_pkgs; do
+                            if dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null | grep -q '^installed'; then
+                                filtered="$filtered $pkg"
+                            fi
+                        done
+                        expanded_pkgs=$(echo "$filtered" | xargs)
+                    fi
+                fi
+
+                # Check each expanded package individually against the before-file
+                local pkgs_to_remove=""
+                if [ -n "$expanded_pkgs" ]; then
+                    for pkg in $expanded_pkgs; do
+                        if ! grep -qxF "$pkg" "$pkgs_before_file"; then
+                            echo "Package '$pkg' was NOT present before upgrade. Adding to removal list."
+                            pkgs_to_remove="$pkgs_to_remove $pkg"
+                        else
+                            echo "Package '$pkg' was present before upgrade. Keeping."
+                        fi
+                    done
+                    pkgs_to_remove=$(echo "$pkgs_to_remove" | xargs)
+                fi
+
+                if [ -n "$pkgs_to_remove" ]; then
+                    echo "Removing packages: $pkgs_to_remove"
+                    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages remove --purge $pkgs_to_remove
+                    local apt_exit=$?
+                    if [ "$apt_exit" -ne 0 ]; then
+                        echo "WARNING: apt-get remove failed with exit code $apt_exit for packages: $pkgs_to_remove"
+                    else
+                        echo "Successfully removed packages: $pkgs_to_remove"
                     fi
                 else
-                    echo "Package pattern '$pattern' (search: '$search_pattern') was present before upgrade. Keeping."
+                    echo "No packages matching pattern '$pattern' need to be removed."
                 fi
             done < "$hook_file"
         fi
