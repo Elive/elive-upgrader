@@ -1356,16 +1356,38 @@ check_disk_space() {
             return
         fi
 
-        # Use awk for the conversion
-        awk -v v="$val" -v u="$unit" 'BEGIN {
-            factor = 1
-            if (u ~ /^k/) factor = 1
-            else if (u ~ /^m/) factor = 1024
-            else if (u ~ /^g/) factor = 1024 * 1024
-            else if (u ~ /^t/) factor = 1024 * 1024 * 1024
-            else if (u ~ /^b/) factor = 1 / 1024
-            printf "%.0f", v * factor
-        }'
+        # Use pure bash arithmetic for the conversion to avoid awk locale issues
+        # Convert to integer representation (multiply by 1000 to preserve 3 decimal places)
+        local int_val
+        if [[ "$val" == *.* ]]; then
+            # Has decimal part
+            local int_part="${val%%.*}"
+            local dec_part="${val#*.}"
+            # Pad or truncate decimal part to 3 digits
+            dec_part="${dec_part}000"
+            dec_part="${dec_part:0:3}"
+            int_val=$(( int_part * 1000 + dec_part ))
+        else
+            int_val=$(( val * 1000 ))
+        fi
+
+        local factor=1
+        case "$unit" in
+            k*|kb) factor=1 ;;
+            m*|mb) factor=1024 ;;
+            g*|gb) factor=$((1024 * 1024)) ;;
+            t*|tb) factor=$((1024 * 1024 * 1024)) ;;
+            b) factor=0 ;;  # bytes, will be handled separately
+            *) factor=1 ;;
+        esac
+
+        if [[ "$unit" == "b" ]]; then
+            # Convert bytes to KB
+            echo $(( int_val / 1000 ))
+        else
+            # Multiply by factor and divide by 1000 (to account for our 3 decimal precision)
+            echo $(( int_val * factor / 1000 ))
+        fi
     }
 
     # Run a quick simulation to estimate required space
@@ -1380,34 +1402,50 @@ check_disk_space() {
 
     # Parse download size from "Need to get X.Y MB of archives."
     # Handles formats like: "Need to get 1,234 MB of archives." or "Need to get 45.6 kB of archives."
+    # Also handles: "Need to get 1,234.56 MB of archives."
     local dl_line
     dl_line=$(echo "$sim_out" | grep -i "Need to get" | head -n 1)
     if [[ -n "$dl_line" ]]; then
         local dl_val dl_unit
-        # Extract the first number (with optional comma/period) and the unit after it
-        dl_val=$(echo "$dl_line" | grep -oP '[0-9]+(?:[.,][0-9]+)?' | head -n 1)
-        dl_unit=$(echo "$dl_line" | grep -oP '[0-9]+(?:[.,][0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
+        # Extract the first number (with optional comma as thousands separator and period as decimal)
+        # First, remove commas (thousands separators) from the line for easier parsing
+        local dl_line_clean
+        dl_line_clean=$(echo "$dl_line" | sed 's/,//g')
+        # Now extract number with optional decimal
+        dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
+        # Extract unit - look for the first letter sequence after the number
+        dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
 
         if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
             download_kb=$(to_kb "$dl_val" "$dl_unit")
             log_debug "Parsed download size: $dl_val $dl_unit = ${download_kb} KB"
+        else
+            log_debug "Failed to parse download line: $dl_line"
+            log_debug "dl_val='$dl_val', dl_unit='$dl_unit'"
         fi
     fi
 
     # Fallback: if "Need to get" parsing failed, sum up individual package sizes from Inst lines
     if (( download_kb == 0 )); then
         log_debug "Primary download parsing failed, trying fallback from Inst lines..."
-        local sum_bytes=0
+        local sum_kb=0
         while IFS= read -r line; do
             local b_val b_unit
-            b_val=$(echo "$line" | grep -oP '\[\s*[0-9]+(?:[.,][0-9]+)?' | grep -oP '[0-9]+(?:[.,][0-9]+)?' | head -n 1)
-            b_unit=$(echo "$line" | grep -oP '\[\s*[0-9]+(?:[.,][0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
+            # Remove commas for easier parsing
+            local line_clean
+            line_clean=$(echo "$line" | sed 's/,//g')
+            # Extract size from format like "Inst package [1.2 MB]"
+            b_val=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?' | grep -oP '[0-9]+(\.[0-9]+)?' | head -n 1)
+            b_unit=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
             if [[ -n "$b_val" && -n "$b_unit" ]]; then
-                sum_bytes=$(( sum_bytes + $(to_kb "$b_val" "$b_unit") ))
+                local pkg_kb
+                pkg_kb=$(to_kb "$b_val" "$b_unit")
+                sum_kb=$(( sum_kb + pkg_kb ))
+                log_debug "Inst line: $b_val $b_unit = ${pkg_kb} KB"
             fi
         done <<< "$(echo "$sim_out" | grep -E "^Inst " || true)"
-        if (( sum_bytes > 0 )); then
-            download_kb=$sum_bytes
+        if (( sum_kb > 0 )); then
+            download_kb=$sum_kb
             log_debug "Fallback download size from Inst lines: ${download_kb} KB"
         fi
     fi
@@ -1418,8 +1456,13 @@ check_disk_space() {
     inst_line=$(echo "$sim_out" | grep -i "After this operation" | head -n 1)
     if [[ -n "$inst_line" ]]; then
         local inst_val inst_unit inst_sign
-        inst_val=$(echo "$inst_line" | grep -oP '[0-9]+(?:[.,][0-9]+)?' | head -n 1)
-        inst_unit=$(echo "$inst_line" | grep -oP '[0-9]+(?:[.,][0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
+        # Remove commas for easier parsing
+        local inst_line_clean
+        inst_line_clean=$(echo "$inst_line" | sed 's/,//g')
+        # Extract number with optional decimal
+        inst_val=$(echo "$inst_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
+        # Extract unit
+        inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
 
         if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
             if echo "$inst_line" | grep -qi "freed"; then
@@ -1430,6 +1473,9 @@ check_disk_space() {
             install_kb=$(to_kb "$inst_val" "$inst_unit")
             install_kb=$(( install_kb * inst_sign ))
             log_debug "Parsed install size: $inst_val $inst_unit (sign: $inst_sign) = ${install_kb} KB"
+        else
+            log_debug "Failed to parse install line: $inst_line"
+            log_debug "inst_val='$inst_val', inst_unit='$inst_unit'"
         fi
     fi
 
