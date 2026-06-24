@@ -242,6 +242,26 @@ cleanup_and_disable() {
     restore_non_systemd_gettys
 }
 
+# Remove old OS upgrade backup directories from /root once the
+# upgrade has fully completed and the user has reached a graphical session.
+# Keep .log files.
+cleanup_old_backups() {
+    local cleanup_flag="/var/cache/elive-upgrader/cleanup-backups-pending"
+
+    if [ ! -f "$cleanup_flag" ]; then
+        return 0
+    fi
+
+    echo "Removing old /root/debian-upgrade-backup directories..."
+    find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
+    # Also remove any stray backup tarballs left behind
+    find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
+
+    # Remove the flag file after cleanup
+    rm -f "$cleanup_flag"
+    echo "Old backup directories cleaned up successfully."
+}
+
 # Validate the upgrade state before proceeding
 validate_upgrade_state() {
     # Read configuration
@@ -395,6 +415,10 @@ main() {
             cleanup_and_disable
         fi
     fi
+
+    # Clean up old backup directories now that the upgrade is complete
+    # and the user will reach the graphical session
+    cleanup_old_backups
 
     echo "Rebooting system to apply changes in 10 seconds..."
     sync

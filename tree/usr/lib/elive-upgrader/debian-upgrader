@@ -548,13 +548,23 @@ X-KDE-autostart-after=panel
 StartupNotify=false
 DESKTOP_ENTRY
 
-    # Create the recovery notification script
+    # Create the upgrade-complete notification and cleanup script
     cat > "/usr/lib/elive-upgrader/recovery-notification" << 'RECOVERY_SCRIPT'
 #!/bin/bash
-# Recovery notification script - shown to user on desktop after failed upgrade
+# Upgrade notification script - shown to user on desktop after upgrade
 
 RECOVERY_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
+CLEANUP_FLAG="/var/cache/elive-upgrader/cleanup-backups-pending"
+
+# Always clean up old backups when this script runs (user has reached graphical session)
+if [[ -f "$CLEANUP_FLAG" ]]; then
+    echo "Cleaning up old upgrade backup directories..."
+    find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
+    find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
+    rm -f "$CLEANUP_FLAG"
+    echo "Old backup directories cleaned up."
+fi
 
 if [[ ! -f "$RECOVERY_FLAG" ]]; then
     # No recovery needed, remove autostart entry and exit
@@ -565,6 +575,44 @@ fi
 
 # Only run if we have a display (graphical session)
 if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    exit 0
+fi
+
+# Show a success notification if the upgrade was completed
+show_success_notification() {
+    local title="Elive System Upgrade Complete"
+    local message="Your Elive system has been successfully upgraded to Debian ${TARGET_CODENAME}.\n\nYou can now use your system normally."
+
+    if command -v zenity &>/dev/null; then
+        zenity --info --title="$title" --text="$message" --width=400 2>/dev/null
+        return
+    fi
+
+    if command -v yad &>/dev/null; then
+        yad --info --title="$title" --text="$message" --width=400 2>/dev/null
+        return
+    fi
+
+    if command -v kdialog &>/dev/null; then
+        kdialog --title "$title" --msgbox "$message" 2>/dev/null
+        return
+    fi
+
+    if command -v notify-send &>/dev/null; then
+        notify-send -u normal "$title" "$message" 2>/dev/null
+        return
+    fi
+
+    echo "$title: $message"
+}
+
+# Check if this is a successful upgrade completion (not a failure recovery)
+if [[ ! -f "$RECOVERY_FLAG" ]] && [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
+    show_success_notification
+    rm -f "/var/cache/elive-upgrader/notify-upgrade-complete"
+    # Remove the autostart entry since we've shown the notification
+    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
     exit 0
 fi
 
@@ -2596,6 +2644,11 @@ main_upgrade() {
     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
     echo "$TARGET_CODENAME" > /var/cache/elive-upgrader/notify-upgrade-complete
     chmod 666 /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true
+
+    # Create a flag to indicate that backup cleanup should be done after
+    # the user reaches the graphical session
+    touch /var/cache/elive-upgrader/cleanup-backups-pending
+    chmod 666 /var/cache/elive-upgrader/cleanup-backups-pending 2>/dev/null || true
 
     # Clear any recovery notification from a previous failed attempt
     clear_recovery_notification
