@@ -1053,6 +1053,8 @@ safe_apt_run() {
     local attempt=1
     local max_attempts=3
     local exit_code=0
+    local dkms_failure_package=""
+    local all_dkms_packages=""
     local err_log
     err_log=$(mktemp)
 
@@ -1071,6 +1073,60 @@ safe_apt_run() {
             rm -f "$err_log"
             return 0
         fi
+
+        # Detect DKMS compilation failure (exit code 100 from dpkg)
+        if [[ "$exit_code" -eq 100 ]]; then
+            if grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
+                # Extract the failing DKMS package name from the error log
+                dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '*dkms' | head -1)
+
+                # If we couldn't extract the name, try alternative patterns
+                if [[ -z "$dkms_failure_package" ]]; then
+                    dkms_failure_package=$(grep -iP "dkms|module.*build.*fail|build.*error" "$err_log" 2>/dev/null | grep -oP '+-dkms' | head -1)
+                fi
+
+                # If still no name, look for the package being installed that triggered the failure
+                if [[ -z "$dkms_failure_package" ]]; then
+                    dkms_failure_package=$(grep -iP "Setting up|Installing" "$err_log" 2>/dev/null | grep -iP "dkms|module|driver" | tail -1 | awk '{print $NF}' || true)
+                fi
+
+                # If we found a specific DKMS package that failed
+                if [[ -n "$dkms_failure_package" ]]; then
+                    log_warning "DKMS compilation failure detected for package: $dkms_failure_package"
+                    log_warning "This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue."
+                    log_warning "You can reinstall it after the upgrade completes if needed."
+
+                    # Remove the problematic DKMS package
+                    local dkms_packages
+                    dkms_packages=$(dpkg-query -W -f='${Package}\n' "*${dkms_failure_package}*" 2>/dev/null | grep -i dkms || true)
+                    if [[ -z "$dkms_packages" ]]; then
+                        dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
+                    fi
+                    if [[ -n "$dkms_packages" ]]; then
+                        log_info "Removing conflicting DKMS packages: $dkms_packages"
+                        apt-get remove --purge -y $dkms_packages 2>/dev/null || true
+                    fi
+                else
+                    # No specific package found - try to find all DKMS packages and check build logs
+                    all_dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
+                    if [[ -n "$all_dkms_packages" ]]; then
+                        log_warning "DKMS compilation failure detected. Checking DKMS build logs..."
+                        for dkms_pkg in $all_dkms_packages; do
+                            local dkms_log_dir="/var/lib/dkms"
+                            local latest_log
+                            latest_log=$(find "$dkms_log_dir" -path "*/$dkms_pkg/*/build/make.log" -type f 2>/dev/null | sort -t'/' -k6 | tail -1)
+                            if [[ -n "$latest_log" ]] && grep -qi "error\|fail" "$latest_log" 2>/dev/null; then
+                                log_warning "DKMS package $dkms_pkg has compilation errors. Removing to allow upgrade to continue."
+                                dkms_failure_package="$dkms_pkg"
+                                apt-get remove --purge -y "$dkms_pkg" 2>/dev/null || true
+                                break
+                            fi
+                        done
+                    fi
+                fi
+            fi
+        fi
+
         local err_msg
         err_msg=$(cat "$err_log" | tail -n 5)
         log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts. Error: $err_msg"
