@@ -562,6 +562,14 @@ if [[ -f "$CLEANUP_FLAG" ]]; then
     echo "Cleaning up old upgrade backup directories..."
     find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
     find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
+
+    # Also remove the full OS backup directory if it exists
+    if [[ -d "/var/cache/elive-upgrader/full-os-backup" ]]; then
+        echo "Removing full OS backup directory..."
+        rm -rf "/var/cache/elive-upgrader/full-os-backup"
+        echo "Full OS backup directory removed."
+    fi
+
     rm -f "$CLEANUP_FLAG"
     echo "Old backup directories cleaned up."
 fi
