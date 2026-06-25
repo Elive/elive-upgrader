@@ -430,7 +430,7 @@ upgrade_firmwares(){
                     $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
                 fi
 
-                urxvt -e bash -c "COLUMNS=80 fwupdmgr -y update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+                urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
             else
                 # we should remember the selection of "no"? the normal is that the user should always want to update firmware, but maybe not the first time and probably the second one, so do not remember this choice and instead, ask the question in every full upgrade request
                 updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
