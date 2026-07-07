@@ -431,7 +431,7 @@ show_changelog(){
 check_for_new_elive_version() {
     local upgrade_type="$1"
     local is_betatester="$2"
-    local current_codename next_codename repo_url conf_var
+    local current_codename next_codename repo_url conf_var is_new_codename_available buf
 
     if ((is_trixie)); then
         current_codename="trixie"
@@ -467,7 +467,10 @@ check_for_new_elive_version() {
     repo_url="https://repo.${next_codename}.elive.elivecd.org/dists/${next_codename}/Release"
 
     # Check if the repo for the next version exists
-    if curl --output /dev/null --silent --head --fail "$repo_url"; then
+    buf="$( curl -sL "$repo_url" | grep -E "(Origin|Label|Suite|Codename|Date|Architectures)" )"
+
+    if [[ -n "$buf" ]] && echo -e "$buf" | grep -qsE "(^Origin: Elive$)" ; then
+
         case "$upgrade_type" in
             alpha)
                 if ! ((is_betatester)); then
@@ -500,7 +503,7 @@ check_for_new_elive_version() {
 
         local title
         title="$(eval_gettext "New Distro Upgrade Available")"
-        
+
         # Show a dialog with 3 options, with the first one to proceed with the upgrade
         local choice
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
@@ -557,8 +560,12 @@ check_for_new_elive_version() {
         esac
 
     else
-        el_info "No new Debian version found (tried: $repo_url)"
-        return 2
+        if [[ -n "$buf" ]] && echo -e "$buf" | grep -qsE "(Origin|Label|Suite)" ; then
+            el_error "New Elive distro repository found but with wrong arguments:  $buf"
+        else
+            el_info "No new Debian version found (tried: $repo_url)"
+            return 2
+        fi
     fi
 }
 
