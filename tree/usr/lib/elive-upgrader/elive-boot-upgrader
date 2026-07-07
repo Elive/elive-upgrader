@@ -181,7 +181,7 @@ process_remove_if_not_before() {
                 # Use --show with --showformat for reliable wildcard matching
                 local expanded_pkgs
                 expanded_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pattern" 2>/dev/null | grep '^installed ' | cut -d' ' -f2-)
-                
+
                 # Fallback: if dpkg-query with wildcard didn't work, try apt list
                 if [ -z "$expanded_pkgs" ]; then
                     echo "DEBUG: dpkg-query returned no results, trying apt list fallback..."
