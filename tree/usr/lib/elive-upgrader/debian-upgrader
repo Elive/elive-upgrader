@@ -396,9 +396,66 @@ full_os_backup() {
         fi
     done
 
-    # Required space: OS_SIZE * 1.2 + 20 GB (20971520 KB)
+    # Helper to convert size to KB (copied inline to avoid external dependency)
+    __to_kb() {
+        local val="$1" unit="$2" factor=1
+        case "$unit" in
+            k|kb) factor=1 ;;
+            m|mb) factor=1024 ;;
+            g|gb) factor=$((1024*1024)) ;;
+            t|tb) factor=$((1024*1024*1024)) ;;
+            b) factor=0 ;;
+            *) factor=1 ;;
+        esac
+        if [[ "$unit" == "b" ]]; then
+            echo $(( val / 1000 ))
+        else
+            echo $(( val * factor / 1000 ))
+        fi
+    }
+
+    # Estimate additional space needed for the upgrade itself (download + unpack + safety)
+    local download_kb=0 install_kb=0
+    local sim_out
+    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
+
+    # Parse download size from simulation output
+    local dl_line dl_val dl_unit
+    dl_line=$(echo "$sim_out" | grep -i "Need to get" | head -n 1)
+    if [[ -n "$dl_line" ]]; then
+        local dl_line_clean
+        dl_line_clean=$(echo "$dl_line" | sed 's/,//g')
+        dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
+        dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
+        if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
+            download_kb=$(__to_kb "$dl_val" "$dl_unit")
+        fi
+    fi
+
+    # Parse net install size from simulation output
+    local inst_line inst_val inst_unit inst_sign=1
+    inst_line=$(echo "$sim_out" | grep -i "After this operation" | head -n 1)
+    if [[ -n "$inst_line" ]]; then
+        local inst_line_clean
+        inst_line_clean=$(echo "$inst_line" | sed 's/,//g')
+        inst_val=$(echo "$inst_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
+        inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
+        if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
+            echo "$inst_line" | grep -qi "freed" && inst_sign=-1
+            install_kb=$(__to_kb "$inst_val" "$inst_unit")
+            (( install_kb *= inst_sign ))
+        fi
+    fi
+
+    # Total needed: backup copy (same size as OS) + download + unpack (1.5 * download) + net extra (if positive) + safety (500 MB)
+    local upgrade_extra_kb=$(( download_kb + download_kb * 3 / 2 + 524288 ))
+    if (( install_kb > 0 )); then
+        upgrade_extra_kb=$(( upgrade_extra_kb + install_kb ))
+    fi
+
+    # Required space: OS_SIZE * 1.2 + 30 GB (initial safety) + upgrade_extra_kb
     local required_space_kb
-    required_space_kb=$(awk -v os="$total_os_size_kb" 'BEGIN { printf "%.0f", (os * 1.2) + 20971520 }')
+    required_space_kb=$(awk -v os="$total_os_size_kb" -v extra="$upgrade_extra_kb" 'BEGIN { printf "%.0f", (os * 1.2) + 30971520 + extra }')
 
     # Check free space on root partition
     local free_space_kb
