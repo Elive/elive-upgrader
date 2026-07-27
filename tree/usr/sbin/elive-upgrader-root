@@ -285,10 +285,48 @@ upgrade_system(){
         if [[ -n "$_next_codename" ]] ; then
             local repo_url="https://repo.${_next_codename}.elive.elivecd.org/dists/${_next_codename}/Release"
             if curl --output /dev/null --silent --head --fail "$repo_url"; then
-                el_info "A distribution upgrade to $_next_codename is available."
-                el_info "Enabling distro upgrade to $_next_codename..."
-                if /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$_next_codename" ; then
-                    return 0
+                # Check the upgrade type from the debian-upgrade file
+                local upgrade_type=""
+                local debian_upgrade_file
+                debian_upgrade_file="$( find "${hooks_d}" -path "*/root/debian-upgrade" 2>/dev/null | sort -V | tail -1 )"
+                if [[ -f "$debian_upgrade_file" ]]; then
+                    upgrade_type="$( tr -d '\r\n ' < "$debian_upgrade_file" )"
+                fi
+
+                # Check user eligibility based on upgrade type
+                local can_upgrade=0
+                case "$upgrade_type" in
+                    alpha)
+                        if [[ -z "${is_betatester:-}" ]]; then
+                            [[ -f /tmp/.elive-upgrader-betatest ]] && is_betatester=1 || is_betatester=0
+                        fi
+                        if ((is_betatester)); then
+                            can_upgrade=1
+                        else
+                            el_info "This distro upgrade is only available for betatesters."
+                        fi
+                        ;;
+                    beta)
+                        if ((is_premium_user)); then
+                            can_upgrade=1
+                        else
+                            el_info "This distro upgrade is only available for Premium users."
+                        fi
+                        ;;
+                    stable)
+                        can_upgrade=1
+                        ;;
+                    *)
+                        el_info "No distro upgrade eligibility found for $_next_codename."
+                        ;;
+                esac
+
+                if ((can_upgrade)); then
+                    el_info "A distribution upgrade to $_next_codename is available."
+                    el_info "Enabling distro upgrade to $_next_codename..."
+                    if /usr/lib/elive-upgrader/debian-upgrader --enable-boot-upgrade "$_next_codename" ; then
+                        return 0
+                    fi
                 fi
             fi
         fi
