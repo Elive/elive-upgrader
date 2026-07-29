@@ -3,3 +3,8 @@ virtualbox-dkms
 virtualbox-source
 at-spi2-core
 openrazer-driver-dkms
+v4l2loopback-utils
+v4l2loopback-source
+v4l2loopback-dkms
+ezurio-qcacld-2.0-dkms
+openrazer-driver-dkms
