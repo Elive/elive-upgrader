@@ -2898,6 +2898,13 @@ main_upgrade() {
         # Do NOT disable boot upgrade here - elive-boot-upgrader needs to run
         # one more time to process remove-if-not-before hooks, then it will
         # call cleanup_and_disable itself
+        # Trigger systemd daemons before reboot to ensure services like lightdm are running
+        if [[ "${is_systemd:-0}" -eq 1 ]]; then
+            log_info "Triggering systemd daemons before reboot..."
+            systemctl daemon-reload 2>/dev/null || true
+            sync
+        fi
+
         trigger_reboot
         # If reboot fails, exit cleanly
         log_error "Reboot failed. Please reboot manually."
