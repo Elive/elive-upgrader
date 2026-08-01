@@ -2037,6 +2037,37 @@ verify_upgrade() {
     fi
 }
 
+reconfigure_setcap_packages() {
+    log_info "Reconfiguring packages with setcap capabilities..."
+
+    # reconfigure needed packages:
+    # setcap issues (ping from user, etc):
+    if dpkg -l | grep -qsE "iputils-ping" ; then
+        log_info "Reconfiguring iputils-ping..."
+        chmod u+s /bin/ping
+        if ! timeout 620 dpkg-reconfigure -fnoninteractive "iputils-ping" 1>/dev/null 2>&1 ; then
+            log_warning "Failed to reconfigure iputils-ping"
+        fi
+    fi
+
+    local setcap_pkgs
+    setcap_pkgs=$(grep -El "\W+setcap\W+" /var/lib/dpkg/info/*postinst 2>/dev/null | sed -e 's|\:.*$||g' -e 's|\.postinst||g' -e 's|^.*/||g' || true)
+    for i in $setcap_pkgs
+    do
+        for j in /var/lib/dpkg/info/${i}.list /var/lib/dpkg/info/${i}:*.list
+        do
+            if [[ -f "$j" ]] ; then
+                j="${j##*/}"
+                j="${j%.list}"
+                log_info "Reconfiguring $j..."
+                if ! timeout 620 dpkg-reconfigure -fnoninteractive "$j" 1>/dev/null 2>&1 ; then
+                    log_warning "Failed to reconfigure '$j'"
+                fi
+            fi
+        done
+    done
+}
+
 # Expand wildcard patterns and filter to only installed packages
 # Input: space/newline separated package names, may include wildcards like "exim4*"
 # Output: space separated list of actually installed packages
@@ -2780,6 +2811,9 @@ main_upgrade() {
         # Update current_codename for the next iteration's update_sources
         current_codename="$step_codename"
     done
+
+    # Run extra hooks for setcap packages after the entire upgrade process has finished
+    reconfigure_setcap_packages
 
     # Mark upgrade as completed so the user is notified on next boot
     upgrade_state_write "UPGRADE_COMPLETED" "yes"
