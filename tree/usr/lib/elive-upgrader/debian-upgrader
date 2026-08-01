@@ -2042,14 +2042,6 @@ reconfigure_setcap_packages() {
 
     # reconfigure needed packages:
     # setcap issues (ping from user, etc):
-    if dpkg -l | grep -qsE "iputils-ping" ; then
-        log_info "Reconfiguring iputils-ping..."
-        chmod u+s /bin/ping
-        if ! timeout 620 dpkg-reconfigure -fnoninteractive "iputils-ping" 1>/dev/null 2>&1 ; then
-            log_warning "Failed to reconfigure iputils-ping"
-        fi
-    fi
-
     local setcap_pkgs
     setcap_pkgs=$(grep -El "\W+setcap\W+" /var/lib/dpkg/info/*postinst 2>/dev/null | sed -e 's|\:.*$||g' -e 's|\.postinst||g' -e 's|^.*/||g' || true)
     for i in $setcap_pkgs
