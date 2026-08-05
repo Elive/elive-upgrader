@@ -2433,7 +2433,7 @@ EOF
     fi
 
     # Enable OpenRC service (Gentoo, Alpine, etc.)
-    if command -v rc-update &>/dev/null && [[ -f /etc/init.d/elive-distro-upgrader ]]; then
+    if ((is_openrc)) && [[ -f /etc/init.d/elive-distro-upgrader ]]; then
         log_info "Enabling elive-distro-upgrader service via OpenRC..."
         if rc-update add elive-distro-upgrader default >/dev/null 2>&1; then
             init_configured=true
@@ -2505,7 +2505,7 @@ disable_boot_upgrade() {
             log_info "Disabling elive-distro-upgrader init script..."
             update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
         fi
-        if command -v rc-update &>/dev/null; then
+        if ((is_openrc)); then
             log_info "Disabling elive-distro-upgrader via OpenRC..."
             rc-update del elive-distro-upgrader 2>/dev/null || true
         fi
@@ -2797,7 +2797,7 @@ main_upgrade() {
             fi
             if [[ -d "$old_hooks_dir" ]]; then
                 local latest_old_version
-                latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+                latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | grep -E '^[0-9]' | sort -V | tail -1 )"
                 if [[ -n "$latest_old_version" ]]; then
                     log_info "Setting elive-fixes to $latest_old_version in /etc/elive-version"
                     sed -i "/^elive-fixes:/s/^.*$/elive-fixes: ${latest_old_version}/" "/etc/elive-version" 2>/dev/null || true

@@ -14,6 +14,13 @@ else
 fi
 export is_systemd
 
+if command -v openrc &>/dev/null || [[ -f /etc/rc.conf ]] || command -v rc-service &>/dev/null; then
+    is_openrc=1
+else
+    is_openrc=0
+fi
+export is_openrc
+
 # Shared Debian version mapping
 declare -g -A DEBIAN_CODENAMES=(
     ["wheezy"]=7
@@ -591,7 +598,7 @@ run_hooks(){
         root)
             # get versions {{{
             conf_version_upgrader="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-fixes:" | awk '{print $2}' )"
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | grep -E '^[0-9]' | sort -V | tail -1 )"
             read -r conf_version_upgrader <<< "$conf_version_upgrader"
 
             # first time, our system is fixed up to the actual version of elive, so nothing more is needed to do until there's a newer version of the tool
@@ -629,7 +636,7 @@ run_hooks(){
                 fi
             fi
 
-            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+            version_last_hook="$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | grep -E '^[0-9]' | sort -V | tail -1 )"
 
             #}}}
             ;;
@@ -671,7 +678,7 @@ run_hooks(){
                         fi
                         if [[ -d "$old_hooks_dir" ]]; then
                             local latest_old_version
-                            latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V | tail -1 )"
+                            latest_old_version="$( find "$old_hooks_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | grep -E '^[0-9]' | sort -V | tail -1 )"
                             if [[ -n "$latest_old_version" ]]; then
                                 conf_version_upgrader="$latest_old_version"
                                 el_config_save "conf_version_upgrader"
@@ -932,7 +939,7 @@ run_hooks(){
 
 
             fi
-        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | sort -V )"
+        done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d | sed -e 's|^.*/||g' | grep -E '^[0-9]' | sort -V )"
 
     else
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (newer, ignoring, they have already been run)"

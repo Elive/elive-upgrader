@@ -97,7 +97,7 @@ disable_boot_services() {
         update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
     fi
     # Disable OpenRC service
-    if command -v rc-update &>/dev/null; then
+    if ((is_openrc)); then
         rc-update del elive-distro-upgrader 2>/dev/null || true
     fi
 }
@@ -114,7 +114,7 @@ suspend_non_systemd_gettys() {
             telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
         fi
         # For OpenRC: stop getty services
-        if command -v rc-service &>/dev/null; then
+        if ((is_openrc)); then
             for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
                 rc-service "$srv" stop 2>/dev/null || true
             done
@@ -135,7 +135,7 @@ restore_non_systemd_gettys() {
             telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
         fi
         # For OpenRC: start getty services
-        if command -v rc-service &>/dev/null; then
+        if ((is_openrc)); then
             for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
                 rc-service "$srv" start 2>/dev/null || true
             done
