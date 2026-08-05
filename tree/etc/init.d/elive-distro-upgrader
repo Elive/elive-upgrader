@@ -25,6 +25,10 @@ DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 BOOT_UPGRADER="/usr/lib/elive-upgrader/elive-boot-upgrader"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
 
+# Disable OpenRC start/stop timeouts for long-running upgrades
+rc_timeout=0
+export RC_TIMEOUT=0
+
 # Read configuration
 if [ -r "$DEFAULTS_FILE" ]; then
     . "$DEFAULTS_FILE"

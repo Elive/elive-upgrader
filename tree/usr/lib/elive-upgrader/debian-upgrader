@@ -2404,12 +2404,16 @@ EOF
         exit 1
     fi
 
-    # Enable the systemd service or sysvinit script so it actually runs on boot
-    # Try systemd first, then fall back to sysvinit - boot agnostic
+    # Enable the service for the active init system
     local init_configured=false
 
-    if command -v systemctl &>/dev/null; then
-        log_info "Enabling elive-distro-upgrader.service..."
+    # Ensure init script permissions are correct
+    if [[ -f /etc/init.d/elive-distro-upgrader ]]; then
+        chmod +x /etc/init.d/elive-distro-upgrader 2>/dev/null || true
+    fi
+
+    if ((is_systemd)) && command -v systemctl &>/dev/null; then
+        log_info "Enabling elive-distro-upgrader.service via systemd..."
         systemctl daemon-reload 2>/dev/null || true
         if systemctl enable elive-distro-upgrader.service 2>/dev/null; then
             init_configured=true
@@ -2419,27 +2423,26 @@ EOF
         fi
     fi
 
-    if command -v update-rc.d &>/dev/null; then
-        log_info "Enabling elive-distro-upgrader init script..."
-        chmod +x /etc/init.d/elive-distro-upgrader 2>/dev/null || true
-        # Remove any existing links first to avoid errors on re-enable
+    if ((is_openrc)); then
+        if [[ -f /etc/init.d/elive-distro-upgrader ]]; then
+            log_info "Enabling elive-distro-upgrader service via OpenRC..."
+            if rc-update add elive-distro-upgrader default >/dev/null 2>&1 || rc-update add elive-distro-upgrader boot >/dev/null 2>&1; then
+                init_configured=true
+                log_info "OpenRC service enabled successfully"
+            else
+                log_warning "Failed to enable OpenRC service"
+            fi
+        else
+            log_error "/etc/init.d/elive-distro-upgrader init script is missing!"
+        fi
+    elif ! ((is_systemd)) && command -v update-rc.d &>/dev/null; then
+        log_info "Enabling elive-distro-upgrader init script via SysVinit..."
         update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
         if update-rc.d elive-distro-upgrader defaults 2>/dev/null; then
             init_configured=true
             log_info "sysvinit script enabled successfully"
         else
             log_warning "Failed to enable sysvinit script"
-        fi
-    fi
-
-    # Enable OpenRC service (Gentoo, Alpine, etc.)
-    if ((is_openrc)) && [[ -f /etc/init.d/elive-distro-upgrader ]]; then
-        log_info "Enabling elive-distro-upgrader service via OpenRC..."
-        if rc-update add elive-distro-upgrader default >/dev/null 2>&1; then
-            init_configured=true
-            log_info "OpenRC service enabled successfully"
-        else
-            log_warning "Failed to enable OpenRC service"
         fi
     fi
 
