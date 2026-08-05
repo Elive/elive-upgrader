@@ -6,6 +6,14 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
+# Detect init system for boot-agnostic behavior
+if [[ -d /run/systemd/system ]] || [[ "$(cat /proc/1/comm 2>/dev/null)" == "systemd" ]]; then
+    is_systemd=1
+else
+    is_systemd=0
+fi
+export is_systemd
+
 # Shared Debian version mapping
 declare -g -A DEBIAN_CODENAMES=(
     ["wheezy"]=7

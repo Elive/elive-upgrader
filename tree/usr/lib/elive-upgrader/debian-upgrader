@@ -2432,6 +2432,17 @@ EOF
         fi
     fi
 
+    # Enable OpenRC service (Gentoo, Alpine, etc.)
+    if command -v rc-update &>/dev/null && [[ -f /etc/init.d/elive-distro-upgrader ]]; then
+        log_info "Enabling elive-distro-upgrader service via OpenRC..."
+        if rc-update add elive-distro-upgrader default >/dev/null 2>&1; then
+            init_configured=true
+            log_info "OpenRC service enabled successfully"
+        else
+            log_warning "Failed to enable OpenRC service"
+        fi
+    fi
+
     if [[ "$init_configured" != "true" ]]; then
         log_error "Could not enable the upgrade service in any init system!"
         log_error "The upgrade will NOT run automatically on reboot."
@@ -2493,6 +2504,10 @@ disable_boot_upgrade() {
         if command -v update-rc.d &>/dev/null; then
             log_info "Disabling elive-distro-upgrader init script..."
             update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+        fi
+        if command -v rc-update &>/dev/null; then
+            log_info "Disabling elive-distro-upgrader via OpenRC..."
+            rc-update del elive-distro-upgrader 2>/dev/null || true
         fi
     ) &
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          elive-distro-upgrader
 # Required-Start:    $remote_fs $syslog $network
@@ -10,7 +10,15 @@
 #                    upgrade on boot, configured via /etc/default/elive-distro-upgrade.
 ### END INIT INFO
 
-. /lib/lsb/init-functions
+# Use LSB init functions if available (Debian/Ubuntu); provide minimal fallbacks otherwise
+if [ -r /lib/lsb/init-functions ]; then
+    . /lib/lsb/init-functions
+else
+    log_daemon_msg() { echo " * $*"; }
+    log_failure_msg() { echo " ! ERROR: $*" >&2; }
+    log_end_msg() { :; }
+    log_action_msg() { echo " * $*"; }
+fi
 
 DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 BOOT_UPGRADER="/usr/lib/elive-upgrader/elive-boot-upgrader"

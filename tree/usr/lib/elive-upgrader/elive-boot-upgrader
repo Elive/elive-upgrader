@@ -96,6 +96,10 @@ disable_boot_services() {
     if command -v update-rc.d &>/dev/null; then
         update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
     fi
+    # Disable OpenRC service
+    if command -v rc-update &>/dev/null; then
+        rc-update del elive-distro-upgrader 2>/dev/null || true
+    fi
 }
 
 # Suspend TTY logins on non-systemd systems
