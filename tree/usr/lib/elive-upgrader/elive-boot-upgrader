@@ -102,10 +102,36 @@ disable_boot_services() {
     fi
 }
 
-# Suspend TTY logins on non-systemd systems
+# Suspend TTY logins and display managers on non-systemd systems
 suspend_non_systemd_gettys() {
     if [ ! -d /run/systemd/system ]; then
-        echo "Non-systemd system detected. Suspending TTY logins..."
+        echo "Non-systemd system detected. Suspending TTY logins and display managers..."
+
+        # Stop display managers to ensure upgrade runs in console mode without GUI intervention
+        local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
+        if ((is_openrc)); then
+            for dm in $dm_list; do
+                if rc-service "$dm" status >/dev/null 2>&1; then
+                    echo "Stopping OpenRC display manager: $dm"
+                    rc-service "$dm" stop 2>/dev/null || true
+                fi
+            done
+            for srv in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
+                rc-service "$srv" stop 2>/dev/null || true
+            done
+        elif command -v service &>/dev/null; then
+            for dm in $dm_list; do
+                service "$dm" stop 2>/dev/null || true
+            done
+        elif command -v invoke-rc.d &>/dev/null; then
+            for dm in $dm_list; do
+                invoke-rc.d "$dm" stop 2>/dev/null || true
+            done
+        fi
+
+        # Kill any remaining display manager or X server processes
+        pkill -f "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|Xorg|Xwayland" 2>/dev/null || true
+
         # For SysVinit: comment out getty lines in /etc/inittab
         if [ -f /etc/inittab ]; then
             cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
@@ -122,10 +148,10 @@ suspend_non_systemd_gettys() {
     fi
 }
 
-# Restore TTY logins on non-systemd systems
+# Restore TTY logins and display managers on non-systemd systems
 restore_non_systemd_gettys() {
     if [ ! -d /run/systemd/system ]; then
-        echo "Restoring TTY logins..."
+        echo "Restoring TTY logins and display managers..."
         # For SysVinit: restore getty lines in /etc/inittab
         if [ -f /etc/inittab.bak-upgrader ]; then
             mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
@@ -134,10 +160,17 @@ restore_non_systemd_gettys() {
             sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
             telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
         fi
-        # For OpenRC: start getty services
+        # For OpenRC: start getty services and display manager
         if ((is_openrc)); then
             for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
                 rc-service "$srv" start 2>/dev/null || true
+            done
+            local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
+            for dm in $dm_list; do
+                if [ -x "/etc/init.d/$dm" ]; then
+                    rc-service "$dm" start 2>/dev/null || true
+                    break
+                fi
             done
         fi
     fi

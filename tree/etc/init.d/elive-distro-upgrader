@@ -5,6 +5,7 @@
 # Required-Stop:     $remote_fs $syslog
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
+# X-Start-Before:    $x-display-manager lightdm gdm gdm3 sddm xdm slim nodm display-manager
 # Short-Description: Perform Debian distribution upgrade on boot
 # Description:       This script performs a one-time Debian distribution
 #                    upgrade on boot, configured via /etc/default/elive-distro-upgrade.
@@ -29,6 +30,12 @@ if [ -r "$DEFAULTS_FILE" ]; then
     . "$DEFAULTS_FILE"
 fi
 
+depend() {
+    need localmount
+    after bootmisc
+    before xdm lightdm gdm gdm3 sddm slim nodm display-manager
+}
+
 UPGRADE_ENABLED="${UPGRADE_ENABLED:-no}"
 UPGRADE_IN_PROGRESS="${UPGRADE_IN_PROGRESS:-no}"
 TARGET_CODENAME="${TARGET_CODENAME:-}"
@@ -36,6 +43,10 @@ REBOOT_COUNT="${REBOOT_COUNT:-0}"
 CURRENT_STEP="${CURRENT_STEP:-}"
 
 case "$1" in
+    depend)
+        depend
+        ;;
+
     start)
         log_daemon_msg "Starting Debian distribution upgrade" "elive-distro-upgrader"
 
