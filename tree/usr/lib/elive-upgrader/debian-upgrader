@@ -206,14 +206,19 @@ enable_automatic_clean() {
 
 # Function to retrieve nvidia-privative version from /etc/elive-version
 get_nvidia_version() {
+    local buf
     if [[ -f /etc/elive-version ]]; then
-        awk -F': ' '/^nvidia-privative: /{print $2}' /etc/elive-version 2>/dev/null || true
+        buf="$( awk -F': ' '/^nvidia-privative: /{print $2}' /etc/elive-version 2>/dev/null || true )"
     fi
-}
+    if [[ -z "$buf" ]] ; then
+        if nvidia-privative-drivers-install -t &>/dev/null; then
+            buf="$( dpkg -l | awk '/^ii  nvidia-.*-driver/ {print $2}' | sed -E 's/^nvidia-(.*-)?driver$/\1/; s/-$//; s/^$/current/' | head -n 1 )"
+            [[ -z "$buf" ]] && buf="current"
+        fi
+    fi
 
-# Global variables for NVIDIA DKMS protection during kernel installation
-NVIDIA_DKMS_PROTECT=""
-NVIDIA_DKMS_ON_KERNEL_INSTALL_FAILED=""
+    [[ -n "$buf" ]] && echo "$buf"
+}
 
 # Background loop to periodically print warning messages
 start_warning_loop() {
@@ -1216,25 +1221,20 @@ safe_apt_run() {
 
                 # If we found a specific DKMS package that failed
                 if [[ -n "$dkms_failure_package" ]]; then
-                    # Check if we need to protect NVIDIA DKMS from removal
-                    if [[ -n "$NVIDIA_DKMS_PROTECT" ]] && echo "$dkms_failure_package" | grep -qi "nvidia"; then
-                        log_info "NVIDIA DKMS package detected, will not remove. Marking failure."
-                        NVIDIA_DKMS_ON_KERNEL_INSTALL_FAILED="true"
-                    else
-                        log_warning "DKMS compilation failure detected for package: $dkms_failure_package"
-                        log_warning "This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue."
-                        log_warning "You can reinstall it after the upgrade completes if needed."
+                    log_warning "DKMS compilation failure detected for package: $dkms_failure_package"
+                    log_warning "This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue."
+                    log_warning "You can reinstall it after the upgrade completes if needed."
+                    sleep 8
 
-                        # Remove the problematic DKMS package
-                        local dkms_packages
-                        dkms_packages=$(dpkg-query -W -f='${Package}\n' "*${dkms_failure_package}*" 2>/dev/null | grep -i dkms || true)
-                        if [[ -z "$dkms_packages" ]]; then
-                            dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
-                        fi
-                        if [[ -n "$dkms_packages" ]]; then
-                            log_info "Removing conflicting DKMS packages: $dkms_packages"
-                            apt-get remove --purge -y $dkms_packages 2>/dev/null || true
-                        fi
+                    # Remove the problematic DKMS package
+                    local dkms_packages
+                    dkms_packages=$(dpkg-query -W -f='${Package}\n' "*${dkms_failure_package}*" 2>/dev/null | grep -i dkms || true)
+                    if [[ -z "$dkms_packages" ]]; then
+                        dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
+                    fi
+                    if [[ -n "$dkms_packages" ]]; then
+                        log_info "Removing conflicting DKMS packages: $dkms_packages"
+                        apt-get remove --purge -y $dkms_packages 2>/dev/null || true
                     fi
                 else
                     # No specific package found - try to find all DKMS packages and check build logs
@@ -1779,6 +1779,25 @@ perform_upgrade() {
     # Ensure we start with a repaired state
     repair_apt
 
+    # Detect if NVIDIA drivers are currently installed and working
+    local nvidia_was_installed=false
+    local nvidia_version=""
+
+    if command -v nvidia-privative-drivers-install &>/dev/null; then
+        if nvidia-privative-drivers-install -t &>/dev/null; then
+            nvidia_was_installed=true
+            if command -v get_nvidia_version &>/dev/null; then
+                nvidia_version=$(get_nvidia_version)
+            fi
+            draw_banner "NVIDIA DRIVERS DETECTED WORKING (Version: ${nvidia_version:-current})" "$MAGENTA"
+        else
+            log_info "No working NVIDIA drivers detected by test (-t)."
+        fi
+
+        log_info "Always removing NVIDIA drivers before system upgrade..."
+        nvidia-privative-drivers-install -q -u || nvidia-privative-drivers-install -u || true
+    fi
+
     # Update package lists (offline fallback if no internet, using local cache)
     safe_apt_run apt-get update || log_warning "Failed to update package lists, proceeding with cached lists for offline upgrade."
 
@@ -1854,53 +1873,8 @@ perform_upgrade() {
 
     kill "$dkms_monitor_pid" 2>/dev/null || true
 
-    # Track whether NVIDIA driver was successfully installed before any new kernel
-    local nvidia_initial_install_success=false
-    local nvidia_version=""
-    if command -v get_nvidia_version &>/dev/null; then
-        nvidia_version=$(get_nvidia_version)
-    fi
-    if [[ -n "$nvidia_version" ]]; then
-        draw_banner "NVIDIA PROPRIETARY DRIVERS DETECTED: Version $nvidia_version" "$MAGENTA"
-        log_info "NVIDIA proprietary drivers (version $nvidia_version) will be installed now."
-        sleep 10
-
-        # Cleanup previous state
-        nvidia-privative-drivers-install -s -f -a -q -u || true
-
-        if nvidia-privative-drivers-install -s -f -a -q ; then
-            nvidia_initial_install_success=true
-            log_info "NVIDIA driver version $nvidia_version installed successfully."
-        else
-            log_warning "Auto-install of nvidia driver version $nvidia_version failed. Trying with explicit model."
-            sleep 2
-            if nvidia-privative-drivers-install -s -f -a -q -m "$nvidia_version" ; then
-                nvidia_initial_install_success=true
-                log_info "NVIDIA driver version $nvidia_version installed successfully (explicit model)."
-            else
-                log_warning "Failed to install nvidia driver version $nvidia_version even with explicit model."
-                log_warning "Will skip NVIDIA driver installation and not protect it during kernel installation."
-                # reset nvidia_version to indicate we shouldn't protect later
-                nvidia_version=""
-            fi
-        fi
-    else
-        log_info "No NVIDIA proprietary driver configuration found in /etc/elive-version."
-    fi
-
     # Install latest kernel and headers metapackages if not present and space permits
     if [[ "$can_install_new_kernel" == "true" ]]; then
-        # Record currently installed kernel-image and header packages before installing new meta
-        local kernel_pkgs_before
-        kernel_pkgs_before=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | sort)
-        local header_pkgs_before
-        header_pkgs_before=$(dpkg-query -W -f='${Package}\n' 'linux-headers-[0-9]*' 2>/dev/null | sort)
-
-        # If NVIDIA driver was installed, protect it from DKMS removal during kernel install
-        if [[ "$nvidia_initial_install_success" == "true" ]]; then
-            NVIDIA_DKMS_PROTECT="1"
-        fi
-
         if ! dpkg -l 'linux-image*' | grep -q '^ii.*meta'; then
             arch=$(dpkg --print-architecture)
             case $arch in
@@ -1939,49 +1913,29 @@ perform_upgrade() {
                 safe_apt_run apt-get install -y $pkgs_to_install
             fi
         fi
-
-        # After kernel installation, check if a NVIDIA DKMS failure occurred
-        if [[ "$NVIDIA_DKMS_ON_KERNEL_INSTALL_FAILED" == "true" ]]; then
-            log_warning "NVIDIA DKMS compilation failure detected during kernel installation. Removing newly installed kernel packages to keep driver functional."
-
-            # Determine which new kernel packages were installed (if any)
-            local kernel_pkgs_after
-            kernel_pkgs_after=$(dpkg-query -W -f='${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | sort)
-            local header_pkgs_after
-            header_pkgs_after=$(dpkg-query -W -f='${Package}\n' 'linux-headers-[0-9]*' 2>/dev/null | sort)
-            local new_kernel_pkgs
-            new_kernel_pkgs=$(diff <(echo "$kernel_pkgs_before") <(echo "$kernel_pkgs_after") 2>/dev/null | grep '^>' | sed 's/^> //') || true
-            local new_header_pkgs
-            new_header_pkgs=$(diff <(echo "$header_pkgs_before") <(echo "$header_pkgs_after") 2>/dev/null | grep '^>' | sed 's/^> //') || true
-
-            # Also include any meta packages that were just installed (if any)
-            if [[ -n "$pkgs_to_install" ]]; then
-                for meta_pkg in $pkgs_to_install; do
-                    if dpkg-query -W -f='${Package}\n' "$meta_pkg" 2>/dev/null | grep -q "$meta_pkg"; then
-                        new_kernel_pkgs="$new_kernel_pkgs $meta_pkg"
-                    fi
-                done
-            fi
-
-            # Remove new kernel packages
-            for pkg in $new_kernel_pkgs $new_header_pkgs; do
-                log_info "Removing package: $pkg"
-                apt-get remove --purge -y "$pkg" || true
-            done
-            # Hold metapackages to prevent future automatic updates
-            for meta_pkg in $pkgs_to_install; do
-                if dpkg-query -W -f='${Package}\n' "$meta_pkg" 2>/dev/null | grep -q "$meta_pkg"; then
-                    apt-mark hold "$meta_pkg"
-                fi
-            done
-            log_warning "New kernel packages removed. NVIDIA driver will remain functional."
-        fi
-
-        # Reset protection variables for safety
-        NVIDIA_DKMS_PROTECT=""
-        NVIDIA_DKMS_ON_KERNEL_INSTALL_FAILED=""
     else
         set_progress 80 "Skipping kernel and headers metapackages installation/upgrade due to low space in /boot."
+    fi
+
+    # Re-install NVIDIA drivers if they were installed and working prior to upgrade
+    if [[ "$nvidia_was_installed" == "true" ]]; then
+        draw_banner "RE-INSTALLING NVIDIA PROPRIETARY DRIVERS" "$MAGENTA"
+        log_info "Re-installing NVIDIA proprietary drivers after system and kernel upgrade..."
+        if [[ -n "$nvidia_version" ]]; then
+            log_info "Attempting re-install with explicit model: $nvidia_version"
+            if ! nvidia-privative-drivers-install -s -f -a -q -m "$nvidia_version"; then
+                log_warning "Failed to re-install NVIDIA driver version $nvidia_version with explicit model. Trying auto-install..."
+                nvidia-privative-drivers-install -s -f -a -q || log_warning "Failed to re-install NVIDIA drivers."
+            else
+                log_info "NVIDIA driver version $nvidia_version re-installed successfully."
+            fi
+        else
+            if nvidia-privative-drivers-install -s -f -a -q; then
+                log_info "NVIDIA driver re-installed successfully."
+            else
+                log_warning "Failed to re-install NVIDIA drivers."
+            fi
+        fi
     fi
 
     set_progress 85 "Rebuilding initramfs for all kernels (building modules, please wait)..."
