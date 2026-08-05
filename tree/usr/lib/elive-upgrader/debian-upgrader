@@ -2056,41 +2056,39 @@ run_pre_hooks() {
         hooks_base="/usr/lib/elive-upgrader/hooks"
     fi
 
-    if [[ -d "$hooks_base" ]]; then
-        for version_dir in "$hooks_base"/*; do
-            if [[ -d "$version_dir" ]] && [[ -f "$version_dir/root/debian-upgrade" ]]; then
-                # Cache the entire active hook version directory to var/cache
-                local cache_dir="/var/cache/elive-upgrader/active-distro-upgrade-hook"
-                mkdir -p "$cache_dir" 2>/dev/null || true
-                cp -a "$version_dir"/* "$cache_dir/" 2>/dev/null || true
+    if [[ -d "$hooks_base/distro-upgrade" ]] && [[ -f "$hooks_base/distro-upgrade/debian-upgrade" ]]; then
+        # Cache the entire distro-upgrade directory to var/cache
+        local cache_dir="/var/cache/elive-upgrader/active-distro-upgrade-hook"
+        mkdir -p "$cache_dir" 2>/dev/null || true
+        rm -rf "$cache_dir" 2>/dev/null || true
+        mkdir -p "$cache_dir" 2>/dev/null || true
+        cp -a "$hooks_base/distro-upgrade/." "$cache_dir/" 2>/dev/null || true
 
-                # Save the path of the remove-if-not-before hook pointing to the cached location
-                if [[ -f "$cache_dir/root/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
-                    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
-                    echo "$cache_dir/root/debian-upgrade-packages-to-remove-if-not-before.txt" > /var/cache/elive-upgrader/pending-remove-if-not-before.txt
-                fi
+        # Save the path of the remove-if-not-before hook pointing to the cached location
+        if [[ -f "$cache_dir/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
+            mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+            echo "$cache_dir/debian-upgrade-packages-to-remove-if-not-before.txt" > /var/cache/elive-upgrader/pending-remove-if-not-before.txt
+        fi
 
-                local hook_dir="$version_dir/root"
-                # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
-                if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
-                    local pkgs
-                    local raw_pkgs
-                    raw_pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-remove.txt" | grep -v "^#" | tr '\n' ' ')
-                    pkgs=$(filter_installed_packages "$raw_pkgs")
-                    if [[ -n "$pkgs" ]]; then
-                        log_info "Removing blocking packages: $pkgs"
-                        safe_apt_run apt-get remove --purge -y $pkgs || true
-                    else
-                        log_info "No blocking packages need to be removed (none are installed)."
-                    fi
-                fi
-                # 2. Run pre-upgrade script
-                if [[ -x "$hook_dir/debian-upgrade-pre-script.sh" ]]; then
-                    log_info "Running pre-upgrade script: $hook_dir/debian-upgrade-pre-script.sh"
-                    "$hook_dir/debian-upgrade-pre-script.sh" || true
-                fi
+        local hook_dir="$hooks_base/distro-upgrade"
+        # 1. Remove packages specified in debian-upgrade-packages-to-remove.txt
+        if [[ -f "$hook_dir/debian-upgrade-packages-to-remove.txt" ]]; then
+            local pkgs
+            local raw_pkgs
+            raw_pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-remove.txt" | grep -v "^#" | tr '\n' ' ')
+            pkgs=$(filter_installed_packages "$raw_pkgs")
+            if [[ -n "$pkgs" ]]; then
+                log_info "Removing blocking packages: $pkgs"
+                safe_apt_run apt-get remove --purge -y $pkgs || true
+            else
+                log_info "No blocking packages need to be removed (none are installed)."
             fi
-        done
+        fi
+        # 2. Run pre-upgrade script
+        if [[ -x "$hook_dir/debian-upgrade-pre-script.sh" ]]; then
+            log_info "Running pre-upgrade script: $hook_dir/debian-upgrade-pre-script.sh"
+            "$hook_dir/debian-upgrade-pre-script.sh" || true
+        fi
     fi
 
     case "$codename" in
@@ -2125,6 +2123,8 @@ run_post_hooks() {
         # Use the cached hook directories
         if [[ -d "$cache_dir/root" ]]; then
             hook_dirs+=("$cache_dir/root")
+        else
+            hook_dirs+=("$cache_dir")
         fi
         if [[ -d "$cache_dir/user" ]]; then
             hook_dirs+=("$cache_dir/user")
@@ -2137,12 +2137,15 @@ run_post_hooks() {
             hooks_base="/usr/lib/elive-upgrader/hooks"
         fi
 
-        if [[ -d "$hooks_base" ]]; then
-            for d in "$hooks_base"/*/{root,user}; do
-                if [[ -d "$d" ]]; then
-                    hook_dirs+=("$d")
-                fi
-            done
+        if [[ -d "$hooks_base/distro-upgrade" ]]; then
+            if [[ -d "$hooks_base/distro-upgrade/root" ]]; then
+                hook_dirs+=("$hooks_base/distro-upgrade/root")
+            else
+                hook_dirs+=("$hooks_base/distro-upgrade")
+            fi
+            if [[ -d "$hooks_base/distro-upgrade/user" ]]; then
+                hook_dirs+=("$hooks_base/distro-upgrade/user")
+            fi
         fi
     fi
 

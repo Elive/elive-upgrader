@@ -116,55 +116,33 @@ if [[ ! -d "$hooks_d" ]]; then
 fi
 
 has_pending_distro_upgrade_hook() {
-    local conf_ver version file upgrade_type
-    el_config_get
-    conf_ver="${conf_version_upgrader:-}"
-    if [[ -z "$conf_ver" ]] ; then
-        conf_ver="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-fixes:" | awk '{print $2}' )"
-        read -r conf_ver <<< "$conf_ver"
-    fi
-    if [[ -z "$conf_ver" ]] ; then
-        conf_ver="$( cat "/etc/elive-version" 2>/dev/null | grep "elive-version:" | awk '{print $2}' )"
-        read -r conf_ver <<< "$conf_ver"
-    fi
-    el_debug "has_pending_distro_upgrade_hook: conf_ver=${conf_ver}"
-    [[ -z "$conf_ver" ]] && return 1
+    local file upgrade_type
+    file="${hooks_d}/distro-upgrade/debian-upgrade"
+    [[ -f "$file" ]] || return 1
 
-    while read -ru 3 version
-    do
-        [[ -z "$version" ]] && continue
-        el_debug "has_pending_distro_upgrade_hook: checking version ${version} against ${conf_ver}"
-        if LC_ALL=C dpkg --compare-versions "$version" "gt" "$conf_ver" ; then
-            for file in "${hooks_d}/${version}/root/debian-upgrade"; do
-                el_debug "has_pending_distro_upgrade_hook: checking file ${file}"
-                if [[ -f "$file" ]]; then
-                    upgrade_type=$(tr -d '\r\n ' < "$file")
-                    el_debug "has_pending_distro_upgrade_hook: upgrade_type=${upgrade_type}, is_betatester=${is_betatester}, is_premium_user=${is_premium_user}"
-                    if [[ -z "$upgrade_type" ]]; then
-                        el_warning "debian-upgrade file is empty: $file"
-                    fi
-                    case "$upgrade_type" in
-                        alpha)
-                            if [[ "${is_betatester:-0}" -eq 1 ]] ; then
-                                el_debug "has_pending_distro_upgrade_hook: matched alpha"
-                                return 0
-                            fi
-                            ;;
-                        beta)
-                            if [[ "${is_premium_user:-0}" -eq 1 ]] ; then
-                                el_debug "has_pending_distro_upgrade_hook: matched beta"
-                                return 0
-                            fi
-                            ;;
-                        stable)
-                            el_debug "has_pending_distro_upgrade_hook: matched stable"
-                            return 0
-                            ;;
-                    esac
-                fi
-            done
-        fi
-    done 3<<< "$( find "${hooks_d}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed -e 's|^.*/||g' | sort -V )"
+    upgrade_type=$(tr -d '\r\n ' < "$file")
+    el_debug "has_pending_distro_upgrade_hook: upgrade_type=${upgrade_type}, is_betatester=${is_betatester}, is_premium_user=${is_premium_user}"
+    if [[ -z "$upgrade_type" ]]; then
+        el_warning "debian-upgrade file is empty: $file"
+    fi
+    case "$upgrade_type" in
+        alpha)
+            if [[ "${is_betatester:-0}" -eq 1 ]] ; then
+                el_debug "has_pending_distro_upgrade_hook: matched alpha"
+                return 0
+            fi
+            ;;
+        beta)
+            if [[ "${is_premium_user:-0}" -eq 1 ]] ; then
+                el_debug "has_pending_distro_upgrade_hook: matched beta"
+                return 0
+            fi
+            ;;
+        stable)
+            el_debug "has_pending_distro_upgrade_hook: matched stable"
+            return 0
+            ;;
+    esac
     return 1
 }
 
@@ -737,6 +715,19 @@ run_hooks(){
         fi
     fi
 
+    # Process any central distro-upgrade marker independent of versioned hook dirs
+    local distro_upgrade_file="${hooks_d}/distro-upgrade/debian-upgrade"
+    if [[ "$mode" = "root" && "$prepost" = "pre" && -f "$distro_upgrade_file" ]]; then
+        local upgrade_type
+        upgrade_type=$(tr -d '\r\n ' < "$distro_upgrade_file")
+        if [[ -z "$upgrade_type" ]]; then
+            el_warning "debian-upgrade file is empty: $distro_upgrade_file"
+        fi
+        check_for_new_elive_version "$upgrade_type" "$is_betatester"
+        debian_upgrade_choice=$?
+        debian_upgrade_hook_run=1
+    fi
+
     # changes found
     if [[ -n "$version_last_hook" ]] && LC_ALL=C dpkg --compare-versions "$version_last_hook" "gt" "$conf_version_upgrader" ; then
         el_debug "version upgrader was $conf_version_upgrader and newest hook is $version_last_hook (older, so running hooks)"
@@ -762,15 +753,9 @@ run_hooks(){
 
                     case "$file" in
                         */debian-upgrade)
-                            if [[ "$mode" = "user" ]] ; then
-                                el_warning "debian-upgrade hook found in user directory: $file. This hook must be placed in the root directory instead!"
-                            elif [[ "$prepost" = "pre" ]] ; then
-                                local upgrade_type
-                                upgrade_type=$(cat "$file")
-                                check_for_new_elive_version "$upgrade_type" "$is_betatester"
-                                debian_upgrade_choice=$?
-                                debian_upgrade_hook_run=1
-                            fi
+                            # Distro upgrade handling is now performed via the central
+                            # ${hooks_d}/distro-upgrade/debian-upgrade file.
+                            # Ignore legacy versioned debian-upgrade files.
                             ;;
                         */pre-*.sh)
                             # run script
@@ -919,7 +904,7 @@ run_hooks(){
                     local should_update_version=1
                     # If a debian-upgrade hook exists for this version, do NOT update the version yet
                     # because it requires user GUI interaction and the actual upgrade hasn't completed.
-                    if [[ -f "${hooks_d}/${version}/root/debian-upgrade" ]] ; then
+                    if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]] ; then
                         should_update_version=0
                     fi
 
