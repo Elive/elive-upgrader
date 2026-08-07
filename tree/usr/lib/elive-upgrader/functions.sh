@@ -53,6 +53,10 @@ debian_version_to_codename() {
 }
 
 # Non-interactive environment variables to prevent prompts and freezes
+# Ensure English locale for consistent parsing of apt output
+if [[ -z "${EL_LC_EN:-}" ]]; then
+    export EL_LC_EN="C"
+fi
 export DEBIAN_FRONTEND=noninteractive
 export DEBIAN_PRIORITY=critical
 export DEBCONF_NONINTERACTIVE_SEEN=true
