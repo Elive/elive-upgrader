@@ -1804,6 +1804,45 @@ check_disk_space() {
         # apt-get clean 2>/dev/null || true
     }
 
+    handle_insufficient_space() {
+        local partition="$1"
+        local req_mb="$2"
+        local free_mb="$3"
+        local msg="Insufficient space in ${partition}. Required: ${req_mb} MB, Free: ${free_mb} MB"
+        log_error "$msg"
+
+        # Setup recovery notification and record failure log
+        mkdir -p /var/log/elive-upgrader 2>/dev/null || true
+        echo "$msg" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        chmod 666 /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        create_recovery_notification
+
+        # Restore APT sources to original and clean upgrade state
+        restore_sources_on_cancel
+        upgrade_state_clear
+
+        if command -v systemctl &>/dev/null; then
+            systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+        fi
+        if command -v update-rc.d &>/dev/null; then
+            update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+        fi
+        if ((is_openrc)); then
+            rc-update del elive-distro-upgrader 2>/dev/null || true
+        fi
+
+        log_info "Rebooting in 60 seconds due to insufficient space..."
+        for ((i=60; i>0; i--)); do
+            if (( i % 10 == 0 || i <= 5 )); then
+                log_info "Rebooting in $i seconds..."
+            fi
+            sleep 1
+        done
+        trigger_reboot
+        exit 1
+    }
+
     if [[ "$var_on_separate" == "true" ]]; then
         # /var needs enough space for the download + small safety margin (100MB)
         local required_var_kb=$(( download_kb + 102400 ))
@@ -1812,8 +1851,7 @@ check_disk_space() {
             attempt_space_cleanup
             var_space_free=$(df /var | awk 'NR==2 {print $4}')
             if (( var_space_free < required_var_kb )); then
-                log_error "Insufficient space in /var. Required: $(( required_var_kb / 1024 )) MB, Free: $(( var_space_free / 1024 )) MB"
-                exit 1
+                handle_insufficient_space "/var" "$(( required_var_kb / 1024 ))" "$(( var_space_free / 1024 ))"
             fi
         fi
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
@@ -1821,8 +1859,7 @@ check_disk_space() {
             attempt_space_cleanup
             root_space_free=$(df / | awk 'NR==2 {print $4}')
             if (( root_space_free < required_root_kb )); then
-                log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
-                exit 1
+                handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
             fi
         fi
     else
@@ -1832,8 +1869,7 @@ check_disk_space() {
             attempt_space_cleanup
             root_space_free=$(df / | awk 'NR==2 {print $4}')
             if (( root_space_free < required_root_kb )); then
-                log_error "Insufficient space in /. Required: $(( required_root_kb / 1024 )) MB, Free: $(( root_space_free / 1024 )) MB"
-                exit 1
+                handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
             fi
         fi
     fi
