@@ -678,29 +678,23 @@ RECOVERY_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 CLEANUP_FLAG="/var/cache/elive-upgrader/cleanup-backups-pending"
 
-# Always clean up old backups when this script runs (user has reached graphical session)
-if [[ -f "$CLEANUP_FLAG" ]]; then
-    echo "Cleaning up old upgrade backup directories..."
-    find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
-    find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
+# Function to clean up old backups in the background
+do_backup_cleanup() {
+    if [[ -f "$CLEANUP_FLAG" ]]; then
+        echo "Cleaning up old upgrade backup directories..."
+        find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
+        find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
 
-    # Also remove the full OS backup directory if it exists
-    if [[ -d "/var/cache/elive-upgrader/full-os-backup" ]]; then
-        echo "Removing full OS backup directory..."
-        rm -rf "/var/cache/elive-upgrader/full-os-backup"
-        echo "Full OS backup directory removed."
+        if [[ -d "/var/cache/elive-upgrader/full-os-backup" ]]; then
+            echo "Removing full OS backup directory..."
+            rm -rf "/var/cache/elive-upgrader/full-os-backup"
+            echo "Full OS backup directory removed."
+        fi
+
+        rm -f "$CLEANUP_FLAG"
+        echo "Old backup directories cleaned up."
     fi
-
-    rm -f "$CLEANUP_FLAG"
-    echo "Old backup directories cleaned up."
-fi
-
-if [[ ! -f "$RECOVERY_FLAG" ]]; then
-    # No recovery needed, remove autostart entry and exit
-    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    exit 0
-fi
+}
 
 # Only run if we have a display (graphical session)
 if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
@@ -709,16 +703,21 @@ fi
 
 # Show a success notification if the upgrade was completed
 show_success_notification() {
+    local target_cn=""
+    if [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
+        target_cn=$(cat "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true)
+    fi
+
     local title="Elive System Upgrade Complete"
-    local message="Your Elive system has been successfully upgraded to Debian ${TARGET_CODENAME}.\n\nYou can now use your system normally."
+    local message="Congratulations! Your Elive system has been successfully upgraded to Debian ${target_cn:-system}.\n\nLogs of the upgrade process are saved in:\n/var/log/ (e.g., /var/log/debian-upgrade-*.log)\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files."
 
     if command -v zenity &>/dev/null; then
-        zenity --info --title="$title" --text="$message" --width=400 2>/dev/null
+        zenity --info --title="$title" --text="$message" --width=520 2>/dev/null
         return
     fi
 
     if command -v yad &>/dev/null; then
-        yad --info --title="$title" --text="$message" --width=400 2>/dev/null
+        yad --info --title="$title" --text="$message" --width=520 2>/dev/null
         return
     fi
 
@@ -739,14 +738,20 @@ show_success_notification() {
 if [[ ! -f "$RECOVERY_FLAG" ]] && [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
     show_success_notification
     rm -f "/var/cache/elive-upgrader/notify-upgrade-complete"
-    # Remove the autostart entry since we've shown the notification
     rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
     rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    # Clean up backups asynchronously in the background so desktop startup is not delayed
+    ( do_backup_cleanup ) &
     exit 0
 fi
 
-# Wait a moment for desktop to fully load
-sleep 5
+if [[ ! -f "$RECOVERY_FLAG" ]]; then
+    # No recovery needed, remove autostart entry and exit
+    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    ( do_backup_cleanup ) &
+    exit 0
+fi
 
 # Determine which dialog tool to use
 show_notification() {
@@ -2091,6 +2096,60 @@ verify_upgrade() {
     fi
 }
 
+sanitize_upgrade_logs() {
+    log_info "Sanitizing upgrade logs to remove private user information..."
+
+    local log_files=()
+    while IFS= read -r f; do
+        [[ -f "$f" ]] && log_files+=("$f")
+    done < <(find /var/log /root/upgrade-logs /root -maxdepth 2 -type f -name 'debian-upgrade-*.log' 2>/dev/null || true)
+
+    if [[ ${#log_files[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    # Collect usernames to sanitize
+    local users=()
+    for u_dir in /home/*; do
+        if [[ -d "$u_dir" ]]; then
+            local u_name
+            u_name=$(basename "$u_dir")
+            [[ -n "$u_name" && "$u_name" != "*" ]] && users+=("$u_name")
+        fi
+    done
+    [[ -n "${SUDO_USER:-}" ]] && users+=("$SUDO_USER")
+    [[ -n "${USER:-}" ]] && users+=("$USER")
+    [[ -n "${LOGNAME:-}" ]] && users+=("$LOGNAME")
+
+    # Collect hostname
+    local host_name
+    host_name=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || true)
+
+    for log_f in "${log_files[@]}"; do
+        chmod 644 "$log_f" 2>/dev/null || true
+
+        # Replace user home directories and usernames
+        for u in "${users[@]}"; do
+            [[ -z "$u" || "$u" == "root" ]] && continue
+            sed -i "s|/home/${u}|/home/user|g" "$log_f" 2>/dev/null || true
+            sed -i -E "s/\b${u}\b/user/g" "$log_f" 2>/dev/null || true
+        done
+
+        # Replace custom hostname
+        if [[ -n "$host_name" && "$host_name" != "localhost" && "$host_name" != "elive" ]]; then
+            sed -i -E "s/\b${host_name}\b/elive-host/g" "$log_f" 2>/dev/null || true
+        fi
+
+        # Replace IPv4 addresses
+        sed -i -E 's/\b(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/x.x.x.x/g' "$log_f" 2>/dev/null || true
+
+        # Replace MAC addresses
+        sed -i -E 's/\b([0-9a-Fa-f]{2}[:-]){5}([0-9a-Fa-f]{2})\b/xx:xx:xx:xx:xx:xx/g' "$log_f" 2>/dev/null || true
+    done
+
+    log_info "Upgrade logs sanitized successfully."
+}
+
 reconfigure_setcap_packages() {
     log_info "Reconfiguring packages with setcap capabilities..."
 
@@ -2986,6 +3045,7 @@ main_upgrade() {
     fi
 
     verify_upgrade
+    sanitize_upgrade_logs
     copy_log_to_root
     enable_automatic_clean
 
