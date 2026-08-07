@@ -13,17 +13,23 @@ fi
 el_make_environment
 
 # wrapper for fix strange languages
+#===  FUNCTION  ================================================================
+#          NAME:  locales_source
+#   DESCRIPTION:  Sources default locales and normalizes non-Latin locale settings
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
 locales_source(){
     if [[ -s "/etc/default/locale" ]] ; then
         source /etc/default/locale
     fi
-    # wrapper for fix strange languages
-    case "$LANG" in
+    case "${LANG}" in
         am*|ar*|bg*|bn*|el*|fa*|gu*|he*|hy*|hi*|iw*|ja*|ka*|kn*|ko*|ml*|mr*|ne*|pa*|ru*|sr*|ta*|te*|th*|uk*|vi*|zh*)
             export LC_ALL=en_US.UTF-8
             export LANG=en_US.UTF-8
             ;;
     esac
+    return 0
 }
 locales_source
 
@@ -157,71 +163,110 @@ MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
-# Helper to draw a beautiful visual banner
-draw_banner() {
-    local msg="$1"
-    local color="${2:-$CYAN}"
-    local len=${#msg}
-    local border=""
-    for ((i=0; i<len+4; i++)); do border="${border}="; done
+#===  FUNCTION  ================================================================
+#          NAME:  draw_banner
+#   DESCRIPTION:  Displays a formatted visual header banner in terminal/Plymouth
+#    PARAMETERS:  $1 = message_v, $2 = color_v
+#       RETURNS:  0
+#===============================================================================
+draw_banner(){
+    local message_v="${1}"
+    local color_v="${2:-${CYAN}}"
+    local len_v=${#message_v}
+    local border_v=""
+    local i_v=0
+
+    for ((i_v=0; i_v<len_v+4; i_v++)); do
+        border_v="${border_v}="
+    done
 
     stty sane 2>/dev/null || true
-    echo -e "${color}${border}${NC}"
-    echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}"
-    echo -e "${color}${border}${NC}"
-    if [[ "$BOOT_MODE" == "true" ]]; then
-        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+    echo -e "${color_v}${border_v}${NC}"
+    echo -e "${color_v}| ${BOLD}${message_v}${NC}${color_v} |${NC}"
+    echo -e "${color_v}${border_v}${NC}"
+
+    if [[ "${BOOT_MODE}" == "true" ]]; then
+        if [[ "${USE_PLYMOUTH}" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
-            plymouth message --text="*** $msg ***" 2>/dev/null || true
+            plymouth message --text="*** ${message_v} ***" 2>/dev/null || true
         fi
-        log_action_msg "=== $msg ==="
+        log_action_msg "=== ${message_v} ==="
     fi
+    return 0
 }
 
-disable_automatic_clean() {
+#===  FUNCTION  ================================================================
+#          NAME:  disable_automatic_clean
+#   DESCRIPTION:  Disables APT automatic package cleaning in apt.conf.d files
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+disable_automatic_clean(){
+    local conf_file_f=""
+
     log_info "Temporarily disabling automatic APT cleaning in all configuration files..."
-    for conf_file in /etc/apt/apt.conf.d/*; do
-        if [[ -f "$conf_file" ]]; then
-            # Comment out Clean always lines if they are not already commented
-            sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' "$conf_file" 2>/dev/null || true
+    for conf_file_f in /etc/apt/apt.conf.d/*; do
+        if [[ -f "${conf_file_f}" ]]; then
+            sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
         fi
     done
+    return 0
 }
 
-enable_automatic_clean() {
+#===  FUNCTION  ================================================================
+#          NAME:  enable_automatic_clean
+#   DESCRIPTION:  Re-enables APT automatic package cleaning in apt.conf.d files
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+enable_automatic_clean(){
+    local conf_file_f=""
+
     log_info "Re-enabling automatic APT cleaning in all configuration files..."
-    for conf_file in /etc/apt/apt.conf.d/*; do
-        if [[ -f "$conf_file" ]]; then
-            # Uncomment Clean always lines
-            sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "$conf_file" 2>/dev/null || true
-            sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "$conf_file" 2>/dev/null || true
+    for conf_file_f in /etc/apt/apt.conf.d/*; do
+        if [[ -f "${conf_file_f}" ]]; then
+            sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
         fi
     done
+    return 0
 }
 
-# Function to retrieve nvidia-privative version from /etc/elive-version
-get_nvidia_version() {
-    local buf
+#===  FUNCTION  ================================================================
+#          NAME:  get_nvidia_version
+#   DESCRIPTION:  Retrieves installed NVIDIA driver version from system config or dpkg
+#    PARAMETERS:  None
+#       RETURNS:  Prints NVIDIA driver version string if found
+#===============================================================================
+get_nvidia_version(){
+    local buffer_v=""
+
     if [[ -f /etc/elive-version ]]; then
-        buf="$( awk -F': ' '/^nvidia-privative: /{print $2}' /etc/elive-version 2>/dev/null || true )"
+        buffer_v="$(awk -F': ' '/^nvidia-privative: /{print $2}' /etc/elive-version 2>/dev/null || true)"
     fi
-    if [[ -z "$buf" ]] ; then
+    if [[ -z "${buffer_v}" ]]; then
         if nvidia-privative-drivers-install -t &>/dev/null; then
-            buf="$( dpkg -l | awk '/^ii  nvidia-.*-driver/ {print $2}' | sed -E 's/^nvidia-(.*-)?driver$/\1/; s/-$//; s/^$/current/' | head -n 1 )"
-            [[ -z "$buf" ]] && buf="current"
+            buffer_v="$(dpkg -l | awk '/^ii  nvidia-.*-driver/ {print $2}' | sed -E 's/^nvidia-(.*-)?driver$/\1/; s/-$//; s/^$/current/' | head -n 1)"
+            [[ -z "${buffer_v}" ]] && buffer_v="current"
         fi
     fi
 
-    [[ -n "$buf" ]] && echo "$buf"
+    [[ -n "${buffer_v}" ]] && echo "${buffer_v}"
+    return 0
 }
 
-# Background loop to periodically print warning messages
-start_warning_loop() {
+#===  FUNCTION  ================================================================
+#          NAME:  start_warning_loop
+#   DESCRIPTION:  Launches background warning loop printing progress notices every 5m
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+start_warning_loop(){
     (
         while true; do
             sleep 300
@@ -230,33 +275,50 @@ start_warning_loop() {
             echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" 2>/dev/null || true
             echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" 2>/dev/null || true
             echo -e "${YELLOW}${BOLD}======================================================================${NC}\n" 2>/dev/null || true
-
         done
     ) &
     WARNING_LOOP_PID=$!
+    return 0
 }
 
-stop_warning_loop() {
+#===  FUNCTION  ================================================================
+#          NAME:  stop_warning_loop
+#   DESCRIPTION:  Stops the background warning process loop
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+stop_warning_loop(){
     if [[ -n "${WARNING_LOOP_PID:-}" ]]; then
-        kill "$WARNING_LOOP_PID" 2>/dev/null || true
+        kill "${WARNING_LOOP_PID}" 2>/dev/null || true
         unset WARNING_LOOP_PID
     fi
+    return 0
 }
 
 # Logging setup
 LOG_DIR="/var/log/elive-upgrader"
 
-# Generate intuitive, human-understandable log filename with step and codename details
-get_log_filename() {
-    local step="${1:-boot}"
-    local timestamp=$(date +%Y%m%d-%H%M%S)
-    local from_cn="${current_codename:-$(cat /etc/debian_version 2>/dev/null | cut -d'.' -f1 || echo "unknown")}"
-    local target_cn="${TARGET_CODENAME:-unknown}"
+#===  FUNCTION  ================================================================
+#          NAME:  get_log_filename
+#   DESCRIPTION:  Generates structured log file path based on step and codenames
+#    PARAMETERS:  $1 = step_v
+#       RETURNS:  Prints formatted log file path string
+#===============================================================================
+get_log_filename(){
+    local step_v="${1:-boot}"
+    local timestamp_v=""
+    local from_cn_v=""
+    local target_cn_v=""
 
-    mkdir -p "$LOG_DIR" 2>/dev/null || true
-    chmod 755 "$LOG_DIR" 2>/dev/null || true
+    timestamp_v="$(date +%Y%m%d-%H%M%S)"
+    from_cn_v="${current_codename:-$(debian_version_to_codename "$(cat /etc/debian_version 2>/dev/null | cut -d'.' -f1)" 2>/dev/null)}"
+    from_cn_v="${from_cn_v:-unknown}"
+    target_cn_v="${TARGET_CODENAME:-unknown}"
 
-    echo "${LOG_DIR}/debian-upgrade-from-${from_cn}-to-${target_cn}-${step}-${timestamp}.log"
+    mkdir -p "${LOG_DIR}" 2>/dev/null || true
+    chmod 755 "${LOG_DIR}" 2>/dev/null || true
+
+    echo "${LOG_DIR}/debian-upgrade-from-${from_cn_v}-to-${target_cn_v}-${step_v}-${timestamp_v}.log"
 }
 
 # Determine current step for log naming
@@ -331,58 +393,66 @@ usage() {
 # Full OS Backup and Recovery Functions
 # ==============================================================================
 
-# Check if the root filesystem is BTRFS
-is_btrfs() {
-    local fs_type
-    fs_type=$(stat -f -c %T / 2>/dev/null || echo "unknown")
-    if [[ "$fs_type" == "btrfs" ]]; then
+#===  FUNCTION  ================================================================
+#          NAME:  is_btrfs
+#   DESCRIPTION:  Checks whether root filesystem type is BTRFS
+#    PARAMETERS:  None
+#       RETURNS:  0 if btrfs, 1 otherwise
+#===============================================================================
+is_btrfs(){
+    local fs_type_v=""
+    fs_type_v="$(stat -f -c %T / 2>/dev/null || echo "unknown")"
+    if [[ "${fs_type_v}" == "btrfs" ]]; then
         return 0
     fi
     return 1
 }
 
-# Check if the root device is a non-rotational disk (SSD/NVMe)
-is_non_rotational() {
-    # Find the block device for the root filesystem
-    local root_dev
-    root_dev=$(df / | awk 'NR==2 {print $1}' | sed 's|/dev/||;s|/.*||;s/[0-9]*$//')
+#===  FUNCTION  ================================================================
+#          NAME:  is_non_rotational
+#   DESCRIPTION:  Checks if the root device is non-rotational media (SSD / NVMe)
+#    PARAMETERS:  None
+#       RETURNS:  0 if SSD/NVMe, 1 if rotational/HDD
+#===============================================================================
+is_non_rotational(){
+    local root_dev_v=""
+    local slave_dir_d=""
+    local slave_f=""
+    local rotational_file_f=""
+    local rotational_v=""
 
-    # Handle device mapper (LVM, LUKS, etc.) - find underlying physical device
-    if [[ "$root_dev" == dm-* ]] || [[ "$root_dev" == mapper* ]]; then
-        # Try to find the underlying physical device
-        local slave_dir="/sys/class/block/${root_dev}/slaves"
-        if [[ -d "$slave_dir" ]]; then
-            for slave in "$slave_dir"/*; do
-                if [[ -L "$slave" ]]; then
-                    root_dev=$(basename "$(readlink -f "$slave")")
-                    root_dev=${root_dev%%[0-9]*}
+    root_dev_v="$(df / | awk 'NR==2 {print $1}' | sed 's|/dev/||;s|/.*||;s/[0-9]*$//')"
+
+    if [[ "${root_dev_v}" == dm-* ]] || [[ "${root_dev_v}" == mapper* ]]; then
+        slave_dir_d="/sys/class/block/${root_dev_v}/slaves"
+        if [[ -d "${slave_dir_d}" ]]; then
+            for slave_f in "${slave_dir_d}"/*; do
+                if [[ -L "${slave_f}" ]]; then
+                    root_dev_v="$(basename "$(readlink -f "${slave_f}")")"
+                    root_dev_v="${root_dev_v%%[0-9]*}"
                     break
                 fi
             done
         fi
-        # If still dm-*, try NVMe or sd fallback
-        if [[ "$root_dev" == dm-* ]]; then
+        if [[ "${root_dev_v}" == dm-* ]]; then
             if [[ -f /sys/block/nvme0n1/queue/rotational ]]; then
-                root_dev="nvme0n1"
+                root_dev_v="nvme0n1"
             elif [[ -f /sys/block/sda/queue/rotational ]]; then
-                root_dev="sda"
+                root_dev_v="sda"
             fi
         fi
     fi
 
-    # Handle NVMe device names (nvme0n1p1 -> nvme0n1)
-    root_dev=${root_dev%%p*}
+    root_dev_v="${root_dev_v%%p*}"
+    rotational_file_f="/sys/block/${root_dev_v}/queue/rotational"
 
-    local rotational_file="/sys/block/${root_dev}/queue/rotational"
-    if [[ -f "$rotational_file" ]]; then
-        local rotational
-        rotational=$(cat "$rotational_file" 2>/dev/null || echo "1")
-        if [[ "$rotational" == "0" ]]; then
+    if [[ -f "${rotational_file_f}" ]]; then
+        rotational_v="$(cat "${rotational_file_f}" 2>/dev/null || echo "1")"
+        if [[ "${rotational_v}" == "0" ]]; then
             return 0
         fi
     fi
 
-    # Fallback: check if any NVMe device exists (always non-rotational)
     if ls /sys/block/nvme* &>/dev/null; then
         return 0
     fi

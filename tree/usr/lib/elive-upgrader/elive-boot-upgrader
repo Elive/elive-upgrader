@@ -12,18 +12,23 @@ else
 fi
 el_make_environment
 
-# wrapper for fix strange languages
+#===  FUNCTION  ================================================================
+#          NAME:  locales_source
+#   DESCRIPTION:  Sources default locales and normalizes non-Latin locale settings
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
 locales_source(){
     if [[ -s "/etc/default/locale" ]] ; then
         source /etc/default/locale
     fi
-    # wrapper for fix strange languages
-    case "$LANG" in
+    case "${LANG}" in
         am*|ar*|bg*|bn*|el*|fa*|gu*|he*|hy*|hi*|iw*|ja*|ka*|kn*|ko*|ml*|mr*|ne*|pa*|ru*|sr*|ta*|te*|th*|uk*|vi*|zh*)
             export LC_ALL=en_US.UTF-8
             export LANG=en_US.UTF-8
             ;;
     esac
+    return 0
 }
 locales_source
 
@@ -31,36 +36,23 @@ locales_source
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
-
 #
 # elive-boot-upgrader - Handles boot-time Debian distribution upgrades
 #
-# This script is called by the init.d or systemd service during boot
-# to perform the actual upgrade process.
-#
-# Hooks processed on first boot:
-#   - debian-upgrade-packages-to-remove-if-not-before.txt
-#     List of packages to remove after the first boot of the upgraded system
-#     if they were not present before the upgrade. Supports wildcards.
-#
-
 set -e
 
 source /usr/lib/elive-tools/functions 2>/dev/null || true
 source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
 
-# Ensure English locale for consistent parsing of apt output
-export LANG=$EL_LC_EN
+export LANG="${EL_LC_EN}"
 
-# If debian-upgrade state is "alpha", force reports
 if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
-    _upgrade_type=$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")
-    if [[ "$_upgrade_type" == "alpha" ]]; then
+    _upgrade_type="$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")"
+    if [[ "${_upgrade_type}" == "alpha" ]]; then
         export FORCE_REPORTS="1"
     fi
 fi
 
-# Fallback if elive-tools functions are not available
 if ! command -v el_error &>/dev/null; then
     el_error() { echo "ERROR: $*" >&2; }
 fi
@@ -72,30 +64,46 @@ DEFAULTS_FILE="/etc/default/elive-distro-upgrade"
 LOCK_FILE="/tmp/.debian-upgrader.lock"
 SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
 
-# Get current Debian codename
-get_current_codename() {
-    local current_release_full
-    current_release_full="$(cat /etc/debian_version 2>/dev/null || echo "unknown")"
-    local current_version_number
-    current_version_number="$(echo "$current_release_full" | cut -d'.' -f1)"
-    debian_version_to_codename "$current_version_number"
+#===  FUNCTION  ================================================================
+#          NAME:  get_current_codename
+#   DESCRIPTION:  Retrieves the current Debian codename from /etc/debian_version
+#    PARAMETERS:  None
+#       RETURNS:  Prints the Debian codename string
+#===============================================================================
+get_current_codename(){
+    local current_release_full_v=""
+    local current_version_number_v=""
+
+    current_release_full_v="$(cat /etc/debian_version 2>/dev/null || echo "unknown")"
+    current_version_number_v="$(echo "${current_release_full_v}" | cut -d'.' -f1)"
+    debian_version_to_codename "${current_version_number_v}"
 }
 
-# Check if the upgrade target has already been reached
-upgrade_check_target_reached() {
-    local target="$1"
-    local current_codename
-    current_codename="$(get_current_codename)"
+#===  FUNCTION  ================================================================
+#          NAME:  upgrade_check_target_reached
+#   DESCRIPTION:  Checks if system has reached the specified target codename
+#    PARAMETERS:  $1 = target_codename_v
+#       RETURNS:  0 if target reached, 1 otherwise
+#===============================================================================
+upgrade_check_target_reached(){
+    local target_codename_v="${1}"
+    local current_codename_v=""
 
-    if [ -n "$current_codename" ] && [ "$current_codename" = "$target" ]; then
-        return 0  # Target reached
+    current_codename_v="$(get_current_codename)"
+
+    if [[ -n "${current_codename_v}" ]] && [[ "${current_codename_v}" == "${target_codename_v}" ]]; then
+        return 0
     fi
-    return 1  # Target not reached
+    return 1
 }
 
-# Disable boot upgrade services (both systemd and sysvinit)
-disable_boot_services() {
-    # Disable systemd service in the background to prevent systemd from hanging/blocking this script
+#===  FUNCTION  ================================================================
+#          NAME:  disable_boot_services
+#   DESCRIPTION:  Disables boot upgrade services across systemd, sysvinit, and OpenRC
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+disable_boot_services(){
     if command -v systemctl &>/dev/null; then
         (
             sleep 2
@@ -103,286 +111,310 @@ disable_boot_services() {
             systemctl daemon-reload 2>/dev/null || true
         ) &
     fi
-    # Disable sysvinit script
     if command -v update-rc.d &>/dev/null; then
         update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
     fi
-    # Disable OpenRC service
     if ((is_openrc)); then
         rc-update del elive-distro-upgrader 2>/dev/null || true
     fi
+    return 0
 }
 
-# Suspend TTY1 login and display managers
-suspend_tty1_and_dms() {
+#===  FUNCTION  ================================================================
+#          NAME:  suspend_tty1_and_dms
+#   DESCRIPTION:  Suspends TTY1 getty login and stops display managers for clear console
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+suspend_tty1_and_dms(){
+    local dm_v=""
+    local srv_v=""
+    local dm_list_v="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
+
     echo "Suspending TTY1 login and display managers..." >/dev/console 2>/dev/null || true
 
-    # For systemd: stop and mask getty@tty1.service so tty1 remains clear for console output
-    if [ -d /run/systemd/system ] && command -v systemctl &>/dev/null; then
+    if [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null; then
         systemctl stop getty@tty1.service 2>/dev/null || true
         systemctl mask getty@tty1.service 2>/dev/null || true
     fi
 
-    # Stop display managers to ensure upgrade runs in console mode without GUI intervention
-    local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
     if ((is_openrc)); then
-        for dm in $dm_list; do
-            if rc-service "$dm" status >/dev/null 2>&1; then
-                echo "Stopping OpenRC display manager: $dm" >/dev/console 2>/dev/null || true
-                rc-service "$dm" stop 2>/dev/null || true
+        for dm_v in ${dm_list_v}; do
+            if rc-service "${dm_v}" status >/dev/null 2>&1; then
+                echo "Stopping OpenRC display manager: ${dm_v}" >/dev/console 2>/dev/null || true
+                rc-service "${dm_v}" stop 2>/dev/null || true
             fi
         done
-        for srv in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
-            rc-service "$srv" stop 2>/dev/null || true
+        for srv_v in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
+            rc-service "${srv_v}" stop 2>/dev/null || true
         done
         rc-service getty.tty1 stop 2>/dev/null || true
     elif command -v service &>/dev/null; then
-        for dm in $dm_list; do
-            service "$dm" stop 2>/dev/null || true
+        for dm_v in ${dm_list_v}; do
+            service "${dm_v}" stop 2>/dev/null || true
         done
     elif command -v invoke-rc.d &>/dev/null; then
-        for dm in $dm_list; do
-            invoke-rc.d "$dm" stop 2>/dev/null || true
+        for dm_v in ${dm_list_v}; do
+            invoke-rc.d "${dm_v}" stop 2>/dev/null || true
         done
     fi
 
-    # Kill any remaining display manager or X server processes
     pkill -f "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|Xorg|Xwayland" 2>/dev/null || true
 
-    # For SysVinit: comment out getty line on tty1 in /etc/inittab (keep tty2+ active)
-    if [ -f /etc/inittab ]; then
+    if [[ -f /etc/inittab ]]; then
         cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
         sed -i 's/^\([0-9]\+:.*getty.*tty1.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
         telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
     fi
+    return 0
 }
 
-# Restore TTY1 login and display managers
-restore_tty1_and_dms() {
+#===  FUNCTION  ================================================================
+#          NAME:  restore_tty1_and_dms
+#   DESCRIPTION:  Restores TTY1 getty login service after upgrade completion
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+restore_tty1_and_dms(){
     echo "Restoring TTY1 login..." >/dev/console 2>/dev/null || true
 
-    if [ -d /run/systemd/system ] && command -v systemctl &>/dev/null; then
+    if [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null; then
         systemctl unmask getty@tty1.service 2>/dev/null || true
     fi
 
-    # For SysVinit: restore getty line on tty1 in /etc/inittab
-    if [ -f /etc/inittab.bak-upgrader ]; then
+    if [[ -f /etc/inittab.bak-upgrader ]]; then
         mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
         telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
-    elif [ -f /etc/inittab ]; then
+    elif [[ -f /etc/inittab ]]; then
         sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
         telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
     fi
 
-    # For OpenRC: start getty.tty1 service
     if ((is_openrc)); then
         rc-service getty.tty1 start 2>/dev/null || true
     fi
+    return 0
 }
 
-process_remove_if_not_before() {
-    local target_codename="$1"
-    local marker_file="/var/cache/elive-upgrader/remove-if-not-before-done"
+#===  FUNCTION  ================================================================
+#          NAME:  process_remove_if_not_before
+#   DESCRIPTION:  Processes post-upgrade package removal hooks for new packages
+#    PARAMETERS:  $1 = target_codename_v
+#       RETURNS:  0
+#===============================================================================
+process_remove_if_not_before(){
+    local target_codename_v="${1}"
+    local marker_file_f="/var/cache/elive-upgrader/remove-if-not-before-done"
+    local pkgs_before_file_f="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename_v}.txt"
+    local pending_list_f="/var/cache/elive-upgrader/pending-remove-if-not-before.txt"
+    local hook_file_f=""
+    local pattern_v=""
+    local expanded_pkgs_v=""
+    local filtered_v=""
+    local pkg_v=""
+    local pkg_base_v=""
+    local pkgs_to_remove_v=""
+    local apt_exit_v=0
 
-    if [ -f "$marker_file" ]; then
+    if [[ -f "${marker_file_f}" ]]; then
         echo "remove-if-not-before check already completed previously, skipping."
         return 0
     fi
 
-    local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename}.txt"
-
-    if [ ! -f "$pkgs_before_file" ]; then
-        echo "No packages-before file found at $pkgs_before_file, skipping remove-if-not-before check."
+    if [[ ! -f "${pkgs_before_file_f}" ]]; then
+        echo "No packages-before file found at ${pkgs_before_file_f}, skipping remove-if-not-before check."
         return 0
     fi
 
-    local pending_list="/var/cache/elive-upgrader/pending-remove-if-not-before.txt"
-    if [ ! -f "$pending_list" ]; then
+    if [[ ! -f "${pending_list_f}" ]]; then
         echo "No pending remove-if-not-before hooks found."
         return 0
     fi
 
-    local hook_file
-    while read -r hook_file; do
-        [ -z "$hook_file" ] && continue
-        if [ -f "$hook_file" ]; then
-            echo "Processing remove-if-not-before hook: $hook_file"
-            local pattern
-            while read -r pattern; do
-                # Skip comments and empty lines
-                [ -z "$pattern" ] && continue
-                case "$pattern" in
+    while read -r hook_file_f || [[ -n "${hook_file_f}" ]]; do
+        [[ -z "${hook_file_f}" ]] && continue
+        if [[ -f "${hook_file_f}" ]]; then
+            echo "Processing remove-if-not-before hook: ${hook_file_f}"
+            while read -r pattern_v || [[ -n "${pattern_v}" ]]; do
+                [[ -z "${pattern_v}" ]] && continue
+                case "${pattern_v}" in
                     \#*) continue ;;
                 esac
 
-                # Debug: show what we're checking
-                echo "DEBUG: Checking pattern '$pattern' against packages-before file"
+                echo "DEBUG: Checking pattern '${pattern_v}' against packages-before file"
 
-                # Expand wildcard patterns to actual installed packages
-                # Use --show with --showformat for reliable wildcard matching
-                local expanded_pkgs
-                expanded_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "$pattern" 2>/dev/null | grep '^installed ' | cut -d' ' -f2-)
+                expanded_pkgs_v="$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "${pattern_v}" 2>/dev/null | grep '^installed ' | cut -d' ' -f2- || true)"
 
-                # Fallback: if dpkg-query with wildcard didn't work, try apt list
-                if [ -z "$expanded_pkgs" ]; then
+                if [[ -z "${expanded_pkgs_v}" ]]; then
                     echo "DEBUG: dpkg-query returned no results, trying apt list fallback..."
-                    expanded_pkgs=$(apt list --installed "$pattern" 2>/dev/null | grep -v "^Listing" | cut -d'/' -f1 | grep -v "^$" || true)
-                    # Filter to only actually installed ones
-                    if [ -n "$expanded_pkgs" ]; then
-                        local filtered=""
-                        for pkg in $expanded_pkgs; do
-                            if dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null | grep -q '^installed'; then
-                                filtered="$filtered $pkg"
+                    expanded_pkgs_v="$(apt list --installed "${pattern_v}" 2>/dev/null | grep -v "^Listing" | cut -d'/' -f1 | grep -v "^$" || true)"
+                    if [[ -n "${expanded_pkgs_v}" ]]; then
+                        filtered_v=""
+                        for pkg_v in ${expanded_pkgs_v}; do
+                            if dpkg-query -W -f='${db:Status-Status}' "${pkg_v}" 2>/dev/null | grep -q '^installed'; then
+                                filtered_v="${filtered_v} ${pkg_v}"
                             fi
                         done
-                        expanded_pkgs=$(echo "$filtered" | xargs)
+                        expanded_pkgs_v="$(echo "${filtered_v}" | xargs)"
                     fi
                 fi
 
-                # Check each expanded package individually against the before-file
-                local pkgs_to_remove=""
-                if [ -n "$expanded_pkgs" ]; then
-                    for pkg in $expanded_pkgs; do
-                        local pkg_base
-                        pkg_base=$(echo "$pkg" | cut -d':' -f1)
-                        if ! grep -qxF "$pkg" "$pkgs_before_file" && ! grep -qxF "$pkg_base" "$pkgs_before_file"; then
-                            echo "Package '$pkg' was NOT present before upgrade. Adding to removal list."
-                            pkgs_to_remove="$pkgs_to_remove $pkg"
+                pkgs_to_remove_v=""
+                if [[ -n "${expanded_pkgs_v}" ]]; then
+                    for pkg_v in ${expanded_pkgs_v}; do
+                        pkg_base_v="$(echo "${pkg_v}" | cut -d':' -f1)"
+                        if ! grep -qxF "${pkg_v}" "${pkgs_before_file_f}" && ! grep -qxF "${pkg_base_v}" "${pkgs_before_file_f}"; then
+                            echo "Package '${pkg_v}' was NOT present before upgrade. Adding to removal list."
+                            pkgs_to_remove_v="${pkgs_to_remove_v} ${pkg_v}"
                         else
-                            echo "Package '$pkg' was present before upgrade. Keeping."
+                            echo "Package '${pkg_v}' was present before upgrade. Keeping."
                         fi
                     done
-                    pkgs_to_remove=$(echo "$pkgs_to_remove" | xargs)
+                    pkgs_to_remove_v="$(echo "${pkgs_to_remove_v}" | xargs)"
                 fi
 
-                if [ -n "$pkgs_to_remove" ]; then
-                    echo "Removing packages: $pkgs_to_remove"
-                    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages remove --purge $pkgs_to_remove
-                    local apt_exit=$?
-                    if [ "$apt_exit" -ne 0 ]; then
-                        echo "WARNING: apt-get remove failed with exit code $apt_exit for packages: $pkgs_to_remove"
+                if [[ -n "${pkgs_to_remove_v}" ]]; then
+                    echo "Removing packages: ${pkgs_to_remove_v}"
+                    TERM=linux DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical DEBCONF_NONINTERACTIVE_SEEN=true DEBCONF_NOWARNINGS=true apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages remove --purge ${pkgs_to_remove_v}
+                    apt_exit_v=$?
+                    if [[ "${apt_exit_v}" -ne 0 ]]; then
+                        echo "WARNING: apt-get remove failed with exit code ${apt_exit_v} for packages: ${pkgs_to_remove_v}"
                     else
-                        echo "Successfully removed packages: $pkgs_to_remove"
+                        echo "Successfully removed packages: ${pkgs_to_remove_v}"
                     fi
                 else
-                    echo "No packages matching pattern '$pattern' need to be removed."
+                    echo "No packages matching pattern '${pattern_v}' need to be removed."
                 fi
-            done < "$hook_file"
+            done < "${hook_file_f}"
         fi
-    done < "$pending_list"
-    rm -f "$pending_list"
+    done < "${pending_list_f}"
+
+    rm -f "${pending_list_f}"
     rm -rf /var/cache/elive-upgrader/active-distro-upgrade-hook 2>/dev/null || true
-    mkdir -p "$(dirname "$marker_file")"
-    touch "$marker_file"
+    mkdir -p "$(dirname "${marker_file_f}")"
+    touch "${marker_file_f}"
+    return 0
 }
 
-# Clean up state and disable services
-cleanup_and_disable() {
+#===  FUNCTION  ================================================================
+#          NAME:  cleanup_and_disable
+#   DESCRIPTION:  Cleans up upgrade state files and disables boot upgrade services
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+cleanup_and_disable(){
     echo "Cleaning up upgrade state and disabling boot services"
-    rm -f "$DEFAULTS_FILE"
-    rm -f "$LOCK_FILE"
+    rm -f "${DEFAULTS_FILE}"
+    rm -f "${LOCK_FILE}"
     disable_boot_services
     restore_tty1_and_dms
+    return 0
 }
 
-# Remove old OS upgrade backup directories from /root once the
-# upgrade has fully completed and the user has reached a graphical session.
-# Keep .log files.
-cleanup_old_backups() {
-    local cleanup_flag="/var/cache/elive-upgrader/cleanup-backups-pending"
+#===  FUNCTION  ================================================================
+#          NAME:  cleanup_old_backups
+#   DESCRIPTION:  Removes old OS backup directories from /root after completion
+#    PARAMETERS:  None
+#       RETURNS:  0
+#===============================================================================
+cleanup_old_backups(){
+    local cleanup_flag_f="/var/cache/elive-upgrader/cleanup-backups-pending"
 
-    if [ ! -f "$cleanup_flag" ]; then
+    if [[ ! -f "${cleanup_flag_f}" ]]; then
         return 0
     fi
 
     echo "Removing old /root/debian-upgrade-backup directories..."
     find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
-    # Also remove any stray backup tarballs left behind
     find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
 
-    # Remove the flag file after cleanup
-    rm -f "$cleanup_flag"
+    rm -f "${cleanup_flag_f}"
     echo "Old backup directories cleaned up successfully."
+    return 0
 }
 
-# Validate the upgrade state before proceeding
-validate_upgrade_state() {
-    # Read configuration
-    if [ ! -r "$DEFAULTS_FILE" ]; then
-        echo "State file not found or not readable: $DEFAULTS_FILE"
+#===  FUNCTION  ================================================================
+#          NAME:  validate_upgrade_state
+#   DESCRIPTION:  Validates state file and configuration before proceeding with upgrade
+#    PARAMETERS:  None
+#       RETURNS:  0 if valid and should proceed, 1 if invalid or completed
+#===============================================================================
+validate_upgrade_state(){
+    if [[ ! -r "${DEFAULTS_FILE}" ]]; then
+        echo "State file not found or not readable: ${DEFAULTS_FILE}"
         return 1
     fi
 
-    # Source the defaults file
-    . "$DEFAULTS_FILE"
+    . "${DEFAULTS_FILE}"
 
-    # Check required variables
-    if [ "$UPGRADE_ENABLED" != "yes" ]; then
-        echo "UPGRADE_ENABLED is not yes (value: \"$UPGRADE_ENABLED\"), cleaning up state file"
+    if [[ "${UPGRADE_ENABLED}" != "yes" ]]; then
+        echo "UPGRADE_ENABLED is not yes (value: \"${UPGRADE_ENABLED}\"), cleaning up state file"
         cleanup_and_disable
         return 1
     fi
 
-    # Check if target already reached and marked as completed
-    if [ "$UPGRADE_COMPLETED" = "yes" ] && upgrade_check_target_reached "$TARGET_CODENAME"; then
-        echo "Target $TARGET_CODENAME already reached and completed. Running post-boot hooks and cleaning up."
-        process_remove_if_not_before "$TARGET_CODENAME"
+    if [[ "${UPGRADE_COMPLETED}" == "yes" ]] && upgrade_check_target_reached "${TARGET_CODENAME}"; then
+        echo "Target ${TARGET_CODENAME} already reached and completed. Running post-boot hooks and cleaning up."
+        process_remove_if_not_before "${TARGET_CODENAME}"
         cleanup_and_disable
         return 1
     fi
 
-    if [ "$UPGRADE_IN_PROGRESS" != "yes" ]; then
-        if [ "$UPGRADE_COMPLETED" = "yes" ]; then
+    if [[ "${UPGRADE_IN_PROGRESS}" != "yes" ]]; then
+        if [[ "${UPGRADE_COMPLETED}" == "yes" ]]; then
             echo "First boot of the new upgraded system detected. Running post-boot hooks..."
-            process_remove_if_not_before "$TARGET_CODENAME"
+            process_remove_if_not_before "${TARGET_CODENAME}"
         fi
-        echo "UPGRADE_IN_PROGRESS is not yes (value: \"$UPGRADE_IN_PROGRESS\"), cleaning up state file"
+        echo "UPGRADE_IN_PROGRESS is not yes (value: \"${UPGRADE_IN_PROGRESS}\"), cleaning up state file"
         cleanup_and_disable
         return 1
     fi
 
-    if [ -z "$TARGET_CODENAME" ]; then
+    if [[ -z "${TARGET_CODENAME}" ]]; then
         echo "TARGET_CODENAME is empty, cleaning up malformed state file"
         cleanup_and_disable
         return 1
     fi
 
-    # Safety: enforce reboot limit to prevent infinite loops
-    if [ "${REBOOT_COUNT:-0}" -ge 5 ] 2>/dev/null; then
+    if [[ "${REBOOT_COUNT:-0}" -ge 5 ]] 2>/dev/null; then
         el_error "Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
         echo "Check logs at /var/log/elive-upgrader/ for details."
         cleanup_and_disable
         return 1
     fi
 
-    # Clean up any stale lock files from crashed upgrades
-    rm -f "$LOCK_FILE" 2>/dev/null || true
+    rm -f "${LOCK_FILE}" 2>/dev/null || true
 
     return 0
 }
 
-# Main execution
-main() {
+#===  FUNCTION  ================================================================
+#          NAME:  main
+#   DESCRIPTION:  Main entry point for elive-boot-upgrader
+#    PARAMETERS:  $@ = script arguments
+#       RETURNS:  0 on success, exit_code on error
+#===============================================================================
+main(){
+    local current_cn_v=""
+    local exit_code_v=0
+    local err_msg_v=""
+    local latest_log_f=""
+
     echo "=== Elive Boot Upgrader ==="
     echo "Starting at $(date)"
 
-    # Validate state before proceeding
     if ! validate_upgrade_state; then
         echo "Validation failed or upgrade not needed. Exiting."
         exit 0
     fi
 
-    # Suspend TTY1 login and display managers
     suspend_tty1_and_dms
 
-    # Re-read config after validation (in case it was modified)
-    . "$DEFAULTS_FILE"
+    . "${DEFAULTS_FILE}"
 
-    local current_cn
-    current_cn="$(get_current_codename)"
-    echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"
+    current_cn_v="$(get_current_codename)"
+    echo "Validated: upgrading from ${current_cn_v:-unknown} to ${TARGET_CODENAME}"
 
-    # Always quit Plymouth and switch active VT to TTY1 so console output and dialogs are visible
     if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
         plymouth quit 2>/dev/null || true
     fi
@@ -390,83 +422,61 @@ main() {
         chvt 1 2>/dev/null || true
     fi
 
-    # Check if upgrade script exists
-    if [ ! -x "$SCRIPT_PATH" ]; then
-        el_error "$SCRIPT_PATH not found or not executable"
+    if [[ ! -x "${SCRIPT_PATH}" ]]; then
+        el_error "${SCRIPT_PATH} not found or not executable"
         cleanup_and_disable
         exit 1
     fi
 
-    # Run the upgrade
-    echo "Starting upgrade to $TARGET_CODENAME"
+    echo "Starting upgrade to ${TARGET_CODENAME}"
     set +e
-    "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME"
-    local exit_code=$?
+    "${SCRIPT_PATH}" --boot-mode "${TARGET_CODENAME}"
+    exit_code_v=$?
     set -e
 
-    # Handle exit code
-    if [ "$exit_code" -ne 0 ]; then
-        # If the exit code indicates a signal termination (e.g. SIGTERM 143, SIGINT 130)
-        # or if the system is currently shutting down/rebooting, do NOT cancel the upgrade.
-        # Just exit and let it resume on the next boot.
-        if [ "$exit_code" -eq 143 ] || [ "$exit_code" -eq 130 ] || [ -f /run/systemd/shutdown/scheduled ] || [ -f /run/systemd/shutdown ]; then
-            echo "Upgrade process was interrupted by system shutdown/reboot (exit code $exit_code). Preserving state for next boot."
+    if [[ "${exit_code_v}" -ne 0 ]]; then
+        if [[ "${exit_code_v}" -eq 143 ]] || [[ "${exit_code_v}" -eq 130 ]] || [[ -f /run/systemd/shutdown/scheduled ]] || [[ -f /run/systemd/shutdown ]]; then
+            echo "Upgrade process was interrupted by system shutdown/reboot (exit code ${exit_code_v}). Preserving state for next boot."
             exit 0
         fi
 
-        local err_msg
-        err_msg=$(cat "$err_log" 2>/dev/null || true)
-        rm -f "$err_log"
-
-        # If empty due to script-level redirection, extract from the actual log file
-        if [ -z "$err_msg" ]; then
-            local latest_log
-            latest_log=$(ls -t /var/log/elive-upgrader/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)
-            if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
-                err_msg=$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "$latest_log" | tail -n 5 || tail -n 10 "$latest_log" || true)
-            fi
+        latest_log_f="$(ls -t /var/log/elive-upgrader/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)"
+        if [[ -n "${latest_log_f}" ]] && [[ -f "${latest_log_f}" ]]; then
+            err_msg_v="$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "${latest_log_f}" | tail -n 5 || tail -n 10 "${latest_log_f}" || true)"
         fi
 
-        if [ -z "$err_msg" ]; then
-            err_msg="Unknown error occurred during the boot upgrade process."
+        if [[ -z "${err_msg_v}" ]]; then
+            err_msg_v="Unknown error occurred during the boot upgrade process."
         fi
 
-        el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
+        el_error "Upgrade exited with code ${exit_code_v}. Last errors: ${err_msg_v}"
         echo "Check logs at /var/log/elive-upgrader/ for details"
 
         echo "Preserving upgrade state to resume on next boot (Reboot count: ${REBOOT_COUNT:-0}/5)"
 
-        # Create a notification flag file so the user is notified of the failure upon login
         mkdir -p /var/log/elive-upgrader 2>/dev/null || true
-        echo "$err_msg" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        echo "${err_msg_v}" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         chmod 666 /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
 
-        # Set up recovery notification for desktop - user will be notified on next login
-        # This creates an autostart entry that shows a recovery dialog
-        if [ -x "$SCRIPT_PATH" ]; then
-            "$SCRIPT_PATH" --setup-recovery-notification 2>/dev/null || true
+        if [[ -x "${SCRIPT_PATH}" ]]; then
+            "${SCRIPT_PATH}" --setup-recovery-notification 2>/dev/null || true
         fi
 
-        exit "$exit_code"
+        exit "${exit_code_v}"
     fi
-    rm -f "$err_log"
 
     echo "Upgrade completed successfully at $(date)"
 
-    # Check if state file still exists (debian-upgrader may have cleaned it up)
-    if [ ! -f "$DEFAULTS_FILE" ]; then
+    if [[ ! -f "${DEFAULTS_FILE}" ]]; then
         echo "State file removed by upgrade script - upgrade completed"
     else
-        # Re-read and check state
-        . "$DEFAULTS_FILE"
-        if [ "$UPGRADE_IN_PROGRESS" = "no" ]; then
+        . "${DEFAULTS_FILE}"
+        if [[ "${UPGRADE_IN_PROGRESS}" == "no" ]]; then
             echo "Upgrade marked as not in progress - cleaning up"
             cleanup_and_disable
         fi
     fi
 
-    # Clean up old backup directories now that the upgrade is complete
-    # and the user will reach the graphical session
     cleanup_old_backups
 
     echo "Rebooting system to apply changes in 10 seconds..."
@@ -475,5 +485,4 @@ main() {
     exit 0
 }
 
-# Run main function
 main "$@"
