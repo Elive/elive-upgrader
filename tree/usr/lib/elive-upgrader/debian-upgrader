@@ -506,8 +506,8 @@ full_os_backup() {
         upgrade_extra_kb=$(( upgrade_extra_kb + install_kb ))
     fi
 
-    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 10 GB safety margin
-    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 10485760 ))
+    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 4 GB extra
+    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 4194304 ))
 
     # Check free space on root partition
     local free_space_kb
@@ -1160,9 +1160,89 @@ log_error() {
     el_error "$1"
 }
 
+free_emergency_disk_space() {
+    log_warning "Running emergency disk space cleanup to recover system upgrade..."
+
+    # 1. Clean temporary files, caches, trash, and system logs
+    log_info "Cleaning temporary files, browser caches, thumbnail caches, trash, and system logs..."
+    rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+
+    # Kill processes that lock cache files
+    pkill -9 -f efreetd 2>/dev/null || true
+
+    # Specific user caches and desktop caches across all user directories and root
+    rm -rf /home/*/.cache/mesa_shader_cache /home/*/.cache/chromium /home/*/.cache/google-chrome \
+           /home/*/.cache/moonchild_productions /home/*/.cache/thumbnails /home/*/.cache/mozilla \
+           /home/*/.cache/MuzicBrainz /home/*/.cache/network /home/*/.cache/rhythmbox \
+           /home/*/.cache/efreet /home/*/.cache/netsurf /home/*/.cache/el_speak /home/*/.cache/opera \
+           /root/.cache/* 2>/dev/null || true
+
+    # Delete general cache files (preserving zsh and elive caches)
+    find /home/*/.cache /root/.cache -not -path "*/.cache/zsh/*" -not -path "*/.cache/elive*" -type f -delete 2>/dev/null || true
+    find /home/*/.thumbnails /home/*/.local/share/thumbnails /root/.thumbnails /root/.local/share/thumbnails -type f -delete 2>/dev/null || true
+
+    # Clean compile caches
+    ccache -c -C 2>/dev/null || true
+
+    # Free Trash & aMule Temp files
+    find /home/*/.local/share/Trash /root/.local/share/Trash -type f -delete 2>/dev/null || true
+    find /home/*/.aMule/Temp /root/.aMule/Temp -type f -delete 2>/dev/null || true
+
+    # Clean crash recovery files and truncate xsession errors
+    rm -rf /home/*/.config/*-crashrecovery-* /root/.config/*-crashrecovery-* 2>/dev/null || true
+    for xerr in /home/*/.xsession-errors /root/.xsession-errors; do
+        [[ -f "$xerr" ]] && : > "$xerr"
+    done
+
+    # Truncate / delete log files
+    find /var/log -type f \( -name "*.gz" -o -name "*.[0-9]" -o -name "*.old" \) -delete 2>/dev/null || true
+    if command -v journalctl &>/dev/null; then
+        journalctl --vacuum-size=50M 2>/dev/null || true
+    fi
+
+    # 2. Clean APT caches and unused packages
+    log_info "Cleaning APT cache and autoremoving unused packages..."
+    apt-get autoclean -y 2>/dev/null || true
+    apt-get autoremove --purge -y 2>/dev/null || true
+
+    # 3. If full OS backup exists, remove it to free up large amount of disk space
+    if [[ -d "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" ]]; then
+        log_warning "Removing full OS backup at ${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup} to free up disk space for the upgrade..."
+        rm -rf "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" 2>/dev/null || true
+    fi
+
+    # 4. Remove older system backup directories if present
+    local old_backups
+    old_backups=$(ls -d /root/debian-upgrade-backup-* 2>/dev/null || true)
+    if [[ -n "$old_backups" ]]; then
+        log_warning "Removing backup directories in /root to free up disk space..."
+        rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
+    fi
+
+    # 5. Clean downloaded package archives if space is still critically low
+    local free_kb
+    free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    if [[ -n "$free_kb" ]] && (( free_kb < 1048576 )); then
+        log_warning "Free space still under 1GB ($(( free_kb / 1024 )) MB). Cleaning APT archive cache..."
+        apt-get clean 2>/dev/null || true
+    fi
+
+    local new_free_kb
+    new_free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    log_info "Emergency disk space cleanup finished. Current free space on /: $(( new_free_kb / 1024 )) MB."
+}
+
 repair_apt() {
     # Fix keyrings first
     fix_unsupported_keyrings
+
+    # Check if root free space is low (< 1 GB) and attempt space recovery
+    local root_free_kb
+    root_free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    if [[ -n "$root_free_kb" ]] && (( root_free_kb < 1048576 )); then
+        log_warning "Low disk space detected during repair ($(( root_free_kb / 1024 )) MB free)."
+        free_emergency_disk_space
+    fi
 
     # Check if repair is actually needed
     if dpkg --audit >/dev/null 2>&1 && apt-get check >/dev/null 2>&1; then
@@ -1259,6 +1339,13 @@ safe_apt_run() {
         if [[ "$exit_code" -eq 0 ]]; then
             rm -f "$err_log"
             return 0
+        fi
+
+        # Check for out-of-space error
+        if grep -qi "No space left on device\|ENOSPC\|write error\|not enough free space\|No space left" "$err_log" 2>/dev/null || \
+           (( $(df / | awk 'NR==2 {print $4}') < 1048576 )); then
+            log_warning "Out of space condition detected! Attempting emergency disk space recovery..."
+            free_emergency_disk_space
         fi
 
         # Detect DKMS compilation failure (exit code 100 from dpkg)
@@ -1792,16 +1879,7 @@ check_disk_space() {
 
     attempt_space_cleanup() {
         log_warning "Attempting to free up space automatically..."
-        # Clean up rotated/compressed logs
-        find /var/log -type f \( -name "*.gz" -o -name "*.[0-9]" \) -delete 2>/dev/null || true
-        # Clean apt cache of old/superseded packages
-        apt-get autoclean -y 2>/dev/null || true
-        # Run autoremove to clean up unused packages
-        apt-get autoremove --purge -y 2>/dev/null || true
-        # remove thumbnails
-        rm -rf /home/*/.thumbnails/* /home/*/.local/share/thumbnails/* 2>/dev/null || true
-        # If still needed, do a full clean (will require re-downloading, but better than failing)
-        # apt-get clean 2>/dev/null || true
+        free_emergency_disk_space
     }
 
     handle_insufficient_space() {
