@@ -426,34 +426,56 @@ full_os_backup() {
         "/sbin"
     )
 
-    # Calculate total size of OS directories to backup in KB
-    log_info "Calculating OS size for backup..."
-    local total_os_size_kb=0
+    # Calculate total size of main OS directories to backup in KB (excluding /home, etc.)
+    log_info "Calculating size of main OS directories for backup..."
+    local os_dirs_size_kb=0
     for d in "${backup_dirs[@]}"; do
         if [[ -d "$d" ]]; then
             local size_kb
             size_kb=$(du -s "$d" 2>/dev/null | awk '{print $1}')
             if [[ "$size_kb" =~ ^[0-9]+$ ]]; then
-                total_os_size_kb=$((total_os_size_kb + size_kb))
+                os_dirs_size_kb=$((os_dirs_size_kb + size_kb))
             fi
         fi
     done
 
-    # Helper to convert size to KB (copied inline to avoid external dependency)
+    # Helper to convert size to KB
     __to_kb() {
-        local val="$1" unit="$2" factor=1
+        local val="$1"
+        local unit
+        unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+        val=${val//,/.}
+
+        if [[ -z "$val" || -z "$unit" ]]; then
+            echo "0"
+            return
+        fi
+
+        local int_val
+        if [[ "$val" == *.* ]]; then
+            local int_part="${val%%.*}"
+            local dec_part="${val#*.}"
+            dec_part="${dec_part}000"
+            dec_part="${dec_part:0:3}"
+            int_val=$(( int_part * 1000 + dec_part ))
+        else
+            int_val=$(( val * 1000 ))
+        fi
+
+        local factor=1
         case "$unit" in
-            k|kb) factor=1 ;;
-            m|mb) factor=1024 ;;
-            g|gb) factor=$((1024*1024)) ;;
-            t|tb) factor=$((1024*1024*1024)) ;;
+            k*|kb) factor=1 ;;
+            m*|mb) factor=1024 ;;
+            g*|gb) factor=$((1024 * 1024)) ;;
+            t*|tb) factor=$((1024 * 1024 * 1024)) ;;
             b) factor=0 ;;
             *) factor=1 ;;
         esac
+
         if [[ "$unit" == "b" ]]; then
-            echo $(( val / 1000 ))
+            echo $(( int_val / 1000 ))
         else
-            echo $(( val * factor / 1000 ))
+            echo $(( int_val * factor / 1000 ))
         fi
     }
 
@@ -496,15 +518,14 @@ full_os_backup() {
         upgrade_extra_kb=$(( upgrade_extra_kb + install_kb ))
     fi
 
-    # Required space: OS_SIZE * 1.2 + 30 GB (initial safety) + upgrade_extra_kb
-    local required_space_kb
-    required_space_kb=$(awk -v os="$total_os_size_kb" -v extra="$upgrade_extra_kb" 'BEGIN { printf "%.0f", (os * 1.2) + 30971520 + extra }')
+    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 10 GB safety margin
+    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 10485760 ))
 
     # Check free space on root partition
     local free_space_kb
     free_space_kb=$(df / | awk 'NR==2 {print $4}')
 
-    log_info "OS Size: $((total_os_size_kb / 1024)) MB. Required free space: $((required_space_kb / 1024)) MB. Available: $((free_space_kb / 1024)) MB."
+    log_info "OS directories size: $((os_dirs_size_kb / 1024)) MB. Required free space for backup: $((required_space_kb / 1024)) MB. Available: $((free_space_kb / 1024)) MB."
 
     if (( free_space_kb < required_space_kb )); then
         log_info "Not enough free space for full OS backup. Skipping."
@@ -1737,8 +1758,8 @@ check_disk_space() {
 
     # Fallback to safe defaults if simulation didn't yield results
     if (( download_parsed == 0 )); then
-        log_warning "Could not estimate download size from simulation. Using fallback estimate of 800 MB."
-        download_kb=819200
+        log_warning "Could not estimate download size from simulation. Using fallback estimate of 2.5 GB."
+        download_kb=2621440
     fi
     if (( install_parsed == 0 )); then
         log_warning "Could not estimate install size from simulation. Using fallback estimate of 15 GB."
@@ -1789,6 +1810,9 @@ check_disk_space() {
         # apt-get clean 2>/dev/null || true
     }
 
+    # Minimum required free space margin for upgrade on / is 30 GB (31457280 KB)
+    local min_required_kb=31457280
+
     if [[ "$var_on_separate" == "true" ]]; then
         # /var needs enough space for the download + small safety margin (100MB)
         local required_var_kb=$(( download_kb + 102400 ))
@@ -1803,6 +1827,9 @@ check_disk_space() {
         fi
         # / root needs space for unpacking, net install, and safety margin
         local required_root_kb=$(( temp_unpack_kb + net_extra_kb + safety_margin_kb ))
+        if (( required_root_kb < min_required_kb )); then
+            required_root_kb=$min_required_kb
+        fi
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
@@ -1815,6 +1842,9 @@ check_disk_space() {
     else
         # Everything is on /
         local required_root_kb=$(( download_kb + temp_unpack_kb + net_extra_kb + safety_margin_kb ))
+        if (( required_root_kb < min_required_kb )); then
+            required_root_kb=$min_required_kb
+        fi
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
