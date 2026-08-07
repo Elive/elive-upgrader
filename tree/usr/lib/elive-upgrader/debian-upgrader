@@ -1095,6 +1095,12 @@ upgrade_state_increment_reboot() {
         fi
         disable_boot_upgrade
         release_lock
+        log_info "Waiting 60 seconds before exiting so you can read error messages..."
+        for ((i=60; i>0; i--)); do
+            echo -ne "Continuing in ${i} seconds...\r"
+            sleep 1
+        done
+        echo ""
         exit 1
     fi
 }
@@ -1980,13 +1986,12 @@ check_disk_space() {
             rc-update del elive-distro-upgrader 2>/dev/null || true
         fi
 
-        log_info "Rebooting in 60 seconds due to insufficient space..."
+        log_info "Rebooting in 60 seconds due to insufficient space so you can read error messages..."
         for ((i=60; i>0; i--)); do
-            if (( i % 10 == 0 || i <= 5 )); then
-                log_info "Rebooting in $i seconds..."
-            fi
+            echo -ne "Rebooting in ${i} seconds...\r"
             sleep 1
         done
+        echo ""
         trigger_reboot
         exit 1
     }
@@ -2855,21 +2860,17 @@ EOF
 
 disable_boot_upgrade() {
     sync
-    # Disable services in the background to prevent systemd from hanging/blocking this script while still running
     log_info "Disabling elive-distro-upgrader service..."
-    (
-        if command -v systemctl &>/dev/null; then
-                sleep 2
-                systemctl disable elive-distro-upgrader.service 2>/dev/null || true
-                systemctl daemon-reload 2>/dev/null || true
-        fi
-        if command -v update-rc.d &>/dev/null; then
-            update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-        fi
-        if ((is_openrc)); then
-            rc-update del elive-distro-upgrader 2>/dev/null || true
-        fi
-    ) &
+    if command -v systemctl &>/dev/null; then
+        systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+    if command -v update-rc.d &>/dev/null; then
+        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
+    fi
+    if ((is_openrc)); then
+        rc-update del elive-distro-upgrader 2>/dev/null || true
+    fi
 
     if [ -f /etc/default/elive-distro-upgrade ]; then
         log_info "Disabling boot-time upgrade by removing /etc/default/elive-distro-upgrade..."
