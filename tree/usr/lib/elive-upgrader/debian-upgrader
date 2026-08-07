@@ -65,6 +65,9 @@ export TEXTDOMAIN
 
 . /usr/lib/elive-upgrader/functions.sh
 
+# Ensure English locale for consistent parsing of apt output
+export LANG=$EL_LC_EN
+
 # If debian-upgrade state is "alpha", force reports
 if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
     _upgrade_type=$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")

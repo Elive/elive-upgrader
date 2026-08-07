@@ -49,6 +49,9 @@ set -e
 source /usr/lib/elive-tools/functions 2>/dev/null || true
 source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
 
+# Ensure English locale for consistent parsing of apt output
+export LANG=$EL_LC_EN
+
 # If debian-upgrade state is "alpha", force reports
 if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
     _upgrade_type=$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")
