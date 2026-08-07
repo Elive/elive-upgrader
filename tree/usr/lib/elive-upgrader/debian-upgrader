@@ -248,7 +248,21 @@ stop_warning_loop() {
 }
 
 # Logging setup
-DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-/var/log/debian-upgrade-$(date +%Y%m%d-%H%M%S).log}"
+# Generate intuitive log filename with step information
+get_log_filename() {
+    local step="${1:-boot}"
+    local timestamp=$(date +%Y%m%d-%H%M%S)
+    local target="${TARGET_CODENAME:-unknown}"
+    echo "/var/log/debian-upgrade-${target}-${step}-${timestamp}.log"
+}
+
+# Determine current step for log naming
+CURRENT_STEP_NAME="boot"
+if [[ "$BOOT_MODE" == "true" ]]; then
+    CURRENT_STEP_NAME="boot-mode"
+fi
+
+DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-$(get_log_filename "$CURRENT_STEP_NAME")}"
 export DEBIAN_UPGRADE_LOGFILE
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -256,8 +270,13 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 copy_log_to_root() {
     if [[ -f "$LOG_FILE" ]]; then
         mkdir -p /root/upgrade-logs/ 2>/dev/null || true
-        cp -f "$LOG_FILE" /root/upgrade-logs/ 2>/dev/null || true
-        cp -f "$LOG_FILE" /root/ 2>/dev/null || true
+        # Create descriptive filename for root copy
+        local step_name="${CURRENT_STEP_NAME:-boot}"
+        local target_name="${TARGET_CODENAME:-unknown}"
+        local timestamp=$(date +%Y%m%d-%H%M%S)
+        local descriptive_name="debian-upgrade-${target_name}-${step_name}-${timestamp}.log"
+        cp -f "$LOG_FILE" "/root/upgrade-logs/${descriptive_name}" 2>/dev/null || true
+        cp -f "$LOG_FILE" "/root/${descriptive_name}" 2>/dev/null || true
     fi
 }
 
@@ -1035,6 +1054,20 @@ set_progress() {
         else
             echo -e "${GREEN}[INFO]${NC} [$percent%] $msg"
         fi
+    fi
+    # Update step name for logging based on progress
+    if [[ "$percent" -ge 5 && "$percent" -lt 30 ]]; then
+        CURRENT_STEP_NAME="minimal-upgrade"
+    elif [[ "$percent" -ge 30 && "$percent" -lt 80 ]]; then
+        CURRENT_STEP_NAME="full-upgrade"
+    elif [[ "$percent" -ge 80 && "$percent" -lt 90 ]]; then
+        CURRENT_STEP_NAME="kernel-install"
+    elif [[ "$percent" -ge 90 && "$percent" -lt 96 ]]; then
+        CURRENT_STEP_NAME="initramfs-update"
+    elif [[ "$percent" -ge 96 && "$percent" -lt 100 ]]; then
+        CURRENT_STEP_NAME="grub-update"
+    elif [[ "$percent" -ge 100 ]]; then
+        CURRENT_STEP_NAME="completed"
     fi
     copy_log_to_root
 }
