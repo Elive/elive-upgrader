@@ -1554,14 +1554,6 @@ cleanup_packages() {
     # Clean package cache
     run_and_show_plymouth_on_boot apt-get clean || true
 
-    # Remove non-Debian packages
-    # Note: Elive packages are listead as non-Debian, so we skip this step
-    # non_debian_packages=$( LC_ALL=C apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
-    # if [[ -n "$non_debian_packages" ]]; then
-    #     log_warning "Non-Debian packages found. Consider removing manually:"
-    #     echo "$non_debian_packages"
-    # fi
-
     # Remove leftover configuration files
     find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -delete 2>/dev/null || true
 }
