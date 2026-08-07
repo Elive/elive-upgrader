@@ -43,7 +43,7 @@ export TEXTDOMAIN
 #   export DEBCONF_NOWARNINGS=true
 #   export UCF_FORCE_CONFFOLD=1
 #   export APT_LISTCHANGES_FRONTEND=none
-#   export LC_ALL=C
+#   export LC_ALL=$EL_LC_EN
 #   export TERM=linux
 #
 #   # Replace codenames (e.g., bookworm to trixie) in sources, preferences, and configurations
@@ -64,9 +64,6 @@ export TEXTDOMAIN
 # ==============================================================================
 
 . /usr/lib/elive-upgrader/functions.sh
-
-# Ensure English locale for consistent parsing of apt output
-export LANG=$EL_LC_EN
 
 # If debian-upgrade state is "alpha", force reports
 if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
@@ -109,7 +106,7 @@ export DEBCONF_NONINTERACTIVE_SEEN=true
 export DEBCONF_NOWARNINGS=true
 export UCF_FORCE_CONFFOLD=1
 export APT_LISTCHANGES_FRONTEND=none
-export LC_ALL=C
+export LC_ALL=$EL_LC_EN
 export TERM=linux
 
 # Pre-seed debconf to prevent Secure Boot / MOK enrollment prompts from hanging the boot upgrade
@@ -463,7 +460,7 @@ full_os_backup() {
     # Estimate additional space needed for the upgrade itself (download + unpack + safety)
     local download_kb=0 install_kb=0
     local sim_out
-    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
+    sim_out=$( LC_ALL=C apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
 
     # Parse download size from simulation output
     local dl_line dl_val dl_unit
@@ -1346,7 +1343,7 @@ run_and_show_plymouth_on_boot() {
             if [[ "$is_apt" == "true" ]]; then
                 # Estimate total packages to process
                 local total_pkgs
-                total_pkgs=$(apt-get -s "${@:2}" 2>/dev/null | grep -E "^Inst " | wc -l)
+                total_pkgs=$( LC_ALL=C apt-get -s "${@:2}" 2>/dev/null | grep -E "^Inst " | wc -l)
                 if [[ "$total_pkgs" -eq 0 ]]; then
                     total_pkgs=50 # fallback
                 fi
@@ -1559,7 +1556,7 @@ cleanup_packages() {
 
     # Remove non-Debian packages
     # Note: Elive packages are listead as non-Debian, so we skip this step
-    # non_debian_packages=$(apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
+    # non_debian_packages=$( LC_ALL=C apt list '?narrow(?installed, ?not(?origin(Debian)))' 2>/dev/null | grep -v Listing | cut -d/ -f1)
     # if [[ -n "$non_debian_packages" ]]; then
     #     log_warning "Non-Debian packages found. Consider removing manually:"
     #     echo "$non_debian_packages"
@@ -1623,7 +1620,7 @@ check_disk_space() {
     # Run a quick simulation to estimate required space
     log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
     local sim_out
-    sim_out=$(apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
+    sim_out=$( LC_ALL=C apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
 
     log_debug "Simulation output:\n$sim_out"
 
@@ -2033,7 +2030,7 @@ verify_upgrade() {
     fi
 
     # Check for held packages
-    held_packages=$(apt-mark showhold)
+    held_packages=$( LC_ALL=C apt-mark showhold)
     if [[ -n "$held_packages" ]]; then
         log_warning "The following packages are on hold:"
         echo "$held_packages"
@@ -2639,7 +2636,7 @@ main_upgrade() {
         export DEBIAN_PRIORITY=critical
         export DEBCONF_NONINTERACTIVE_SEEN=true
         export DEBCONF_NOWARNINGS=true
-        export LC_ALL=C
+        export LC_ALL=$EL_LC_EN
         export TERM=linux
     fi
 
@@ -2873,7 +2870,7 @@ main_upgrade() {
 
     # Unhold any kernel packages that were held during the upgrade
     local held_packages
-    held_packages=$(apt-mark showhold 2>/dev/null || true)
+    held_packages=$( LC_ALL=C apt-mark showhold 2>/dev/null || true)
     if [[ -n "$held_packages" ]]; then
         log_info "Unholding packages that were held during upgrade: $held_packages"
         echo "$held_packages" | xargs -r apt-mark unhold 2>/dev/null || true
@@ -3067,7 +3064,7 @@ main() {
                 log_info "Starting pre-download in tmux session..."
                 tmux-attach-jobs "elive-upgrader" "Predownloading" "bash \"$0\" --enable-boot-upgrade \"$2\""
                 sleep 1 ; sync
-                if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                if ! LC_ALL=$EL_LC_EN ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
                     if command -v urxvt &>/dev/null; then
                         urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
                     elif command -v x-terminal-emulator &>/dev/null; then
@@ -3183,7 +3180,7 @@ main() {
                 # Don't acquire lock in parent - the child tmux session will acquire it
                 tmux-attach-jobs "elive-upgrader" "distro-upgrade" "bash \"$0\" \"$@\""
                 sleep 1 ; sync
-                if ! LC_ALL=C ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                if ! LC_ALL=$EL_LC_EN ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
                     urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
                 fi
             else
