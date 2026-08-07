@@ -113,77 +113,70 @@ disable_boot_services() {
     fi
 }
 
-# Suspend TTY logins and display managers on non-systemd systems
-suspend_non_systemd_gettys() {
-    if [ ! -d /run/systemd/system ]; then
-        echo "Non-systemd system detected. Suspending TTY logins and display managers..."
+# Suspend TTY1 login and display managers
+suspend_tty1_and_dms() {
+    echo "Suspending TTY1 login and display managers..." >/dev/console 2>/dev/null || true
 
-        # Stop display managers to ensure upgrade runs in console mode without GUI intervention
-        local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
-        if ((is_openrc)); then
-            for dm in $dm_list; do
-                if rc-service "$dm" status >/dev/null 2>&1; then
-                    echo "Stopping OpenRC display manager: $dm"
-                    rc-service "$dm" stop 2>/dev/null || true
-                fi
-            done
-            for srv in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
-                rc-service "$srv" stop 2>/dev/null || true
-            done
-        elif command -v service &>/dev/null; then
-            for dm in $dm_list; do
-                service "$dm" stop 2>/dev/null || true
-            done
-        elif command -v invoke-rc.d &>/dev/null; then
-            for dm in $dm_list; do
-                invoke-rc.d "$dm" stop 2>/dev/null || true
-            done
-        fi
+    # For systemd: stop and mask getty@tty1.service so tty1 remains clear for console output
+    if [ -d /run/systemd/system ] && command -v systemctl &>/dev/null; then
+        systemctl stop getty@tty1.service 2>/dev/null || true
+        systemctl mask getty@tty1.service 2>/dev/null || true
+    fi
 
-        # Kill any remaining display manager or X server processes
-        pkill -f "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|Xorg|Xwayland" 2>/dev/null || true
+    # Stop display managers to ensure upgrade runs in console mode without GUI intervention
+    local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
+    if ((is_openrc)); then
+        for dm in $dm_list; do
+            if rc-service "$dm" status >/dev/null 2>&1; then
+                echo "Stopping OpenRC display manager: $dm" >/dev/console 2>/dev/null || true
+                rc-service "$dm" stop 2>/dev/null || true
+            fi
+        done
+        for srv in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
+            rc-service "$srv" stop 2>/dev/null || true
+        done
+        rc-service getty.tty1 stop 2>/dev/null || true
+    elif command -v service &>/dev/null; then
+        for dm in $dm_list; do
+            service "$dm" stop 2>/dev/null || true
+        done
+    elif command -v invoke-rc.d &>/dev/null; then
+        for dm in $dm_list; do
+            invoke-rc.d "$dm" stop 2>/dev/null || true
+        done
+    fi
 
-        # For SysVinit: comment out getty lines in /etc/inittab
-        if [ -f /etc/inittab ]; then
-            cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
-            sed -i 's/^\([0-9]\+:.*getty.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
-            # Tell init to reload inittab
-            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
-        fi
-        # For OpenRC: stop getty services
-        if ((is_openrc)); then
-            for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
-                rc-service "$srv" stop 2>/dev/null || true
-            done
-        fi
+    # Kill any remaining display manager or X server processes
+    pkill -f "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|Xorg|Xwayland" 2>/dev/null || true
+
+    # For SysVinit: comment out getty line on tty1 in /etc/inittab (keep tty2+ active)
+    if [ -f /etc/inittab ]; then
+        cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
+        sed -i 's/^\([0-9]\+:.*getty.*tty1.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
+        telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
     fi
 }
 
-# Restore TTY logins and display managers on non-systemd systems
-restore_non_systemd_gettys() {
-    if [ ! -d /run/systemd/system ]; then
-        echo "Restoring TTY logins and display managers..."
-        # For SysVinit: restore getty lines in /etc/inittab
-        if [ -f /etc/inittab.bak-upgrader ]; then
-            mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
-            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
-        elif [ -f /etc/inittab ]; then
-            sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
-            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
-        fi
-        # For OpenRC: start getty services and display manager
-        if ((is_openrc)); then
-            for srv in $(rc-status --all 2>/dev/null | grep getty | awk '{print $1}'); do
-                rc-service "$srv" start 2>/dev/null || true
-            done
-            local dm_list="display-manager lightdm gdm gdm3 sddm xdm slim nodm lxdm cdm"
-            for dm in $dm_list; do
-                if [ -x "/etc/init.d/$dm" ]; then
-                    rc-service "$dm" start 2>/dev/null || true
-                    break
-                fi
-            done
-        fi
+# Restore TTY1 login and display managers
+restore_tty1_and_dms() {
+    echo "Restoring TTY1 login..." >/dev/console 2>/dev/null || true
+
+    if [ -d /run/systemd/system ] && command -v systemctl &>/dev/null; then
+        systemctl unmask getty@tty1.service 2>/dev/null || true
+    fi
+
+    # For SysVinit: restore getty line on tty1 in /etc/inittab
+    if [ -f /etc/inittab.bak-upgrader ]; then
+        mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
+        telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+    elif [ -f /etc/inittab ]; then
+        sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
+        telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+    fi
+
+    # For OpenRC: start getty.tty1 service
+    if ((is_openrc)); then
+        rc-service getty.tty1 start 2>/dev/null || true
     fi
 }
 
@@ -289,7 +282,7 @@ cleanup_and_disable() {
     rm -f "$DEFAULTS_FILE"
     rm -f "$LOCK_FILE"
     disable_boot_services
-    restore_non_systemd_gettys
+    restore_tty1_and_dms
 }
 
 # Remove old OS upgrade backup directories from /root once the
@@ -379,8 +372,8 @@ main() {
         exit 0
     fi
 
-    # Suspend TTY logins for non-systemd systems
-    suspend_non_systemd_gettys
+    # Suspend TTY1 login and display managers
+    suspend_tty1_and_dms
 
     # Re-read config after validation (in case it was modified)
     . "$DEFAULTS_FILE"

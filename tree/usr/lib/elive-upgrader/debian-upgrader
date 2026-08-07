@@ -166,23 +166,21 @@ draw_banner() {
     local border=""
     for ((i=0; i<len+4; i++)); do border="${border}="; done
 
-    if [[ "$BOOT_MODE" == "true" && "$USE_PLYMOUTH" == "true" ]]; then
-        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-            # Display a persistent, prominent title message on the Plymouth screen
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        local target_out="/dev/console"
+        stty sane < "$target_out" 2>/dev/null || true
+        echo -e "${color}${border}${NC}" > "$target_out"
+        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}" > "$target_out"
+        echo -e "${color}${border}${NC}" > "$target_out"
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
             plymouth message --text="*** $msg ***" 2>/dev/null || true
         fi
         log_action_msg "=== $msg ==="
     else
-        local target_out="/dev/stdout"
-        if [[ "$BOOT_MODE" == "true" ]]; then
-            target_out="/dev/console"
-            # Reset terminal settings to sane defaults to prevent broken formatting/tabs
-            stty sane < "$target_out" 2>/dev/null || true
-        fi
-        echo -e "${color}${border}${NC}" > "$target_out"
-        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}" > "$target_out"
-        echo -e "${color}${border}${NC}" > "$target_out"
+        echo -e "${color}${border}${NC}"
+        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}"
+        echo -e "${color}${border}${NC}"
     fi
 }
 
@@ -1088,22 +1086,18 @@ validate_state_file() {
 set_progress() {
     local percent="$1"
     local msg="$2"
-    if [[ "$BOOT_MODE" == "true" && "$USE_PLYMOUTH" == "true" ]]; then
-        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+    if [[ "$BOOT_MODE" == "true" ]]; then
+        if [[ -n "$msg" ]]; then
+            echo -e "  ${GREEN}[  OK  ]${NC} [$percent%] $msg" >/dev/console
+        fi
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             plymouth update --progress="$percent" 2>/dev/null || true
             if [[ -n "$msg" ]]; then
                 plymouth message --text="[$percent%] $msg" 2>/dev/null || true
             fi
         fi
-    fi
-    if [[ -n "$msg" ]]; then
-        if [[ "$BOOT_MODE" == "true" ]]; then
-            if [[ "$USE_PLYMOUTH" != "true" ]]; then
-                echo -e "  ${GREEN}[  OK  ]${NC} [$percent%] $msg" >/dev/console
-            fi
-        else
-            echo -e "${GREEN}[INFO]${NC} [$percent%] $msg"
-        fi
+    elif [[ -n "$msg" ]]; then
+        echo -e "${GREEN}[INFO]${NC} [$percent%] $msg"
     fi
     # Update step name for logging based on progress
     if [[ "$percent" -ge 5 && "$percent" -lt 30 ]]; then
@@ -1123,13 +1117,10 @@ set_progress() {
 
 log_info() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+        echo -e "  ${GREEN}[  OK  ]${NC} $1" >/dev/console
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_action_msg "$1"
-            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-                plymouth message --text="$1" 2>/dev/null || true
-            fi
-        else
-            echo -e "  ${GREEN}[  OK  ]${NC} $1" >/dev/console
+            plymouth message --text="$1" 2>/dev/null || true
         fi
     else
         echo -e "${GREEN}[INFO]${NC} $1"
@@ -1159,13 +1150,10 @@ trigger_reboot() {
 
 log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+        echo -e "  ${YELLOW}[ WARN ]${NC} $1" >/dev/console
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_warning_msg "$1"
-            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-                plymouth message --text="WARNING: $1" 2>/dev/null || true
-            fi
-        else
-            echo -e "  ${YELLOW}[ WARN ]${NC} $1" >/dev/console
+            plymouth message --text="WARNING: $1" 2>/dev/null || true
         fi
     fi
     el_warning "$1"
@@ -1173,13 +1161,10 @@ log_warning() {
 
 log_error() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        if [[ "$USE_PLYMOUTH" == "true" ]]; then
+        echo -e "  ${RED}[ FAIL ]${NC} $1" >/dev/console
+        if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_failure_msg "$1"
-            if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-                plymouth message --text="ERROR: $1" 2>/dev/null || true
-            fi
-        else
-            echo -e "  ${RED}[ FAIL ]${NC} $1" >/dev/console
+            plymouth message --text="ERROR: $1" 2>/dev/null || true
         fi
     fi
     el_error "$1"
@@ -1274,8 +1259,13 @@ safe_apt_run() {
     while (( attempt <= max_attempts )); do
         # Run the command and capture exit code explicitly
         log_info "Running command: ${cmd[*]}"
-        run_and_show_plymouth_on_boot "${cmd[@]}" 2> "$err_log"
-        exit_code=$?
+        local run_log
+        run_log=$(mktemp)
+        set +o pipefail
+        run_and_show_plymouth_on_boot "${cmd[@]}" 2>&1 | tee "$run_log"
+        exit_code=${PIPESTATUS[0]}
+        cat "$run_log" > "$err_log"
+        rm -f "$run_log"
         if [[ "$exit_code" -eq 0 ]]; then
             rm -f "$err_log"
             return 0
