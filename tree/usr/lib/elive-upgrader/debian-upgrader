@@ -860,9 +860,9 @@ case "$CHOICE" in
     retry)
         # User wants to retry - launch the upgrader
         if command -v pkexec &>/dev/null; then
-            pkexec /usr/lib/elive-upgrader/debian-upgrader --status
+            pkexec /usr/lib/elive-upgrader/debian-upgrader
         elif command -v gksu &>/dev/null; then
-            gksu /usr/lib/elive-upgrader/debian-upgrader --status
+            gksu /usr/lib/elive-upgrader/debian-upgrader
         else
             show_notification "Retry" "Please run the Elive Upgrader from the application menu or terminal to retry the upgrade."
         fi
@@ -1346,19 +1346,29 @@ run_and_show_plymouth_on_boot() {
     local start_pct=0
     local end_pct=100
 
-    if [[ "$1" == "apt-get" && ("$2" == "upgrade" || "$2" == "full-upgrade" || "$2" == "dist-upgrade" || "$2" == "install") ]]; then
-        is_apt=true
-        if [[ "$2" == "upgrade" ]]; then
-            start_pct=10
-            end_pct=30
-        elif [[ "$2" == "full-upgrade" || "$2" == "dist-upgrade" ]]; then
-            start_pct=30
-            end_pct=80
-        else
-            start_pct=80
-            end_pct=85
-        fi
-    fi
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            upgrade)
+                is_apt=true
+                start_pct=10
+                end_pct=30
+                break
+                ;;
+            full-upgrade|dist-upgrade)
+                is_apt=true
+                start_pct=30
+                end_pct=80
+                break
+                ;;
+            install)
+                is_apt=true
+                start_pct=80
+                end_pct=85
+                break
+                ;;
+        esac
+    done
 
     if [[ "$BOOT_MODE" == "true" ]]; then
         local target_out="/dev/console"
@@ -2664,11 +2674,9 @@ disable_boot_upgrade() {
                 systemctl daemon-reload 2>/dev/null || true
         fi
         if command -v update-rc.d &>/dev/null; then
-            log_info "Disabling elive-distro-upgrader init script..."
             update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
         fi
         if ((is_openrc)); then
-            log_info "Disabling elive-distro-upgrader via OpenRC..."
             rc-update del elive-distro-upgrader 2>/dev/null || true
         fi
     ) &
