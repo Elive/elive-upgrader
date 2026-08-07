@@ -108,18 +108,24 @@ case "$1" in
         log_action_msg "  Current Step: ${CURRENT_STEP:-none}"
 
         # Get current codename
+        source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
         current_release_full="$(cat /etc/debian_version 2>/dev/null || echo "unknown")"
         current_version_number="$(echo "$current_release_full" | cut -d'.' -f1)"
         current_cn=""
-        case "$current_version_number" in
-            15|15.*)  current_cn="duke" ;;
-            14|14.*)  current_cn="forky" ;;
-            13|13.*)  current_cn="trixie" ;;
-            12|12.*)  current_cn="bookworm" ;;
-            11|11.*)  current_cn="bullseye" ;;
-            10|10.*)  current_cn="buster" ;;
-            *)        current_cn="unknown" ;;
-        esac
+        if command -v debian_version_to_codename &>/dev/null; then
+            current_cn="$(debian_version_to_codename "$current_version_number")"
+        fi
+        if [ -z "$current_cn" ] || [ "$current_cn" = "unknown" ]; then
+            case "$current_release_full" in
+                15*|*duke*)     current_cn="duke" ;;
+                14*|*forky*)    current_cn="forky" ;;
+                13*|*trixie*)   current_cn="trixie" ;;
+                12*|*bookworm*) current_cn="bookworm" ;;
+                11*|*bullseye*) current_cn="bullseye" ;;
+                10*|*buster*)   current_cn="buster" ;;
+                *)              current_cn="unknown" ;;
+            esac
+        fi
 
         log_action_msg "  Current Version: $current_cn"
         if [ -f "$LOCK_FILE" ]; then

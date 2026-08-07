@@ -43,12 +43,14 @@ declare -g -A DEBIAN_VERSIONS=(
 
 debian_version_to_codename() {
     local version="$1"
-    local major="${version%%.*}"
+    local major="${version%%[./]*}"
     if [[ -n "${DEBIAN_VERSIONS[$major]:-}" ]]; then
         echo "${DEBIAN_VERSIONS[$major]}"
+    elif [[ -n "${DEBIAN_CODENAMES[$major]:-}" ]]; then
+        echo "$major"
     else
         # Fallback: try to extract codename from version string
-        echo "$version" | grep -oE '^[a-z]+' | head -1
+        echo "$version" | grep -oE '[a-z]+' | head -1
     fi
 }
 
@@ -71,50 +73,50 @@ if [[ -s /etc/elive/settings ]] ; then
 fi
 
 # distro version
-case "$( cat /etc/debian_version )" in
-    15.*|"duke"*)
+case "$( cat /etc/debian_version 2>/dev/null )" in
+    15*|*duke*)
         is_duke=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-duke"
         ;;
-    14.*|"forky"*)
+    14*|*forky*)
         is_forky=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-forky"
         ;;
-    13.*|"trixie"*)
+    13*|*trixie*)
         is_trixie=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-trixie"
         ;;
-    12.*|"bookworm"*)
+    12*|*bookworm*)
         is_bookworm=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-bookworm"
         ;;
-    11.*|"bullseye"*)
+    11*|*bullseye*)
         is_bullseye=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-bullseye"
         ;;
-    10.*|"buster"*)
+    10*|*buster*)
         is_buster=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export DPKG_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         hooks_d="/usr/lib/elive-upgrader/hooks-buster"
         ;;
-    7.*|"wheezy"*)
+    7*|*wheezy*)
         is_wheezy=1
         export APT_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
         export APTGET_OPTIONS="-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-overwrite -y --allow-downgrades"
@@ -654,14 +656,14 @@ run_hooks(){
         target_codename="$(grep "^TARGET_CODENAME=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
         upgrade_completed="$(grep "^UPGRADE_COMPLETED=" /etc/default/elive-distro-upgrade | cut -d'"' -f2)"
 
-        case "$( cat /etc/debian_version )" in
-            15.*|"duke"*) current_codename="duke" ;;
-            14.*|"forky"*) current_codename="forky" ;;
-            13.*|"trixie"*) current_codename="trixie" ;;
-            12.*|"bookworm"*) current_codename="bookworm" ;;
-            11.*|"bullseye"*) current_codename="bullseye" ;;
-            10.*|"buster"*) current_codename="buster" ;;
-            *) current_codename="unknown" ;;
+        case "$( cat /etc/debian_version 2>/dev/null )" in
+            15*|*duke*)     current_codename="duke" ;;
+            14*|*forky*)    current_codename="forky" ;;
+            13*|*trixie*)   current_codename="trixie" ;;
+            12*|*bookworm*) current_codename="bookworm" ;;
+            11*|*bullseye*) current_codename="bullseye" ;;
+            10*|*buster*)   current_codename="buster" ;;
+            *)              current_codename="unknown" ;;
         esac
 
         # If upgrade is completed, notify the user and clean up
@@ -1161,7 +1163,7 @@ apt_get(){
         has_fuser=true
     fi
 
-    tput sc
+    [ -t 1 ] && tput sc 2>/dev/null || true
     while true; do
         # Check if locks are held
         local locks_held=false
@@ -1189,7 +1191,7 @@ apt_get(){
             2 ) j="|" ;;
             3 ) j="/" ;;
         esac
-        tput rc
+        [ -t 1 ] && tput rc 2>/dev/null || true
         echo -en "\r[$j] Waiting for other software managers to finish..."
         is_waiting=1
 
@@ -1206,7 +1208,7 @@ apt_get(){
 
     # Clear the waiting message
     if ((is_waiting)); then
-        tput rc
+        [ -t 1 ] && tput rc 2>/dev/null || true
         echo -en "\r\033[K"
     fi
 
