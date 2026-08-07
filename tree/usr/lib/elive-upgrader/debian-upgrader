@@ -1773,18 +1773,8 @@ check_disk_space() {
     log_info "Estimated download size: $(( download_kb / 1024 )) MB"
     log_info "Estimated net install size change: $(( install_kb / 1024 )) MB"
 
-    # Calculate required space
-    # We need space for:
-    # 1. Downloaded archives (download_kb)
-    # 2. Unpacking/temporary space (roughly download_kb * 1.5)
-    # 3. Net installation space (install_kb if positive)
-    # 4. Safety margin (500 MB)
-    local safety_margin_kb=524288
-    local temp_unpack_kb=$(( download_kb * 3 / 2 ))
-    local net_extra_kb=0
-    if (( install_kb > 0 )); then
-        net_extra_kb=$install_kb
-    fi
+    # Static required free space for / partition is set to 4 GB (4194304 KB)
+    local required_root_kb=4194304
 
     # Check if /var is on a separate partition
     local var_on_separate=false
@@ -1808,14 +1798,11 @@ check_disk_space() {
         apt-get autoclean -y 2>/dev/null || true
         # Run autoremove to clean up unused packages
         apt-get autoremove --purge -y 2>/dev/null || true
-        # remove thumanails
+        # remove thumbnails
         rm -rf /home/*/.thumbnails/* /home/*/.local/share/thumbnails/* 2>/dev/null || true
         # If still needed, do a full clean (will require re-downloading, but better than failing)
         # apt-get clean 2>/dev/null || true
     }
-
-    # Minimum required free space margin for upgrade on / is 30 GB (31457280 KB)
-    local min_required_kb=31457280
 
     if [[ "$var_on_separate" == "true" ]]; then
         # /var needs enough space for the download + small safety margin (100MB)
@@ -1829,11 +1816,6 @@ check_disk_space() {
                 exit 1
             fi
         fi
-        # / root needs space for unpacking, net install, and safety margin
-        local required_root_kb=$(( temp_unpack_kb + net_extra_kb + safety_margin_kb ))
-        if (( required_root_kb < min_required_kb )); then
-            required_root_kb=$min_required_kb
-        fi
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
@@ -1845,10 +1827,6 @@ check_disk_space() {
         fi
     else
         # Everything is on /
-        local required_root_kb=$(( download_kb + temp_unpack_kb + net_extra_kb + safety_margin_kb ))
-        if (( required_root_kb < min_required_kb )); then
-            required_root_kb=$min_required_kb
-        fi
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
