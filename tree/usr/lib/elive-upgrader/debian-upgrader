@@ -562,6 +562,7 @@ full_os_backup() {
         --exclude='/swapfile' \
         --exclude='/var/cache/elive-upgrader' \
         --exclude='/var/cache/elive-upgrader/*' \
+        --exclude='/var/cache/apt/archives/*' \
         --exclude='/var/tmp/*' \
         --exclude='/var/lib/apt/lists/*' \
         --exclude='/var/log/journal/*' \
@@ -609,6 +610,15 @@ restore_from_backup() {
         cp_opts="-a --reflink=auto"
     fi
 
+    local rsync_restore_opts=(
+        -aAXHv
+        --omit-dir-times
+        -u
+        --numeric-ids
+        --info=progress2
+        --ignore-errors
+    )
+
     # Restore each backed-up directory
     local backup_dirs=(
         "/usr"
@@ -631,12 +641,12 @@ restore_from_backup() {
         if [[ -d "$backup_src" ]]; then
             log_info "Restoring $src_dir..."
             if command -v rsync &>/dev/null; then
-                rsync -aAX --delete "$backup_src/" "$src_dir/" 2>/dev/null || {
+                rsync "${rsync_restore_opts[@]}" "$backup_src/" "$src_dir/" 2>/dev/null || {
                     log_warning "rsync restore failed for $src_dir, falling back to cp..."
-                    cp -a "$backup_src/." "$src_dir/" 2>/dev/null || true
+                    cp $cp_opts "$backup_src/." "$src_dir/" 2>/dev/null || true
                 }
             else
-                cp -a "$backup_src/." "$src_dir/" 2>/dev/null || true
+                cp $cp_opts "$backup_src/." "$src_dir/" 2>/dev/null || true
             fi
         fi
     done
