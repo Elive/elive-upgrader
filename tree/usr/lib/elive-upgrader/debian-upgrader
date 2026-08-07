@@ -421,7 +421,7 @@ is_non_rotational(){
     local rotational_file_f=""
     local rotational_v=""
 
-    root_dev_v="$(df / | awk 'NR==2 {print $1}' | sed 's|/dev/||;s|/.*||;s/[0-9]*$//')"
+    root_dev_v="$(df -P / | awk 'NR==2 {print $1}' | sed 's|/dev/||;s|/.*||;s/[0-9]*$//')"
 
     if [[ "${root_dev_v}" == dm-* ]] || [[ "${root_dev_v}" == mapper* ]]; then
         slave_dir_d="/sys/class/block/${root_dev_v}/slaves"
@@ -460,11 +460,57 @@ is_non_rotational(){
     return 1
 }
 
+# Helper function to convert size unit to KB
+to_kb() {
+    local val="$1"
+    local unit
+    unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+    val=${val//,/.}
+
+    if [[ -z "$val" || -z "$unit" ]]; then
+        echo "0"
+        return
+    fi
+
+    local int_val
+    if [[ "$val" == *.* ]]; then
+        local int_part="${val%%.*}"
+        local dec_part="${val#*.}"
+        dec_part="${dec_part}000"
+        dec_part="${dec_part:0:3}"
+        int_val=$(( 10#${int_part:-0} * 1000 + 10#${dec_part:-0} ))
+    else
+        int_val=$(( 10#${val:-0} * 1000 ))
+    fi
+
+    local factor=1
+    case "$unit" in
+        k*|kb) factor=1 ;;
+        m*|mb) factor=1024 ;;
+        g*|gb) factor=$((1024 * 1024)) ;;
+        t*|tb) factor=$((1024 * 1024 * 1024)) ;;
+        b*|byte*) factor=0 ;;
+        *) factor=1 ;;
+    esac
+
+    if [[ "$unit" == b* ]]; then
+        echo $(( int_val / 1000000 ))
+    else
+        echo $(( int_val * factor / 1000 ))
+    fi
+}
+
 # Perform full OS backup
 full_os_backup() {
     if ! command -v rsync &>/dev/null; then
         log_warning "rsync is not installed. Skipping full OS backup."
         return 0
+    fi
+
+    # Clean up any previous backup first to free space and avoid double-counting
+    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
+        log_info "Removing previous OS backup..."
+        rm -rf "$FULL_OS_BACKUP_DIR"
     fi
 
     # Directories to backup (OS-only, no user data)
@@ -484,58 +530,40 @@ full_os_backup() {
         "/sbin"
     )
 
-    # Calculate total size of main OS directories to backup in KB (excluding /home, etc.)
+    # Exclude pattern list matching rsync excludes
+    local du_excludes=(
+        --exclude='/var/cache/elive-upgrader'
+        --exclude='/var/cache/apt/archives/*'
+        --exclude='/var/tmp/*'
+        --exclude='/var/lib/apt/lists/*'
+        --exclude='/var/log/journal/*'
+        --exclude='/var/cache/thumbnails/*'
+    )
+
+    # Calculate total size of main OS directories to backup in KB (excluding /home, caches, etc.)
     log_info "Calculating size of main OS directories for backup..."
     local os_dirs_size_kb=0
+    local existing_dirs=()
     for d in "${backup_dirs[@]}"; do
         if [[ -d "$d" ]]; then
-            local size_kb
-            size_kb=$(du -s "$d" 2>/dev/null | awk '{print $1}')
-            if [[ "$size_kb" =~ ^[0-9]+$ ]]; then
-                os_dirs_size_kb=$((os_dirs_size_kb + size_kb))
-            fi
+            existing_dirs+=("$d")
         fi
     done
 
-    # Helper to convert size to KB
-    __to_kb() {
-        local val="$1"
-        local unit
-        unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
-        val=${val//,/.}
+    if [[ ${#existing_dirs[@]} -gt 0 ]]; then
+        os_dirs_size_kb=$(du -s -c -k "${du_excludes[@]}" "${existing_dirs[@]}" 2>/dev/null | awk '/total$/ {print $1}')
+    fi
 
-        if [[ -z "$val" || -z "$unit" ]]; then
-            echo "0"
-            return
-        fi
-
-        local int_val
-        if [[ "$val" == *.* ]]; then
-            local int_part="${val%%.*}"
-            local dec_part="${val#*.}"
-            dec_part="${dec_part}000"
-            dec_part="${dec_part:0:3}"
-            int_val=$(( int_part * 1000 + dec_part ))
-        else
-            int_val=$(( val * 1000 ))
-        fi
-
-        local factor=1
-        case "$unit" in
-            k*|kb) factor=1 ;;
-            m*|mb) factor=1024 ;;
-            g*|gb) factor=$((1024 * 1024)) ;;
-            t*|tb) factor=$((1024 * 1024 * 1024)) ;;
-            b) factor=0 ;;
-            *) factor=1 ;;
-        esac
-
-        if [[ "$unit" == "b" ]]; then
-            echo $(( int_val / 1000 ))
-        else
-            echo $(( int_val * factor / 1000 ))
-        fi
-    }
+    if ! [[ "$os_dirs_size_kb" =~ ^[0-9]+$ ]]; then
+        os_dirs_size_kb=0
+        for d in "${existing_dirs[@]}"; do
+            local size_kb
+            size_kb=$(du -s -k "${du_excludes[@]}" "$d" 2>/dev/null | awk '{print $1}')
+            if [[ "$size_kb" =~ ^[0-9]+$ ]]; then
+                os_dirs_size_kb=$((os_dirs_size_kb + size_kb))
+            fi
+        done
+    fi
 
     # Estimate additional space needed for the upgrade itself (download + unpack + safety)
     local download_kb=0 install_kb=0
@@ -551,7 +579,7 @@ full_os_backup() {
         dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
         dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
         if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
-            download_kb=$(__to_kb "$dl_val" "$dl_unit")
+            download_kb=$(to_kb "$dl_val" "$dl_unit")
         fi
     fi
 
@@ -565,7 +593,7 @@ full_os_backup() {
         inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
         if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
             echo "$inst_line" | grep -qi "freed" && inst_sign=-1
-            install_kb=$(__to_kb "$inst_val" "$inst_unit")
+            install_kb=$(to_kb "$inst_val" "$inst_unit")
             (( install_kb *= inst_sign ))
         fi
     fi
@@ -576,12 +604,12 @@ full_os_backup() {
         upgrade_extra_kb=$(( upgrade_extra_kb + install_kb ))
     fi
 
-    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 4 GB extra
-    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 4194304 ))
+    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 2 GB safety
+    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 2097152 ))
 
     # Check free space on root partition
     local free_space_kb
-    free_space_kb=$(df / | awk 'NR==2 {print $4}')
+    free_space_kb=$(df -P / | awk 'NR==2 {print $4}')
 
     log_info "OS directories size: $((os_dirs_size_kb / 1024)) MB. Required free space for backup: $((required_space_kb / 1024)) MB. Available: $((free_space_kb / 1024)) MB."
 
@@ -591,12 +619,6 @@ full_os_backup() {
     fi
 
     draw_banner "CREATING FULL OS BACKUP FOR RECOVERY" "$MAGENTA"
-
-    # Clean up any previous backup
-    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
-        log_info "Removing previous OS backup..."
-        rm -rf "$FULL_OS_BACKUP_DIR"
-    fi
 
     # Ensure the parent and backup directories exist before rsync starts
     mkdir -p "/var/cache/elive-upgrader"
@@ -1297,14 +1319,14 @@ free_emergency_disk_space() {
 
     # 5. Clean downloaded package archives if space is still critically low
     local free_kb
-    free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$free_kb" ]] && (( free_kb < 1048576 )); then
         log_warning "Free space still under 1GB ($(( free_kb / 1024 )) MB). Cleaning APT archive cache..."
         apt-get clean 2>/dev/null || true
     fi
 
     local new_free_kb
-    new_free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    new_free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     log_info "Emergency disk space cleanup finished. Current free space on /: $(( new_free_kb / 1024 )) MB."
 }
 
@@ -1314,7 +1336,7 @@ repair_apt() {
 
     # Check if root free space is low (< 1 GB) and attempt space recovery
     local root_free_kb
-    root_free_kb=$(df / 2>/dev/null | awk 'NR==2 {print $4}')
+    root_free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$root_free_kb" ]] && (( root_free_kb < 1048576 )); then
         log_warning "Low disk space detected during repair ($(( root_free_kb / 1024 )) MB free)."
         free_emergency_disk_space
@@ -1419,7 +1441,7 @@ safe_apt_run() {
 
         # Check for out-of-space error
         if grep -qi "No space left on device\|ENOSPC\|write error\|not enough free space\|No space left" "$err_log" 2>/dev/null || \
-           (( $(df / | awk 'NR==2 {print $4}') < 1048576 )); then
+           (( $(df -P / | awk 'NR==2 {print $4}') < 1048576 )); then
             log_warning "Out of space condition detected! Attempting emergency disk space recovery..."
             free_emergency_disk_space
         fi
@@ -1749,53 +1771,6 @@ cleanup_packages() {
 check_disk_space() {
     log_info "Checking disk space..."
 
-    # Helper function to convert to KB
-    to_kb() {
-        local val="$1"
-        local unit
-        unit=$(echo "$2" | tr '[:upper:]' '[:lower:]')
-        # Normalize comma to period for decimal parsing
-        val=${val//,/.}
-
-        # Validate inputs
-        if [[ -z "$val" || -z "$unit" ]]; then
-            echo "0"
-            return
-        fi
-
-        # Use pure bash arithmetic for the conversion to avoid awk locale issues
-        # Convert to integer representation (multiply by 1000 to preserve 3 decimal places)
-        local int_val
-        if [[ "$val" == *.* ]]; then
-            # Has decimal part
-            local int_part="${val%%.*}"
-            local dec_part="${val#*.}"
-            # Pad or truncate decimal part to 3 digits
-            dec_part="${dec_part}000"
-            dec_part="${dec_part:0:3}"
-            int_val=$(( int_part * 1000 + dec_part ))
-        else
-            int_val=$(( val * 1000 ))
-        fi
-
-        local factor=1
-        case "$unit" in
-            k*|kb) factor=1 ;;
-            m*|mb) factor=1024 ;;
-            g*|gb) factor=$((1024 * 1024)) ;;
-            t*|tb) factor=$((1024 * 1024 * 1024)) ;;
-            b) factor=0 ;;  # bytes, will be handled separately
-            *) factor=1 ;;
-        esac
-
-        if [[ "$unit" == "b" ]]; then
-            # Convert bytes to KB
-            echo $(( int_val / 1000 ))
-        else
-            # Multiply by factor and divide by 1000 (to account for our 3 decimal precision)
-            echo $(( int_val * factor / 1000 ))
-        fi
-    }
 
         # Run a quick simulation to estimate required space
     log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
@@ -1936,22 +1911,29 @@ check_disk_space() {
     log_info "Estimated download size: $(( download_kb / 1024 )) MB"
     log_info "Estimated net install size change: $(( install_kb / 1024 )) MB"
 
-    # Static required free space for / partition is set to 4 GB (4194304 KB)
-    local required_root_kb=4194304
+    # Calculate required free space dynamically: download + unpack (1.5 * download) + net install + 2GB buffer
+    local upgrade_needed_kb=$(( download_kb + download_kb * 3 / 2 ))
+    if (( install_kb > 0 )); then
+        upgrade_needed_kb=$(( upgrade_needed_kb + install_kb ))
+    fi
+    local required_root_kb=$(( upgrade_needed_kb + 2097152 ))
+    if (( required_root_kb < 2097152 )); then
+        required_root_kb=2097152
+    fi
 
     # Check if /var is on a separate partition
     local var_on_separate=false
     local var_dev root_dev
-    var_dev=$(df /var | awk 'NR==2 {print $1}')
-    root_dev=$(df / | awk 'NR==2 {print $1}')
+    var_dev=$(df -P /var | awk 'NR==2 {print $1}')
+    root_dev=$(df -P / | awk 'NR==2 {print $1}')
     if [[ "$var_dev" != "$root_dev" ]]; then
         var_on_separate=true
     fi
 
     local var_space_free
-    var_space_free=$(df /var | awk 'NR==2 {print $4}')
+    var_space_free=$(df -P /var | awk 'NR==2 {print $4}')
     local root_space_free
-    root_space_free=$(df / | awk 'NR==2 {print $4}')
+    root_space_free=$(df -P / | awk 'NR==2 {print $4}')
 
     attempt_space_cleanup() {
         log_warning "Attempting to free up space automatically..."
@@ -2002,7 +1984,7 @@ check_disk_space() {
         log_info "Checking separate /var partition (Free: $(( var_space_free / 1024 )) MB, Required: $(( required_var_kb / 1024 )) MB)"
         if (( var_space_free < required_var_kb )); then
             attempt_space_cleanup
-            var_space_free=$(df /var | awk 'NR==2 {print $4}')
+            var_space_free=$(df -P /var | awk 'NR==2 {print $4}')
             if (( var_space_free < required_var_kb )); then
                 handle_insufficient_space "/var" "$(( required_var_kb / 1024 ))" "$(( var_space_free / 1024 ))"
             fi
@@ -2010,7 +1992,7 @@ check_disk_space() {
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
-            root_space_free=$(df / | awk 'NR==2 {print $4}')
+            root_space_free=$(df -P / | awk 'NR==2 {print $4}')
             if (( root_space_free < required_root_kb )); then
                 handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
             fi
@@ -2020,7 +2002,7 @@ check_disk_space() {
         log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
         if (( root_space_free < required_root_kb )); then
             attempt_space_cleanup
-            root_space_free=$(df / | awk 'NR==2 {print $4}')
+            root_space_free=$(df -P / | awk 'NR==2 {print $4}')
             if (( root_space_free < required_root_kb )); then
                 handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
             fi
@@ -2083,7 +2065,7 @@ perform_upgrade() {
 
     # Check space in /boot for two kernels (approx 100MB each * 1.3 tolerance = 260MB / 266240 KB)
     local boot_space_free
-    boot_space_free=$(df /boot | awk 'NR==2 {print $4}')
+    boot_space_free=$(df -P /boot | awk 'NR==2 {print $4}')
     local required_boot_kb=266240
     local can_install_new_kernel=true
 
