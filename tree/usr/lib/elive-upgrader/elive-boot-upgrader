@@ -389,6 +389,18 @@ main() {
     current_cn="$(get_current_codename)"
     echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"
 
+    # Handle Plymouth based on OS release (disabled on Bookworm, enabled for others)
+    if [[ "${is_bookworm:-0}" -eq 1 ]] || [[ "$(cat /etc/debian_version 2>/dev/null)" =~ ^12 ]]; then
+        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+            plymouth quit 2>/dev/null || true
+        fi
+    else
+        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+            plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
+            plymouth message --text="*** ELIVE DISTRO UPGRADER ***" 2>/dev/null || true
+        fi
+    fi
+
     # Check if upgrade script exists
     if [ ! -x "$SCRIPT_PATH" ]; then
         el_error "$SCRIPT_PATH not found or not executable"
