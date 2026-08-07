@@ -1609,9 +1609,11 @@ check_disk_space() {
         fi
     }
 
-    # Run a quick simulation to estimate required space
+        # Run a quick simulation to estimate required space
     log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
     local sim_out
+    # the -s option doesn't give the "Need to get" line when there are no downloads, 
+    # so we'll use --print-uris as fallback.
     sim_out=$( LC_ALL=C apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
 
     log_debug "Simulation output:\n$sim_out"
@@ -1621,42 +1623,69 @@ check_disk_space() {
     local download_parsed=0
     local install_parsed=0
 
-    # Parse download size from "Need to get X.Y MB of archives."
-    # Handles formats like: "Need to get 1,234 MB of archives." or "Need to get 45.6 kB of archives."
-    # Also handles: "Need to get 1,234.56 MB of archives."
+    # ------------------------------------------------------------
+    # 1. Parse download size from "Need to get X.Y [MB|kB|...]"
+    # ------------------------------------------------------------
     local dl_line
     dl_line=$(echo "$sim_out" | grep -i "Need to get" | head -n 1)
     if [[ -n "$dl_line" ]]; then
         local dl_val dl_unit
-        # Extract the first number (with optional comma as thousands separator and period as decimal)
-        # First, remove commas (thousands separators) from the line for easier parsing
         local dl_line_clean
         dl_line_clean=$(echo "$dl_line" | sed 's/,//g')
-        # Now extract number with optional decimal
         dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        # Extract unit - look for the first letter sequence after the number
         dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-
         if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
             download_kb=$(to_kb "$dl_val" "$dl_unit")
             download_parsed=1
-            log_debug "Parsed download size: $dl_val $dl_unit = ${download_kb} KB"
+            log_debug "Parsed download size from 'Need to get': $dl_val $dl_unit = ${download_kb} KB"
         else
-            log_debug "Failed to parse download line: $dl_line"
-            log_debug "dl_val='$dl_val', dl_unit='$dl_unit'"
+            log_debug "Failed to parse 'Need to get' line: $dl_line"
         fi
     fi
 
-    # Fallback: if "Need to get" parsing failed, sum up individual package sizes from Inst lines
-    if (( download_kb == 0 )); then
-        log_debug "Primary download parsing failed, trying fallback from Inst lines..."
+    # ------------------------------------------------------------
+    # 2. Fallback: use --print-uris to get total download size (most reliable)
+    #    This works even when "Need to get" is missing (e.g. 0 B).
+    # ------------------------------------------------------------
+    if (( download_parsed == 0 )); then
+        log_debug "Primary download parsing failed, using --print-uris fallback..."
+        # Run the same upgrade simulation with --print-uris to get package sizes
+        # Capture only the lines that contain a .deb URL (they have the size as 3rd field)
+        local total_bytes=0
+        # We use the same options, but --print-uris instead of -s
+        local print_out
+        print_out=$( LC_ALL=C apt-get --print-uris dist-upgrade -y \
+            -o Dpkg::Options::="--force-confdef" \
+            -o Dpkg::Options::="--force-confold" \
+            -o Dpkg::Options::="--force-overwrite" \
+            --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true )
+
+        # The format is: 'http://...' package.deb 1234567 MD5Sum:...
+        # We sum the third field (size in bytes) for lines that start with a quote.
+        total_bytes=$(echo "$print_out" | awk '/^'\''/ {sum += $3} END {print sum}')
+        if [[ -n "$total_bytes" && "$total_bytes" -ge 0 ]]; then
+            # Convert bytes to KB (integer division, rounding down)
+            download_kb=$(( total_bytes / 1024 ))
+            download_parsed=1
+            log_debug "Download size from --print-uris: ${total_bytes} bytes = ${download_kb} KB"
+        else
+            log_debug "No packages to download (total_bytes = 0 or empty)"
+            download_kb=0
+            download_parsed=1   # We consider it parsed (0 is a valid value)
+        fi
+    fi
+
+    # ------------------------------------------------------------
+    # 3. Ultimate fallback: parse individual "Inst" lines (if still zero)
+    #    (kept for compatibility, but rarely needed)
+    # ------------------------------------------------------------
+    if (( download_parsed == 0 )); then
+        log_debug "Still no download size, trying fallback from Inst lines..."
         local sum_kb=0
         while IFS= read -r line; do
             local b_val b_unit
-            # Remove commas for easier parsing
             local line_clean
             line_clean=$(echo "$line" | sed 's/,//g')
-            # Extract size from format like "Inst package [1.2 MB]"
             b_val=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?' | grep -oP '[0-9]+(\.[0-9]+)?' | head -n 1)
             b_unit=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
             if [[ -n "$b_val" && -n "$b_unit" ]]; then
@@ -1670,21 +1699,25 @@ check_disk_space() {
             download_kb=$sum_kb
             download_parsed=1
             log_debug "Fallback download size from Inst lines: ${download_kb} KB"
+        else
+            # If still nothing, assume 0 and mark as parsed
+            download_kb=0
+            download_parsed=1
+            log_debug "No download size found from any method, assuming 0"
         fi
     fi
 
-    # Parse install size from "After this operation, X.Y MB of additional disk space will be used."
-    # or "After this operation, X.Y MB disk space will be freed."
+    # ------------------------------------------------------------
+    # Parse install size from "After this operation, X.Y MB ..."
+    # (unchanged, it works well)
+    # ------------------------------------------------------------
     local inst_line
     inst_line=$(echo "$sim_out" | grep -i "After this operation" | head -n 1)
     if [[ -n "$inst_line" ]]; then
         local inst_val inst_unit inst_sign
-        # Remove commas for easier parsing
         local inst_line_clean
         inst_line_clean=$(echo "$inst_line" | sed 's/,//g')
-        # Extract number with optional decimal
         inst_val=$(echo "$inst_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        # Extract unit
         inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
 
         if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
@@ -1699,7 +1732,6 @@ check_disk_space() {
             log_debug "Parsed install size: $inst_val $inst_unit (sign: $inst_sign) = ${install_kb} KB"
         else
             log_debug "Failed to parse install line: $inst_line"
-            log_debug "inst_val='$inst_val', inst_unit='$inst_unit'"
         fi
     fi
 
