@@ -1585,6 +1585,8 @@ check_disk_space() {
 
     local download_kb=0
     local install_kb=0
+    local download_parsed=0
+    local install_parsed=0
 
     # Parse download size from "Need to get X.Y MB of archives."
     # Handles formats like: "Need to get 1,234 MB of archives." or "Need to get 45.6 kB of archives."
@@ -1604,6 +1606,7 @@ check_disk_space() {
 
         if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
             download_kb=$(to_kb "$dl_val" "$dl_unit")
+            download_parsed=1
             log_debug "Parsed download size: $dl_val $dl_unit = ${download_kb} KB"
         else
             log_debug "Failed to parse download line: $dl_line"
@@ -1632,6 +1635,7 @@ check_disk_space() {
         done <<< "$(echo "$sim_out" | grep -E "^Inst " || true)"
         if (( sum_kb > 0 )); then
             download_kb=$sum_kb
+            download_parsed=1
             log_debug "Fallback download size from Inst lines: ${download_kb} KB"
         fi
     fi
@@ -1658,6 +1662,7 @@ check_disk_space() {
             fi
             install_kb=$(to_kb "$inst_val" "$inst_unit")
             install_kb=$(( install_kb * inst_sign ))
+            install_parsed=1
             log_debug "Parsed install size: $inst_val $inst_unit (sign: $inst_sign) = ${install_kb} KB"
         else
             log_debug "Failed to parse install line: $inst_line"
@@ -1666,13 +1671,13 @@ check_disk_space() {
     fi
 
     # Fallback to safe defaults if simulation didn't yield results
-    if (( download_kb == 0 )); then
+    if (( download_parsed == 0 )); then
         log_warning "Could not estimate download size from simulation. Using fallback estimate of 800 MB."
         download_kb=819200
     fi
-    if (( install_kb == 0 )); then
-        log_warning "Could not estimate install size from simulation. Using fallback estimate of 500 MB."
-        install_kb=512000
+    if (( install_parsed == 0 )); then
+        log_warning "Could not estimate install size from simulation. Using fallback estimate of 15 GB."
+        install_kb=$(( 15 * 1024 * 1024 ))
     fi
 
     log_info "Estimated download size: $(( download_kb / 1024 )) MB"
