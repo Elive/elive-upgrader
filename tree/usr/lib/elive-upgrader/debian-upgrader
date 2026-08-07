@@ -1007,16 +1007,19 @@ RECOVERY_SCRIPT
 clear_recovery_notification() {
     log_info "Clearing recovery notification..."
     rm -f "$RECOVERY_NOTIFICATION_FLAG"
-    rm -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
-    rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
+    # Do not wipe desktop autostart entry if a success notification is pending
+    if [[ ! -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
+        rm -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
+        rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
 
-    # Remove from user autostart directories
-    for user_home in /home/*; do
-        if [[ -d "$user_home" ]]; then
-            local user_autostart="${user_home}/.config/autostart"
-            rm -f "${user_autostart}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
-        fi
-    done
+        # Remove from user autostart directories
+        for user_home in /home/*; do
+            if [[ -d "$user_home" ]]; then
+                local user_autostart="${user_home}/.config/autostart"
+                rm -f "${user_autostart}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
+            fi
+        done
+    fi
 }
 
 # State management functions for tracking upgrade across reboots
@@ -2307,9 +2310,12 @@ sanitize_upgrade_logs() {
 }
 
 send_upgrade_report() {
-    log_info "Sending upgrade report to Elive server..."
+    log_info "Generating report..."
 
     local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
+
+    source /etc/elive/settings 2>/dev/null || true
+    [[ -z "$conf_send_debug_reports_email" ]] && conf_send_debug_reports_email="anonymous"
 
     eliveversion="$( awk '$1 ~ /elive-version/ {($1="");print $0}' /etc/elive-version 2>/dev/null | sed 's/^\ //g' )"
     id="$( dd if=/dev/urandom bs=1k count=2 2>/dev/null | sha1sum | awk '{print $1}' )"
@@ -2320,7 +2326,7 @@ send_upgrade_report() {
 
     if [[ -s "$LOG_FILE" ]] && el_verify_internet 2>/dev/null ; then
         if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
-            { echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::anonymous::${exit_status}::${architecture}::${eliveversion}::" ; { cat "$LOG_FILE" | gzip -9 -f ; } ; } > "$logs_tmp"
+            { echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::" ; { cat "$LOG_FILE" | gzip -9 -f ; } ; } > "$logs_tmp"
 
             if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
                 is_reports_sent=1
@@ -2330,12 +2336,6 @@ send_upgrade_report() {
                     is_reports_sent=1
                 fi
             fi
-
-            if ((is_reports_sent)) ; then
-                log_info "Upgrade report sent successfully (ID: $id)."
-            else
-                log_warning "Could not send upgrade report to Elive server."
-            fi
         fi
     fi
 
@@ -2343,6 +2343,102 @@ send_upgrade_report() {
 
     log_info "Waiting 10 seconds before rebooting..."
     sleep 10
+}
+
+# Expand wildcard patterns and remove packages that were not installed before the upgrade
+process_remove_if_not_before(){
+    local target_codename_v="${1}"
+    local marker_file_f="/var/cache/elive-upgrader/remove-if-not-before-done"
+    local pkgs_before_file_f="/var/log/elive-upgrader/debian-upgrade-packages-before-${target_codename_v}.txt"
+    local pending_list_f="/var/cache/elive-upgrader/pending-remove-if-not-before.txt"
+    local hook_file_f=""
+    local pattern_v=""
+    local expanded_pkgs_v=""
+    local filtered_v=""
+    local pkg_v=""
+    local pkg_base_v=""
+    local pkgs_to_remove_v=""
+    local apt_exit_v=0
+
+    if [[ -f "${marker_file_f}" ]]; then
+        log_info "remove-if-not-before check already completed previously, skipping."
+        return 0
+    fi
+
+    if [[ ! -f "${pkgs_before_file_f}" ]]; then
+        log_info "No packages-before file found at ${pkgs_before_file_f}, skipping remove-if-not-before check."
+        return 0
+    fi
+
+    if [[ ! -f "${pending_list_f}" ]]; then
+        log_info "No pending remove-if-not-before hooks found."
+        return 0
+    fi
+
+    log_info "Processing remove-if-not-before hooks..."
+    while read -r hook_file_f || [[ -n "${hook_file_f}" ]]; do
+        [[ -z "${hook_file_f}" ]] && continue
+        if [[ -f "${hook_file_f}" ]]; then
+            log_info "Processing remove-if-not-before hook: ${hook_file_f}"
+            while read -r pattern_v || [[ -n "${pattern_v}" ]]; do
+                [[ -z "${pattern_v}" ]] && continue
+                case "${pattern_v}" in
+                    \#*) continue ;;
+                esac
+
+                log_debug "Checking pattern '${pattern_v}' against packages-before file"
+
+                expanded_pkgs_v="$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' "${pattern_v}" 2>/dev/null | grep '^installed ' | cut -d' ' -f2- || true)"
+
+                if [[ -z "${expanded_pkgs_v}" ]]; then
+                    log_debug "dpkg-query returned no results, trying apt list fallback..."
+                    expanded_pkgs_v="$(apt list --installed "${pattern_v}" 2>/dev/null | grep -v "^Listing" | cut -d'/' -f1 | grep -v "^$" || true)"
+                    if [[ -n "${expanded_pkgs_v}" ]]; then
+                        filtered_v=""
+                        for pkg_v in ${expanded_pkgs_v}; do
+                            if dpkg-query -W -f='${db:Status-Status}' "${pkg_v}" 2>/dev/null | grep -q '^installed'; then
+                                filtered_v="${filtered_v} ${pkg_v}"
+                            fi
+                        done
+                        expanded_pkgs_v="$(echo "${filtered_v}" | xargs)"
+                    fi
+                fi
+
+                pkgs_to_remove_v=""
+                if [[ -n "${expanded_pkgs_v}" ]]; then
+                    for pkg_v in ${expanded_pkgs_v}; do
+                        pkg_base_v="$(echo "${pkg_v}" | cut -d':' -f1)"
+                        if ! grep -qxF "${pkg_v}" "${pkgs_before_file_f}" && ! grep -qxF "${pkg_base_v}" "${pkgs_before_file_f}"; then
+                            log_info "Package '${pkg_v}' was NOT present before upgrade. Adding to removal list."
+                            pkgs_to_remove_v="${pkgs_to_remove_v} ${pkg_v}"
+                        else
+                            log_info "Package '${pkg_v}' was present before upgrade. Keeping."
+                        fi
+                    done
+                    pkgs_to_remove_v="$(echo "${pkgs_to_remove_v}" | xargs)"
+                fi
+
+                if [[ -n "${pkgs_to_remove_v}" ]]; then
+                    log_info "Removing packages: ${pkgs_to_remove_v}"
+                    safe_apt_run apt-get remove --purge -y ${pkgs_to_remove_v}
+                    apt_exit_v=$?
+                    if [[ "${apt_exit_v}" -ne 0 ]]; then
+                        log_warning "apt-get remove failed with exit code ${apt_exit_v} for packages: ${pkgs_to_remove_v}"
+                    else
+                        log_info "Successfully removed packages: ${pkgs_to_remove_v}"
+                    fi
+                else
+                    log_info "No packages matching pattern '${pattern_v}' need to be removed."
+                fi
+            done < "${hook_file_f}"
+        fi
+    done < "${pending_list_f}"
+
+    rm -f "${pending_list_f}"
+    rm -rf /var/cache/elive-upgrader/active-distro-upgrade-hook 2>/dev/null || true
+    mkdir -p "$(dirname "${marker_file_f}")"
+    touch "${marker_file_f}"
+    return 0
 }
 
 reconfigure_setcap_packages() {
@@ -3137,6 +3233,9 @@ main_upgrade() {
     # Run extra hooks for setcap packages after the entire upgrade process has finished
     reconfigure_setcap_packages
 
+    # Process post-upgrade package removal hooks now, before rebooting
+    process_remove_if_not_before "$TARGET_CODENAME"
+
     # Mark upgrade as completed so the user is notified on next boot
     upgrade_state_write "UPGRADE_COMPLETED" "yes"
     upgrade_state_set_upgrade_in_progress "no"
@@ -3174,8 +3273,8 @@ main_upgrade() {
     touch /var/cache/elive-upgrader/cleanup-backups-pending
     chmod 666 /var/cache/elive-upgrader/cleanup-backups-pending 2>/dev/null || true
 
-    # Clear any recovery notification from a previous failed attempt
-    clear_recovery_notification
+    # Create desktop notification executable and autostart entries for the desktop session
+    create_recovery_notification
 
     # Unhold any kernel packages that were held during the upgrade
     local held_packages
@@ -3249,14 +3348,15 @@ main_upgrade() {
 
     send_upgrade_report
 
+    # Disable boot upgrade service and state file now so the system boots directly into desktop
+    disable_boot_upgrade
+
     if [[ "$BOOT_MODE" == "true" ]]; then
         release_lock
         set_progress 100 "Upgrade completed successfully!"
         log_info "Rebooting in 5 seconds..."
         for i in {5..1}; do echo -n "$i.. "; sleep 1; done; echo
-        # Do NOT disable boot upgrade here - elive-boot-upgrader needs to run
-        # one more time to process remove-if-not-before hooks, then it will
-        # call cleanup_and_disable itself
+
         # Trigger systemd daemons before reboot to ensure services like lightdm are running
         if ((is_systemd)); then
             log_info "Triggering systemd daemons before reboot..."
