@@ -1,5 +1,5 @@
 [Unit]
-Description=Debian Distribution Upgrade
+Description=Distro Upgrade
 Documentation=man:debian-upgrader(8)
 # Only run if the upgrade state file exists
 ConditionPathExists=/etc/default/elive-distro-upgrade
