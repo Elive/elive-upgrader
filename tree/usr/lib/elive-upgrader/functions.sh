@@ -6,14 +6,6 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
-# Detect init system for boot-agnostic behavior
-if [[ -d /run/systemd/system ]] || [[ "$(cat /proc/1/comm 2>/dev/null)" == "systemd" ]]; then
-    is_systemd=1
-else
-    is_systemd=0
-fi
-export is_systemd
-
 if command -v openrc &>/dev/null || [[ -f /etc/rc.conf ]] || command -v rc-service &>/dev/null; then
     is_openrc=1
 else
