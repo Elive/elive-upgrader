@@ -2310,7 +2310,7 @@ sanitize_upgrade_logs() {
 }
 
 send_upgrade_report() {
-    log_info "Generating report..."
+    log_info "Sending upgrade report to Elive server..."
 
     local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
 
@@ -2335,6 +2335,12 @@ send_upgrade_report() {
                 if nc -N www.elivecd.org 60001 -w 30 < "$logs_tmp" 2>/dev/null ; then
                     is_reports_sent=1
                 fi
+            fi
+
+            if ((is_reports_sent)) ; then
+                log_info "Upgrade report sent successfully (ID: $id)."
+            else
+                log_warning "Could not send upgrade report to Elive server."
             fi
         fi
     fi
