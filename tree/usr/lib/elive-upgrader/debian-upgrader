@@ -2193,12 +2193,13 @@ perform_upgrade() {
         fi
     fi
 
-    set_progress 85 "Rebuilding initramfs for all kernels (building modules, please wait)..."
-    if run_and_show_plymouth_on_boot update-initramfs -u -k all; then
-        log_info "Initramfs rebuilt successfully."
+    set_progress 85 "Creating new initramfs for all kernels (building modules, please wait)..."
+    log_info "Removing existing initramfs images to force fresh creation..."
+    rm -f /boot/initrd.img-* 2>/dev/null || true
+    if run_and_show_plymouth_on_boot update-initramfs -c -k all; then
+        log_info "New initramfs created successfully."
     else
-        log_warning "Initramfs rebuild returned non-zero status. Attempting fallback rebuild..."
-        run_and_show_plymouth_on_boot update-initramfs -c -k all || log_error "Failed to rebuild initramfs!"
+        log_error "Failed to create new initramfs!"
     fi
 
     set_progress 90 "Updating GRUB configuration (detecting operating systems)..."
