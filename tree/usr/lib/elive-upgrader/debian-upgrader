@@ -65,6 +65,14 @@ export TEXTDOMAIN
 
 . /usr/lib/elive-upgrader/functions.sh
 
+# If debian-upgrade state is "alpha", force reports
+if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
+    _upgrade_type=$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")
+    if [[ "$_upgrade_type" == "alpha" ]]; then
+        export FORCE_REPORTS="1"
+    fi
+fi
+
 # Whether to use plymouth for boot-time messages.
 # Set to "true" to display messages in Plymouth.
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.

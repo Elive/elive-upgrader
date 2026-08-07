@@ -49,6 +49,14 @@ set -e
 source /usr/lib/elive-tools/functions 2>/dev/null || true
 source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
 
+# If debian-upgrade state is "alpha", force reports
+if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
+    _upgrade_type=$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")
+    if [[ "$_upgrade_type" == "alpha" ]]; then
+        export FORCE_REPORTS="1"
+    fi
+fi
+
 # Fallback if elive-tools functions are not available
 if ! command -v el_error &>/dev/null; then
     el_error() { echo "ERROR: $*" >&2; }
