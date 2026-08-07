@@ -354,6 +354,12 @@ cleanup_old_backups(){
     find /root -maxdepth 1 -type d -name 'debian-upgrade-backup-*' -exec rm -rf {} + 2>/dev/null || true
     find /root -maxdepth 1 -type f -name 'debian-upgrade-backup-*' -delete 2>/dev/null || true
 
+    if [[ -d "/var/cache/elive-upgrader/full-os-backup" ]]; then
+        echo "Removing full OS backup directory..."
+        rm -rf "/var/cache/elive-upgrader/full-os-backup" 2>/dev/null || true
+        echo "Full OS backup directory removed."
+    fi
+
     rm -f "${cleanup_flag_f}"
     echo "Old backup directories cleaned up successfully."
     return 0
@@ -470,7 +476,10 @@ main(){
 
         latest_log_f="$(ls -t /var/log/elive-upgrader/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)"
         if [[ -n "${latest_log_f}" ]] && [[ -f "${latest_log_f}" ]]; then
-            err_msg_v="$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "${latest_log_f}" | tail -n 5 || tail -n 10 "${latest_log_f}" || true)"
+            err_msg_v="$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "${latest_log_f}" 2>/dev/null | tail -n 5 || true)"
+            if [[ -z "${err_msg_v}" ]]; then
+                err_msg_v="$(tail -n 10 "${latest_log_f}" 2>/dev/null || true)"
+            fi
         fi
 
         if [[ -z "${err_msg_v}" ]]; then

@@ -322,15 +322,20 @@ get_log_filename(){
 }
 
 # Determine current step for log naming
-CURRENT_STEP_NAME="boot"
-if [[ "$BOOT_MODE" == "true" ]]; then
-    CURRENT_STEP_NAME="boot-mode"
-fi
+init_logging() {
+    if [[ -z "${LOG_FILE_INITIALIZED:-}" ]]; then
+        CURRENT_STEP_NAME="boot"
+        if [[ "$BOOT_MODE" == "true" ]]; then
+            CURRENT_STEP_NAME="boot-mode"
+        fi
 
-DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-$(get_log_filename "$CURRENT_STEP_NAME")}"
-export DEBIAN_UPGRADE_LOGFILE
-LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
-exec > >(stdbuf -i0 -oL -eL tee -a "$LOG_FILE") 2>&1
+        DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-$(get_log_filename "$CURRENT_STEP_NAME")}"
+        export DEBIAN_UPGRADE_LOGFILE
+        LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
+        exec > >(stdbuf -i0 -oL -eL tee -a "$LOG_FILE") 2>&1
+        LOG_FILE_INITIALIZED="true"
+    fi
+}
 
 ensure_log_permissions() {
     if [[ -f "$LOG_FILE" ]]; then
@@ -1450,11 +1455,11 @@ safe_apt_run() {
         if [[ "$exit_code" -eq 100 ]]; then
             if grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
                 # Extract the failing DKMS package name from the error log
-                dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '*dkms' | head -1)
+                dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '\S*dkms\S*' | head -1)
 
                 # If we couldn't extract the name, try alternative patterns
                 if [[ -z "$dkms_failure_package" ]]; then
-                    dkms_failure_package=$(grep -iP "dkms|module.*build.*fail|build.*error" "$err_log" 2>/dev/null | grep -oP '+-dkms' | head -1)
+                    dkms_failure_package=$(grep -iP "dkms|module.*build.*fail|build.*error" "$err_log" 2>/dev/null | grep -oP '\b[\w-]+dkms\b' | head -1)
                 fi
 
                 # If still no name, look for the package being installed that triggered the failure
@@ -2416,7 +2421,11 @@ run_pre_hooks() {
         # Save the path of the remove-if-not-before hook pointing to the cached location
         if [[ -f "$cache_dir/debian-upgrade-packages-to-remove-if-not-before.txt" ]]; then
             mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
-            echo "$cache_dir/debian-upgrade-packages-to-remove-if-not-before.txt" > /var/cache/elive-upgrader/pending-remove-if-not-before.txt
+            local pending_file="/var/cache/elive-upgrader/pending-remove-if-not-before.txt"
+            local hook_target="$cache_dir/debian-upgrade-packages-to-remove-if-not-before.txt"
+            if ! grep -qxF "$hook_target" "$pending_file" 2>/dev/null; then
+                echo "$hook_target" >> "$pending_file"
+            fi
         fi
 
         local hook_dir="$hooks_base/distro-upgrade"
@@ -2467,9 +2476,10 @@ run_post_hooks() {
 
     local cache_dir="/var/cache/elive-upgrader/active-distro-upgrade-hook"
     local hook_dirs=()
+    local is_active=false
 
-    if [[ -d "$cache_dir" ]]; then
-        # Use the cached hook directories
+    if [[ -d "$cache_dir" ]] && [[ -f "$cache_dir/debian-upgrade" ]]; then
+        is_active=true
         if [[ -d "$cache_dir/root" ]]; then
             hook_dirs+=("$cache_dir/root")
         else
@@ -2486,7 +2496,8 @@ run_post_hooks() {
             hooks_base="/usr/lib/elive-upgrader/hooks"
         fi
 
-        if [[ -d "$hooks_base/distro-upgrade" ]]; then
+        if [[ -d "$hooks_base/distro-upgrade" ]] && [[ -f "$hooks_base/distro-upgrade/debian-upgrade" ]]; then
+            is_active=true
             if [[ -d "$hooks_base/distro-upgrade/root" ]]; then
                 hook_dirs+=("$hooks_base/distro-upgrade/root")
             else
@@ -2498,8 +2509,8 @@ run_post_hooks() {
         fi
     fi
 
-    for hook_dir in "${hook_dirs[@]}"; do
-        if [[ -f "$hook_dir/debian-upgrade" ]]; then
+    if [[ "$is_active" == "true" ]]; then
+        for hook_dir in "${hook_dirs[@]}"; do
             # 1. Install packages specified in debian-upgrade-packages-to-install.txt
             if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
                 local pkgs
@@ -2514,8 +2525,8 @@ run_post_hooks() {
                 log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
                 "$hook_dir/debian-upgrade-post-script.sh" || true
             fi
-        fi
-    done
+        done
+    fi
 
     case "$codename" in
         "bookworm")
@@ -2554,6 +2565,7 @@ enable_boot_upgrade_conf() {
 
     # Set target codename and verify current release details
     TARGET_CODENAME="$target_codename"
+    init_logging
     local check_result
     check_current_release
     check_result=$?
@@ -2942,6 +2954,7 @@ main_upgrade() {
         usage
     fi
     TARGET_CODENAME=$1
+    init_logging
 
     # Show Elive logo if available
     if command -v elive-logo-show &>/dev/null; then
@@ -3446,6 +3459,7 @@ main() {
             ;;
         --restore-from-backup)
             check_root
+            init_logging
             log_info "Restoring system from full OS backup..."
             restore_from_backup
             clear_recovery_notification
