@@ -1975,7 +1975,7 @@ check_disk_space() {
         restore_sources_on_cancel
         upgrade_state_clear
 
-        if command -v systemctl &>/dev/null; then
+        if ((is_systemd)); then
             systemctl disable elive-distro-upgrader.service 2>/dev/null || true
             systemctl daemon-reload 2>/dev/null || true
         fi
@@ -2034,7 +2034,9 @@ stop_services() {
     log_info "Stopping non-essential services..."
 
     # Stop monitoring services that might interfere
-    systemctl stop monit 2>/dev/null || true
+    if ((is_systemd)); then
+        systemctl stop monit 2>/dev/null || true
+    fi
     service monit stop 2>/dev/null || true
 
     # Stop watchdog if present
@@ -2776,7 +2778,7 @@ EOF
         chmod +x /etc/init.d/elive-distro-upgrader 2>/dev/null || true
     fi
 
-    if ((is_systemd)) && command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         log_info "Enabling elive-distro-upgrader.service via systemd..."
         systemctl daemon-reload 2>/dev/null || true
         if systemctl enable elive-distro-upgrader.service 2>/dev/null; then
@@ -2822,7 +2824,7 @@ EOF
     log_info "Boot-time upgrade enabled. The upgrade will run on the next reboot."
     log_info "To check status, run: systemctl status elive-distro-upgrader.service or /etc/init.d/elive-distro-upgrader status"
 
-    if command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         systemctl daemon-reload 2>/dev/null || true
     fi
 
@@ -2861,7 +2863,7 @@ EOF
 disable_boot_upgrade() {
     sync
     log_info "Disabling elive-distro-upgrader service..."
-    if command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
@@ -3260,7 +3262,7 @@ main_upgrade() {
         # one more time to process remove-if-not-before hooks, then it will
         # call cleanup_and_disable itself
         # Trigger systemd daemons before reboot to ensure services like lightdm are running
-        if [[ "${is_systemd}" -eq 1 ]]; then
+        if ((is_systemd)); then
             log_info "Triggering systemd daemons before reboot..."
             systemctl daemon-reload 2>/dev/null || true
             sync

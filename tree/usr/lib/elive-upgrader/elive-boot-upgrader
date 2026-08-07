@@ -104,7 +104,7 @@ upgrade_check_target_reached(){
 #       RETURNS:  0
 #===============================================================================
 disable_boot_services(){
-    if command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
@@ -130,7 +130,7 @@ suspend_tty1_and_dms(){
 
     echo "Suspending TTY1 login and display managers..." >/dev/console 2>/dev/null || true
 
-    if [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         systemctl stop getty@tty1.service 2>/dev/null || true
         systemctl mask getty@tty1.service 2>/dev/null || true
     fi
@@ -182,7 +182,7 @@ restore_tty1_and_dms(){
         plymouth quit 2>/dev/null || true
     fi
 
-    if [[ -d /run/systemd/system ]] && command -v systemctl &>/dev/null; then
+    if ((is_systemd)); then
         systemctl unmask getty@tty1.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
         systemctl restart getty@tty1.service 2>/dev/null || systemctl start getty@tty1.service 2>/dev/null || true
