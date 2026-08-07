@@ -2161,6 +2161,45 @@ sanitize_upgrade_logs() {
     log_info "Upgrade logs sanitized successfully."
 }
 
+send_upgrade_report() {
+    log_info "Sending upgrade report to Elive server..."
+
+    local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
+
+    eliveversion="$( awk '$1 ~ /elive-version/ {($1="");print $0}' /etc/elive-version 2>/dev/null | sed 's/^\ //g' )"
+    id="$( dd if=/dev/urandom bs=1k count=2 2>/dev/null | sha1sum | awk '{print $1}' )"
+    architecture="$( el_architecture "host" 2>/dev/null || dpkg --print-architecture 2>/dev/null || echo "unknown" )"
+    exit_status=0
+
+    logs_tmp=$(mktemp /tmp/debian-upgrade-report.XXXXXX)
+
+    if [[ -s "$LOG_FILE" ]] && el_verify_internet 2>/dev/null && ! ((is_thanatests:-0)) ; then
+        if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
+            { echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::anonymous::${exit_status}::${architecture}::${eliveversion}::" ; { cat "$LOG_FILE" | gzip -9 -f ; } ; } > "$logs_tmp"
+
+            if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
+                is_reports_sent=1
+            else
+                sleep 2
+                if nc -N www.elivecd.org 60001 -w 30 < "$logs_tmp" 2>/dev/null ; then
+                    is_reports_sent=1
+                fi
+            fi
+
+            if ((is_reports_sent)) ; then
+                log_info "Upgrade report sent successfully (ID: $id)."
+            else
+                log_warning "Could not send upgrade report to Elive server."
+            fi
+        fi
+    fi
+
+    rm -f "$logs_tmp" 2>/dev/null || true
+
+    log_info "Waiting 10 seconds before rebooting..."
+    sleep 10
+}
+
 reconfigure_setcap_packages() {
     log_info "Reconfiguring packages with setcap capabilities..."
 
@@ -3059,6 +3098,8 @@ main_upgrade() {
     enable_automatic_clean
 
     stop_warning_loop
+
+    send_upgrade_report
 
     if [[ "$BOOT_MODE" == "true" ]]; then
         release_lock
