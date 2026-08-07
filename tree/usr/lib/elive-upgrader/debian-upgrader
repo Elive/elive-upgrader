@@ -256,12 +256,19 @@ stop_warning_loop() {
 }
 
 # Logging setup
-# Generate intuitive log filename with step information
+LOG_DIR="/var/log/elive-upgrader"
+
+# Generate intuitive, human-understandable log filename with step and codename details
 get_log_filename() {
     local step="${1:-boot}"
     local timestamp=$(date +%Y%m%d-%H%M%S)
-    local target="${TARGET_CODENAME:-unknown}"
-    echo "/var/log/debian-upgrade-${target}-${step}-${timestamp}.log"
+    local from_cn="${current_codename:-$(cat /etc/debian_version 2>/dev/null | cut -d'.' -f1 || echo "unknown")}"
+    local target_cn="${TARGET_CODENAME:-unknown}"
+
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+    chmod 755 "$LOG_DIR" 2>/dev/null || true
+
+    echo "${LOG_DIR}/debian-upgrade-from-${from_cn}-to-${target_cn}-${step}-${timestamp}.log"
 }
 
 # Determine current step for log naming
@@ -275,16 +282,9 @@ export DEBIAN_UPGRADE_LOGFILE
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-copy_log_to_root() {
+ensure_log_permissions() {
     if [[ -f "$LOG_FILE" ]]; then
-        mkdir -p /root/upgrade-logs/ 2>/dev/null || true
-        # Create descriptive filename for root copy
-        local step_name="${CURRENT_STEP_NAME:-boot}"
-        local target_name="${TARGET_CODENAME:-unknown}"
-        local timestamp=$(date +%Y%m%d-%H%M%S)
-        local descriptive_name="debian-upgrade-${target_name}-${step_name}-${timestamp}.log"
-        cp -f "$LOG_FILE" "/root/upgrade-logs/${descriptive_name}" 2>/dev/null || true
-        cp -f "$LOG_FILE" "/root/${descriptive_name}" 2>/dev/null || true
+        chmod 644 "$LOG_FILE" 2>/dev/null || true
     fi
 }
 
@@ -709,29 +709,36 @@ show_success_notification() {
     fi
 
     local title="Elive System Upgrade Complete"
-    local message="Congratulations! Your Elive system has been successfully upgraded to Debian ${target_cn:-system}.\n\nLogs of the upgrade process are saved in:\n/var/log/ (e.g., /var/log/debian-upgrade-*.log)\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files."
+    local message="Congratulations! Your Elive system has been successfully upgraded to Debian ${target_cn:-system}.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files.\n\nWould you like to open the logs folder now?"
+
+    local open_folder=false
 
     if command -v zenity &>/dev/null; then
-        zenity --info --title="$title" --text="$message" --width=520 2>/dev/null
-        return
+        if zenity --question --title="$title" --text="$message" --ok-label="Open Log Folder" --cancel-label="Close" --width=520 2>/dev/null; then
+            open_folder=true
+        fi
+    elif command -v yad &>/dev/null; then
+        if yad --question --title="$title" --text="$message" --button="Open Log Folder:0" --button="Close:1" --width=520 2>/dev/null; then
+            open_folder=true
+        fi
+    elif command -v kdialog &>/dev/null; then
+        if kdialog --title "$title" --yesno "$message" 2>/dev/null; then
+            open_folder=true
+        fi
+    else
+        if command -v notify-send &>/dev/null; then
+            notify-send -u normal "$title" "$message" 2>/dev/null
+        fi
+        echo "$title: $message"
     fi
 
-    if command -v yad &>/dev/null; then
-        yad --info --title="$title" --text="$message" --width=520 2>/dev/null
-        return
+    if [[ "$open_folder" == "true" ]]; then
+        if command -v thunar &>/dev/null; then
+            thunar /var/log/elive-upgrader &
+        elif command -v xdg-open &>/dev/null; then
+            xdg-open /var/log/elive-upgrader &
+        fi
     fi
-
-    if command -v kdialog &>/dev/null; then
-        kdialog --title "$title" --msgbox "$message" 2>/dev/null
-        return
-    fi
-
-    if command -v notify-send &>/dev/null; then
-        notify-send -u normal "$title" "$message" 2>/dev/null
-        return
-    fi
-
-    echo "$title: $message"
 }
 
 # Check if this is a successful upgrade completion (not a failure recovery)
@@ -967,7 +974,6 @@ upgrade_state_increment_reboot() {
     # Safety: if too many reboots, something is seriously wrong
     if (( count > 5 )); then
         log_error "Too many reboots during upgrade ($count). Aborting upgrade to prevent infinite loop."
-        copy_log_to_root
         upgrade_state_set_upgrade_in_progress "no"
         # Restore sources to the original codename to leave system in consistent state
         local original_version
@@ -1103,7 +1109,6 @@ set_progress() {
     elif [[ "$percent" -ge 100 ]]; then
         CURRENT_STEP_NAME="completed"
     fi
-    copy_log_to_root
 }
 
 log_info() {
@@ -1119,7 +1124,6 @@ log_info() {
     else
         echo -e "${GREEN}[INFO]${NC} $1"
     fi
-    copy_log_to_root
 }
 
 log_debug() {
@@ -1155,7 +1159,6 @@ log_warning() {
         fi
     fi
     el_warning "$1"
-    copy_log_to_root
 }
 
 log_error() {
@@ -1170,7 +1173,6 @@ log_error() {
         fi
     fi
     el_error "$1"
-    copy_log_to_root
 }
 
 repair_apt() {
@@ -1264,7 +1266,6 @@ safe_apt_run() {
         log_info "Running command: ${cmd[*]}"
         run_and_show_plymouth_on_boot "${cmd[@]}" 2> "$err_log"
         exit_code=$?
-        copy_log_to_root
         if [[ "$exit_code" -eq 0 ]]; then
             rm -f "$err_log"
             return 0
@@ -2112,7 +2113,7 @@ sanitize_upgrade_logs() {
     local log_files=()
     while IFS= read -r f; do
         [[ -f "$f" ]] && log_files+=("$f")
-    done < <(find /var/log /root/upgrade-logs /root -maxdepth 2 -type f -name 'debian-upgrade-*.log' 2>/dev/null || true)
+    done < <(find /var/log/elive-upgrader -maxdepth 1 -type f -name 'debian-upgrade-*.log' 2>/dev/null || true)
 
     if [[ ${#log_files[@]} -eq 0 ]]; then
         return 0
@@ -2812,7 +2813,7 @@ main_upgrade() {
         if [[ "$check_result" -eq 2 ]]; then
             # Target already reached - upgrade was completed
             log_info "Upgrade to $TARGET_CODENAME is already complete."
-            copy_log_to_root
+            ensure_log_permissions
             upgrade_state_set_upgrade_in_progress "no"
             upgrade_state_set_current_step ""
             upgrade_state_write "REBOOT_COUNT" "0"
@@ -3054,7 +3055,7 @@ main_upgrade() {
 
     verify_upgrade
     sanitize_upgrade_logs
-    copy_log_to_root
+    ensure_log_permissions
     enable_automatic_clean
 
     stop_warning_loop

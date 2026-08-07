@@ -357,7 +357,7 @@ validate_upgrade_state() {
     # Safety: enforce reboot limit to prevent infinite loops
     if [ "${REBOOT_COUNT:-0}" -ge 5 ] 2>/dev/null; then
         el_error "Too many reboots during upgrade (${REBOOT_COUNT:-0}). Aborting to prevent infinite loop."
-        echo "Check logs at /var/log/debian-upgrade-*.log for details."
+        echo "Check logs at /var/log/elive-upgrader/ for details."
         cleanup_and_disable
         return 1
     fi
@@ -422,7 +422,7 @@ main() {
         # If empty due to script-level redirection, extract from the actual log file
         if [ -z "$err_msg" ]; then
             local latest_log
-            latest_log=$(ls -t /var/log/debian-upgrade-*.log /root/upgrade-logs/debian-upgrade-*.log /root/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)
+            latest_log=$(ls -t /var/log/elive-upgrader/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)
             if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
                 err_msg=$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "$latest_log" | tail -n 5 || tail -n 10 "$latest_log" || true)
             fi
@@ -433,7 +433,7 @@ main() {
         fi
 
         el_error "Upgrade exited with code $exit_code. Last errors: $err_msg"
-        echo "Check logs at /var/log/debian-upgrade-*.log for details"
+        echo "Check logs at /var/log/elive-upgrader/ for details"
 
         echo "Preserving upgrade state to resume on next boot (Reboot count: ${REBOOT_COUNT:-0}/5)"
 
