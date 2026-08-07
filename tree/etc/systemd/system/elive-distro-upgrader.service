@@ -15,9 +15,10 @@ ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/elive-upgrader/elive-boot-upgrader
-StandardOutput=journal+console
-StandardError=journal+console
-TTYPath=/dev/console
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 RemainAfterExit=yes

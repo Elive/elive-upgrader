@@ -99,10 +99,9 @@ RECOVERY_NOTIFICATION_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 RECOVERY_DESKTOP_NOTIFICATION_DIR="/etc/xdg/autostart"
 RECOVERY_DESKTOP_NOTIFICATION_FILE="elive-upgrade-recovery-notification.desktop"
 
-# Force non-interactive frontend and priority to prevent any prompts/freezes
-export DEBIAN_FRONTEND=noninteractive
+# Configure frontend and priority for interactive dialog support on TTY1
+export DEBIAN_FRONTEND=dialog
 export DEBIAN_PRIORITY=critical
-export DEBCONF_NONINTERACTIVE_SEEN=true
 export DEBCONF_NOWARNINGS=true
 export UCF_FORCE_CONFFOLD=1
 export APT_LISTCHANGES_FRONTEND=none
@@ -166,21 +165,16 @@ draw_banner() {
     local border=""
     for ((i=0; i<len+4; i++)); do border="${border}="; done
 
+    stty sane 2>/dev/null || true
+    echo -e "${color}${border}${NC}"
+    echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}"
+    echo -e "${color}${border}${NC}"
     if [[ "$BOOT_MODE" == "true" ]]; then
-        local target_out="/dev/console"
-        stty sane < "$target_out" 2>/dev/null || true
-        echo -e "${color}${border}${NC}" > "$target_out"
-        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}" > "$target_out"
-        echo -e "${color}${border}${NC}" > "$target_out"
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
             plymouth message --text="*** $msg ***" 2>/dev/null || true
         fi
         log_action_msg "=== $msg ==="
-    else
-        echo -e "${color}${border}${NC}"
-        echo -e "${color}| ${BOLD}${msg}${NC}${color} |${NC}"
-        echo -e "${color}${border}${NC}"
     fi
 }
 
@@ -231,15 +225,11 @@ start_warning_loop() {
     (
         while true; do
             sleep 300
-            local target_out="/dev/stdout"
-            if [[ "$BOOT_MODE" == "true" ]]; then
-                target_out="/dev/console"
-            fi
-            echo -e "\n${YELLOW}${BOLD}======================================================================${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${CYAN}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" > "$target_out" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}======================================================================${NC}\n" > "$target_out" 2>/dev/null || true
+            echo -e "\n${YELLOW}${BOLD}======================================================================${NC}" 2>/dev/null || true
+            echo -e "${CYAN}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" 2>/dev/null || true
+            echo -e "${YELLOW}${BOLD}======================================================================${NC}\n" 2>/dev/null || true
 
         done
     ) &
@@ -278,7 +268,7 @@ fi
 DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-$(get_log_filename "$CURRENT_STEP_NAME")}"
 export DEBIAN_UPGRADE_LOGFILE
 LOG_FILE="$DEBIAN_UPGRADE_LOGFILE"
-exec > >(tee -a "$LOG_FILE") 2>&1
+exec > >(stdbuf -i0 -oL -eL tee -a "$LOG_FILE") 2>&1
 
 ensure_log_permissions() {
     if [[ -f "$LOG_FILE" ]]; then
@@ -542,12 +532,12 @@ full_os_backup() {
     mkdir -p "/var/cache/elive-upgrader"
     mkdir -p "$FULL_OS_BACKUP_DIR"
 
-    log_info "Backuping your OS to $FULL_OS_BACKUP_DIR ..."
+    log_info "Backuping your OS to $FULL_OS_BACKUP_DIR (this may take a few minutes)..."
 
     # Perform a single, clean rsync run from / to the backup directory
     # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
     # from traversing or copying its own destination directory.
-    rsync -aAX --delete \
+    rsync -aAX --delete --info=progress2 \
         --exclude='/home/*' \
         --exclude='/proc/*' \
         --exclude='/sys/*' \
@@ -1088,7 +1078,7 @@ set_progress() {
     local msg="$2"
     if [[ "$BOOT_MODE" == "true" ]]; then
         if [[ -n "$msg" ]]; then
-            echo -e "  ${GREEN}[  OK  ]${NC} [$percent%] $msg" >/dev/console
+            echo -e "  ${GREEN}[  OK  ]${NC} [$percent%] $msg"
         fi
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             plymouth update --progress="$percent" 2>/dev/null || true
@@ -1117,7 +1107,7 @@ set_progress() {
 
 log_info() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        echo -e "  ${GREEN}[  OK  ]${NC} $1" >/dev/console
+        echo -e "  ${GREEN}[  OK  ]${NC} $1"
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_action_msg "$1"
             plymouth message --text="$1" 2>/dev/null || true
@@ -1150,7 +1140,7 @@ trigger_reboot() {
 
 log_warning() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        echo -e "  ${YELLOW}[ WARN ]${NC} $1" >/dev/console
+        echo -e "  ${YELLOW}[ WARN ]${NC} $1"
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_warning_msg "$1"
             plymouth message --text="WARNING: $1" 2>/dev/null || true
@@ -1161,7 +1151,7 @@ log_warning() {
 
 log_error() {
     if [[ "$BOOT_MODE" == "true" ]]; then
-        echo -e "  ${RED}[ FAIL ]${NC} $1" >/dev/console
+        echo -e "  ${RED}[ FAIL ]${NC} $1"
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
             log_failure_msg "$1"
             plymouth message --text="ERROR: $1" 2>/dev/null || true
@@ -1372,9 +1362,7 @@ run_and_show_plymouth_on_boot() {
     done
 
     if [[ "$BOOT_MODE" == "true" ]]; then
-        local target_out="/dev/console"
-        # Reset terminal settings to sane defaults to prevent broken formatting/tabs
-        stty sane < "$target_out" 2>/dev/null || true
+        stty sane 2>/dev/null || true
 
         if [[ "$USE_PLYMOUTH" == "true" ]] && command -v plymouth &> /dev/null && plymouth --ping &> /dev/null; then
             if [[ "$is_apt" == "true" ]]; then
@@ -1390,7 +1378,7 @@ run_and_show_plymouth_on_boot() {
                 (
                     set -o pipefail
                     "$@" 2>&1 | while IFS= read -r line; do
-                        echo "$line" > "$target_out"
+                        echo "$line"
                         if [[ "$line" =~ "Unpacking " || "$line" =~ "Setting up " ]]; then
                             (( current_step++ ))
                             if (( current_step > total_steps )); then
@@ -1409,13 +1397,13 @@ run_and_show_plymouth_on_boot() {
                 (
                     set -o pipefail
                     "$@" 2>&1 | while IFS= read -r line; do
-                        echo "$line" > "$target_out"
+                        echo "$line"
                         plymouth message --text="$line" 2>/dev/null || true
                     done
                 )
             fi
         else
-            "$@" > "$target_out" 2>&1
+            "$@"
         fi
     else
         "$@"
@@ -2173,7 +2161,7 @@ send_upgrade_report() {
 
     logs_tmp=$(mktemp /tmp/debian-upgrade-report.XXXXXX)
 
-    if [[ -s "$LOG_FILE" ]] && el_verify_internet 2>/dev/null && ! ((is_thanatests:-0)) ; then
+    if [[ -s "$LOG_FILE" ]] && el_verify_internet 2>/dev/null ; then
         if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
             { echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::anonymous::${exit_status}::${architecture}::${eliveversion}::" ; { cat "$LOG_FILE" | gzip -9 -f ; } ; } > "$logs_tmp"
 
@@ -2823,10 +2811,9 @@ main_upgrade() {
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
 
-    # Display the warning prominently in bold yellow/cyan instead of standard green info
+    # Display the warning prominently in bold yellow/cyan
     if [[ "$BOOT_MODE" == "true" ]]; then
-        local target_out="/dev/console"
-        echo -e "  ${YELLOW}[ WARN ]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}" > "$target_out" 2>/dev/null || true
+        echo -e "  ${YELLOW}[ WARN ]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}"
     else
         echo -e "${YELLOW}[WARN]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}"
     fi

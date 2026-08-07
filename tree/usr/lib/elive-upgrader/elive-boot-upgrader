@@ -382,16 +382,12 @@ main() {
     current_cn="$(get_current_codename)"
     echo "Validated: upgrading from ${current_cn:-unknown} to $TARGET_CODENAME"
 
-    # Handle Plymouth based on OS release (disabled on Bookworm, enabled for others)
-    if [[ "${is_bookworm:-0}" -eq 1 ]] || [[ "$(cat /etc/debian_version 2>/dev/null)" =~ ^12 ]]; then
-        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-            plymouth quit 2>/dev/null || true
-        fi
-    else
-        if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
-            plymouth display-message --text="ELIVE SYSTEM UPGRADE IN PROGRESS - DO NOT REBOOT!" 2>/dev/null || true
-            plymouth message --text="*** ELIVE DISTRO UPGRADER ***" 2>/dev/null || true
-        fi
+    # Always quit Plymouth and switch active VT to TTY1 so console output and dialogs are visible
+    if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
+        plymouth quit 2>/dev/null || true
+    fi
+    if command -v chvt &>/dev/null; then
+        chvt 1 2>/dev/null || true
     fi
 
     # Check if upgrade script exists
@@ -404,9 +400,7 @@ main() {
     # Run the upgrade
     echo "Starting upgrade to $TARGET_CODENAME"
     set +e
-    local err_log
-    err_log=$(mktemp)
-    "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME" 2> "$err_log"
+    "$SCRIPT_PATH" --boot-mode "$TARGET_CODENAME"
     local exit_code=$?
     set -e
 
