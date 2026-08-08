@@ -109,10 +109,6 @@ FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 # Recovery notification file - placed where desktop session can find it
 RECOVERY_NOTIFICATION_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 
-# Recovery desktop notification file (XDG autostart)
-RECOVERY_DESKTOP_NOTIFICATION_DIR="/etc/xdg/autostart"
-RECOVERY_DESKTOP_NOTIFICATION_FILE="elive-upgrade-recovery-notification.desktop"
-
 # Configure frontend and priority for interactive dialog support on TTY1
 export DEBIAN_FRONTEND=dialog
 export DEBIAN_PRIORITY=critical
@@ -684,22 +680,6 @@ create_recovery_notification() {
     touch "$RECOVERY_NOTIFICATION_FLAG"
     chmod 666 "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
 
-    # Create XDG autostart desktop entry for recovery notification
-    mkdir -p "$RECOVERY_DESKTOP_NOTIFICATION_DIR"
-
-    cat > "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" << 'DESKTOP_ENTRY'
-[Desktop Entry]
-Type=Application
-Name=Elive Upgrade Recovery
-Comment=Recovery notification after failed system upgrade
-Exec=/usr/lib/elive-upgrader/recovery-notification
-Icon=dialog-warning
-Terminal=false
-X-GNOME-Autostart-enabled=true
-X-KDE-autostart-after=panel
-StartupNotify=false
-DESKTOP_ENTRY
-
     # Create the upgrade-complete notification and cleanup script
     cat > "/usr/lib/elive-upgrader/recovery-notification" << 'RECOVERY_SCRIPT'
 #!/bin/bash
@@ -791,11 +771,10 @@ show_insufficient_space_notification() {
 }
 
 # Check if this is an insufficient disk space failure
-if [[ -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
+if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
     show_insufficient_space_notification
-    rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space"
-    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
+    true > "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     exit 0
 fi
 
@@ -871,23 +850,41 @@ show_success_notification() {
             xdg-open /var/log/elive-upgrader &
         fi
     fi
+
+    # Friendly, non-intrusive Patreon motivation
+    local patreon_msg
+    patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you. If you enjoy these continuous updates, improvements, and next unique features, consider supporting this work. Every contribution helps keep the project alive and growing.\n\nSee the Patreon page to check what Premium features there's available." )"
+    if command -v ${yad%% *} &>/dev/null; then
+        if $yad --question --title="$(eval_gettext "Elive Premium available")" --text="$patreon_msg" --width=520 2>/dev/null; then
+            if command -v web-launcher &>/dev/null; then
+                web-launcher "https://patreon.com/c/elive" &
+            elif command -v xdg-open &>/dev/null; then
+                xdg-open "https://patreon.com/c/elive" &
+            fi
+        fi
+    elif command -v zenity &>/dev/null; then
+        if zenity --question --title="$(eval_gettext "Elive Premium available")" --text="$patreon_msg" --width=520 2>/dev/null; then
+            if command -v web-launcher &>/dev/null; then
+                web-launcher "https://patreon.com/c/elive" &
+            elif command -v xdg-open &>/dev/null; then
+                xdg-open "https://patreon.com/c/elive" &
+            fi
+        fi
+    fi
 }
 
 # Check if this is a successful upgrade completion (not a failure recovery)
-if [[ ! -f "$RECOVERY_FLAG" ]] && [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
+if [[ ! -s "$RECOVERY_FLAG" ]] && [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
     show_success_notification
-    rm -f "/var/cache/elive-upgrader/notify-upgrade-complete"
-    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
+    true > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
     # Clean up backups asynchronously in the background so desktop startup is not delayed
     ( do_backup_cleanup ) &
     exit 0
 fi
 
-if [[ ! -f "$RECOVERY_FLAG" ]]; then
-    # No recovery needed, remove autostart entry and exit
-    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+if [[ ! -s "$RECOVERY_FLAG" ]]; then
+    # No recovery needed, clean up backups if flag present and exit
     ( do_backup_cleanup ) &
     exit 0
 fi
@@ -1002,12 +999,10 @@ case "$CHOICE" in
         ;;
 esac
 
-# Remove the notification flag and autostart entry if restore was chosen
+# Remove the notification flag if restore was chosen
 if [[ "$CHOICE" == "restore" ]]; then
-    rm -f "$RECOVERY_FLAG"
-    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
-    # Also remove from user's autostart if present
-    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "$RECOVERY_FLAG" 2>/dev/null || true
+    true > "$RECOVERY_FLAG" 2>/dev/null || true
 fi
 
 exit 0
@@ -1015,38 +1010,18 @@ RECOVERY_SCRIPT
 
     chmod +x "/usr/lib/elive-upgrader/recovery-notification"
 
-    # Also copy to user's autostart directories so it runs on login
-    for user_home in /home/*; do
-        if [[ -d "$user_home" ]]; then
-            local user_name
-            user_name=$(basename "$user_home")
-            local user_autostart="${user_home}/.config/autostart"
-            mkdir -p "$user_autostart" 2>/dev/null || true
-            cp -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" "$user_autostart/" 2>/dev/null || true
-            chown -R "${user_name}:${user_name}" "$user_autostart" 2>/dev/null || true
-        fi
-    done
-
-    log_info "Recovery notification created. User will be notified on next desktop login."
+    log_info "Recovery notification helper created. User will be notified on next desktop login via elive-upgrader."
 }
 
 # Clear recovery notification (after successful upgrade or manual restore)
 clear_recovery_notification() {
     log_info "Clearing recovery notification..."
-    rm -f "$RECOVERY_NOTIFICATION_FLAG"
+    rm -f "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
+    true > "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
     rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
-    # Do not wipe desktop autostart entry if a success notification is pending
-    if [[ ! -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
-        rm -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
+    true > "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
+    if [[ ! -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
-
-        # Remove from user autostart directories
-        for user_home in /home/*; do
-            if [[ -d "$user_home" ]]; then
-                local user_autostart="${user_home}/.config/autostart"
-                rm -f "${user_autostart}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
-            fi
-        done
     fi
 }
 

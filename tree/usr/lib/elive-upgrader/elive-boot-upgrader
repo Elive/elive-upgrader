@@ -393,6 +393,7 @@ validate_upgrade_state(){
     if [[ "${UPGRADE_COMPLETED}" == "yes" ]] && upgrade_check_target_reached "${TARGET_CODENAME}"; then
         echo "Target ${TARGET_CODENAME} already reached and completed. Running post-boot hooks and cleaning up."
         process_remove_if_not_before "${TARGET_CODENAME}"
+        cleanup_old_backups
         cleanup_and_disable
         return 1
     fi
@@ -401,6 +402,7 @@ validate_upgrade_state(){
         if [[ "${UPGRADE_COMPLETED}" == "yes" ]]; then
             echo "First boot of the new upgraded system detected. Running post-boot hooks..."
             process_remove_if_not_before "${TARGET_CODENAME}"
+            cleanup_old_backups
         fi
         echo "UPGRADE_IN_PROGRESS is not yes (value: \"${UPGRADE_IN_PROGRESS}\"), cleaning up state file"
         cleanup_and_disable

@@ -235,6 +235,29 @@ main(){
 
     # }}}
 
+    # Check for pending upgrade notifications / recovery state immediately BEFORE any delayed sleep
+    if [[ -s "/var/log/elive-upgrader/last-boot-upgrade-failure" ]]; then
+        local fail_msg
+        fail_msg=$(cat /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null)
+        rm -f /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        true > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
+        local user_msg
+        user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
+        $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
+    fi
+
+    # Delegate pending notifications and recovery choices to recovery-notification if needed
+    if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]] || \
+       [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]] || \
+       [[ -s "/var/log/elive-upgrader/recovery-mode-pending" ]]; then
+        if [[ ! -x "/usr/lib/elive-upgrader/recovery-notification" ]]; then
+            sudo "${sudo_args[@]}" /usr/lib/elive-upgrader/debian-upgrader --setup-recovery-notification 2>/dev/null || true
+        fi
+        if [[ -x "/usr/lib/elive-upgrader/recovery-notification" ]]; then
+            /usr/lib/elive-upgrader/recovery-notification || true
+        fi
+    fi
+
     # wait 30 seconds that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
         el_debug "delayed $(basename $0) 30 seconds"
@@ -277,51 +300,6 @@ main(){
 
     # source functions
     source /usr/lib/elive-upgrader/functions.sh
-
-    if [[ -s "/var/log/elive-upgrader/last-boot-upgrade-failure" ]]; then
-        local fail_msg
-        fail_msg=$(cat /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null)
-        rm -f /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
-        true > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
-        local user_msg
-        user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
-        $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
-    fi
-
-    # Check if a successful upgrade notification is pending
-    if [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
-        local target_distro
-        target_distro="$(cat /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true)"
-        rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
-        true > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
-        local success_msg
-        if [[ -n "$target_distro" ]]; then
-            success_msg="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to the new version (%s). All your files, settings, and applications have been preserved.")" "$target_distro")"
-        else
-            success_msg="$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to the new version. All your files, settings, and applications have been preserved.")"
-        fi
-        $guitool --info --text="$success_msg" --title="$(eval_gettext "System Upgrade Complete")" 1>/dev/null 2>&1
-
-        # Friendly, non-intrusive Patreon motivation
-        local patreon_msg
-        patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you. If you enjoy these continuous updates, improvements, and next unique features, consider supporting this work. Every contribution helps keep the project alive and growing.\n\nSee the Patreon page to check what Premium features there's available." )"
-        if $guitool --question --text="$patreon_msg" --title="$(eval_gettext "Elive Premium available" )" 1>/dev/null 2>&1; then
-            web-launcher "https://patreon.com/c/elive" &
-        fi
-    fi
-
-    # Check if recovery mode is pending (full OS backup was created before upgrade)
-    if [[ -s "/var/log/elive-upgrader/recovery-mode-pending" ]]; then
-        local backup_info=""
-        if [[ -f "/var/cache/elive-upgrader/full-os-backup/backup-info.txt" ]]; then
-            backup_info="\n\n$(cat /var/cache/elive-upgrader/full-os-backup/backup-info.txt 2>/dev/null)"
-        fi
-        local recovery_msg
-        recovery_msg="$(eval_gettext "A system upgrade has failed and the system may be in an inconsistent state.\n\nA full OS backup was created before the upgrade attempt and is available for recovery.\n\nYou can restore the system by running:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup\n\nOr use the Elive Upgrader application to retry the upgrade.")${backup_info}"
-        $guitool --warning --text="$recovery_msg" --title="$(eval_gettext "System Upgrade Recovery")" --width=550 1>/dev/null 2>&1
-        rm -f "/var/log/elive-upgrader/recovery-mode-pending" 2>/dev/null || true
-        true > "/var/log/elive-upgrader/recovery-mode-pending" 2>/dev/null || true
-    fi
 
     # fixes first (if)
     #el_debug "going to: previous fixes"
