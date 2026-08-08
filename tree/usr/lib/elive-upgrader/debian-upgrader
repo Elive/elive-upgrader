@@ -2288,10 +2288,8 @@ send_upgrade_report() {
             fi
         } > "$report_copy_f" 2>/dev/null || true
         chmod 644 "$report_copy_f" 2>/dev/null || true
-        cp -f "$report_copy_f" /var/log/elive-upgrader/debian-upgrade-report-sent.txt 2>/dev/null || true
-        chmod 644 /var/log/elive-upgrader/debian-upgrade-report-sent.txt 2>/dev/null || true
 
-        log_info "A readable copy of the upgrade report was saved to: /var/log/elive-upgrader/debian-upgrade-report-sent.txt"
+        log_info "A readable copy of the upgrade report was saved to: ${report_copy_f}"
 
         if el_verify_internet 2>/dev/null ; then
             if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
