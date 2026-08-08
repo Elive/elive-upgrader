@@ -268,40 +268,6 @@ get_nvidia_version(){
     return 0
 }
 
-#===  FUNCTION  ================================================================
-#          NAME:  start_warning_loop
-#   DESCRIPTION:  Launches background warning loop printing progress notices every 5m
-#    PARAMETERS:  None
-#       RETURNS:  0
-#===============================================================================
-start_warning_loop(){
-    (
-        while true; do
-            sleep 300
-            echo -e "\n${YELLOW}${BOLD}======================================================================${NC}" 2>/dev/null || true
-            echo -e "${CYAN}${BOLD}  [!] ATTENTION: ELIVE SYSTEM UPGRADE IS STILL IN PROGRESS!${NC}" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}  Please do NOT turn off, reboot, or interrupt your computer.${NC}" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}  Wait for the full process to finish and reboot automatically.${NC}" 2>/dev/null || true
-            echo -e "${YELLOW}${BOLD}======================================================================${NC}\n" 2>/dev/null || true
-        done
-    ) &
-    WARNING_LOOP_PID=$!
-    return 0
-}
-
-#===  FUNCTION  ================================================================
-#          NAME:  stop_warning_loop
-#   DESCRIPTION:  Stops the background warning process loop
-#    PARAMETERS:  None
-#       RETURNS:  0
-#===============================================================================
-stop_warning_loop(){
-    if [[ -n "${WARNING_LOOP_PID:-}" ]]; then
-        kill "${WARNING_LOOP_PID}" 2>/dev/null || true
-        unset WARNING_LOOP_PID
-    fi
-    return 0
-}
 
 # Logging setup
 LOG_DIR="/var/log/elive-upgrader"
@@ -3100,8 +3066,7 @@ main_upgrade() {
     draw_banner "PREPARING SYSTEM" "$CYAN"
 
     check_root
-    start_warning_loop
-    trap 'stop_warning_loop; release_lock' EXIT
+    trap release_lock EXIT
     if [[ "$BOOT_MODE" == "false" ]]; then
         check_tmux
     fi
@@ -3365,8 +3330,6 @@ main_upgrade() {
     sanitize_upgrade_logs
     ensure_log_permissions
     enable_automatic_clean
-
-    stop_warning_loop
 
     send_upgrade_report
 
