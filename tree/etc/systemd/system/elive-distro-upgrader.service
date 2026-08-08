@@ -7,8 +7,8 @@ ConditionPathExists=/etc/default/elive-distro-upgrade
 After=network.target local-fs.target syslog.target plymouth-start.service
 # Prevent the graphical interface / login manager and TTY logins on tty1 from starting during the upgrade
 Before=graphical.target display-manager.service plymouth-quit.service plymouth-quit-active.service getty.target getty@tty1.service
-# Prevent running during shutdown/reboot to avoid conflicts, prevent display manager, and stop getty on tty1
-Conflicts=shutdown.target reboot.target halt.target display-manager.service getty@tty1.service
+# Prevent running during shutdown/reboot to avoid conflicts
+Conflicts=shutdown.target reboot.target halt.target
 # Don't run if the system is in emergency/rescue mode
 ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 

@@ -3226,7 +3226,10 @@ disable_boot_upgrade() {
     log_info "Disabling elive-distro-upgrader service..."
     rm -f "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
     if ((is_systemd)); then
+        systemctl stop elive-distro-upgrader.service 2>/dev/null || true
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+        systemctl unmask getty@tty1.service 2>/dev/null || true
+        systemctl set-default graphical.target 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
     if command -v update-rc.d &>/dev/null; then
