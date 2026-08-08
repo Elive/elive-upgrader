@@ -111,7 +111,7 @@ SKIP_FULL_OS_BACKUP_FLAG="/var/cache/elive-upgrader/skip-full-os-backup"
 RECOVERY_NOTIFICATION_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 
 # Configure frontend and priority for interactive dialog support on TTY1
-export DEBIAN_FRONTEND=dialog
+export DEBIAN_FRONTEND=noninteractive
 export DEBIAN_PRIORITY=critical
 export DEBCONF_NOWARNINGS=true
 export UCF_FORCE_CONFFOLD=1
