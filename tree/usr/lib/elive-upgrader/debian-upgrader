@@ -586,7 +586,7 @@ full_os_backup() {
     fi
 
     if ! command -v rsync &>/dev/null; then
-        log_warning "rsync is not installed. Skipping full OS backup."
+        NOREPORTS=1 log_warning "rsync is not installed. Skipping full OS backup."
         return 0
     fi
 
@@ -1340,8 +1340,8 @@ log_error() {
 }
 
 free_emergency_disk_space() {
-    log_warning "Running emergency disk space cleanup to recover system upgrade..."
-    log_warning "Removing cache and temporal files..."
+    NOREPORTS=1 log_warning "Running emergency disk space cleanup to recover system upgrade..."
+    NOREPORTS=1 log_warning "Removing cache and temporal files..."
 
     # 1. Clean temporary files, caches, trash, and system logs
     # log_info "Cleaning temporary files, browser caches, thumbnail caches, trash, and system logs..."
@@ -1432,7 +1432,7 @@ free_emergency_disk_space() {
 
     # 3. If full OS backup exists, remove it to free up large amount of disk space
     if [[ -d "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" ]]; then
-        log_warning "Removing full OS backup at ${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup} to free up disk space for the upgrade..."
+        NOREPORTS=1 log_warning "Removing full OS backup at ${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup} to free up disk space for the upgrade..."
         rm -rf "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" 2>/dev/null || true
     fi
 
@@ -1440,7 +1440,7 @@ free_emergency_disk_space() {
     local old_backups
     old_backups=$(ls -d /root/debian-upgrade-backup-* 2>/dev/null || true)
     if [[ -n "$old_backups" ]]; then
-        log_warning "Removing backup directories in /root..."
+        NOREPORTS=1 log_warning "Removing backup directories in /root..."
         rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
     fi
 
@@ -1448,7 +1448,7 @@ free_emergency_disk_space() {
     local free_kb
     free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$free_kb" ]] && (( free_kb < 1048576 )); then
-        log_warning "Free space still under 1GB ($(( free_kb / 1024 )) MB). Cleaning APT archive cache..."
+        NOREPORTS=1 log_warning "Free space still under 1GB ($(( free_kb / 1024 )) MB). Cleaning APT archive cache..."
         apt-get clean 2>/dev/null || true
     fi
 
@@ -1465,7 +1465,7 @@ repair_apt() {
     local root_free_kb
     root_free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$root_free_kb" ]] && (( root_free_kb < 1048576 )); then
-        log_warning "Low disk space detected during repair ($(( root_free_kb / 1024 )) MB free)."
+        NOREPORTS=1 log_warning "Low disk space detected during repair ($(( root_free_kb / 1024 )) MB free)."
         free_emergency_disk_space
     fi
 
@@ -1474,7 +1474,7 @@ repair_apt() {
         return 0
     fi
 
-    log_warning "Attempting to repair APT/dpkg state..."
+    NOREPORTS=1 log_warning "Attempting to repair APT/dpkg state..."
 
     # Remove stale lock files that may exist from a crashed upgrade
     rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
@@ -1608,9 +1608,7 @@ safe_apt_run() {
 
                 # If we found a specific DKMS package that failed
                 if [[ -n "$dkms_failure_package" ]]; then
-                    log_warning "DKMS compilation failure detected for package: $dkms_failure_package"
-                    log_warning "This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue."
-                    log_warning "You can reinstall it after the upgrade completes if needed."
+                    log_warning "DKMS compilation failure detected for package: $dkms_failure_package. This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue. You can reinstall it after the upgrade completes if needed."
                     sleep 8
 
                     # Remove the problematic DKMS package
@@ -1948,7 +1946,7 @@ check_disk_space() {
     fi
 
     if [[ "$space_ok" == "false" ]]; then
-        log_warning "Free space is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
+        NOREPORTS=1 log_warning "Free space is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
         free_emergency_disk_space
         root_free_kb=$(df -P / | awk 'NR==2 {print $4}')
         space_ok=true
@@ -2243,7 +2241,7 @@ verify_upgrade() {
 
     # Check for broken packages
     if dpkg -l | grep -q '^rc'; then
-        log_warning "Some packages are in rc (removed but config files remain) state"
+        NOREPORTS=1 log_warning "Some packages are in rc (removed but config files remain) state"
     fi
 
     # Check for held packages
@@ -2406,7 +2404,7 @@ send_upgrade_report() {
                 if ((is_reports_sent)) ; then
                     log_info "Upgrade report sent successfully (ID: $id)."
                 else
-                    log_warning "Could not send upgrade report to Elive server."
+                    NOREPORTS=1 log_warning "Could not send upgrade report to Elive server."
                 fi
             fi
         fi
@@ -2796,7 +2794,7 @@ enable_boot_upgrade_conf() {
     free_root_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
 
     if (( free_root_kb < req_backup_space_kb )); then
-        log_warning "Insufficient disk space for full OS backup (Required: $(( req_backup_space_kb / 1024 )) MB, Available: $(( free_root_kb / 1024 )) MB)."
+        NOREPORTS=1 log_warning "Insufficient disk space for full OS backup (Required: $(( req_backup_space_kb / 1024 )) MB, Available: $(( free_root_kb / 1024 )) MB)."
         if ! warn_no_full_backup_dialog "$os_size_kb" "$req_backup_space_kb" "$free_root_kb"; then
             log_info "Upgrade cancelled by user due to insufficient space for full OS backup."
             exit 0
@@ -2836,13 +2834,13 @@ enable_boot_upgrade_conf() {
             success=true
             break
         fi
-        log_warning "Attempt $attempt failed. Retrying in 5 seconds..."
+        NOREPORTS=1 log_warning "Attempt $attempt failed. Retrying in 5 seconds..."
         sleep 5
         (( attempt++ ))
     done
 
     if [[ "$success" != "true" ]]; then
-        log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
+        NOREPORTS=1 log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
         # Restore sources from backup if update fails
         if [[ -d "$BACKUP_DIR/sources.list.d" ]]; then
             rm -rf /etc/apt/sources.list.d
@@ -2981,7 +2979,7 @@ enable_boot_upgrade_conf() {
     if "${dl_cmd[@]}"; then
         dl_success=true
     else
-        log_warning "Predownload failed. Cleaning safe temporary files and retrying..."
+        NOREPORTS=1 log_warning "Predownload failed. Cleaning safe temporary files and retrying..."
         free_emergency_disk_space
         if "${dl_cmd[@]}"; then
             dl_success=true
@@ -2989,7 +2987,7 @@ enable_boot_upgrade_conf() {
     fi
 
     while [[ "$dl_success" != "true" ]]; do
-        log_warning "Predownload failed due to disk space limitations."
+        NOREPORTS=1 log_warning "Predownload failed due to disk space limitations."
         if show_predownload_full_options; then
             # User chose "Keep packages and Retry"
             show_instruct_free_space_dialog
@@ -3044,7 +3042,7 @@ enable_boot_upgrade_conf() {
     fi
 
     if [[ "$post_dl_space_ok" == "false" ]]; then
-        log_warning "Free space after predownload is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
+        NOREPORTS=1 log_warning "Free space after predownload is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
         free_emergency_disk_space
 
         avail_root_kb=$(df -P / | awk 'NR==2 {print $4}')
@@ -3059,7 +3057,7 @@ enable_boot_upgrade_conf() {
     fi
 
     while [[ "$post_dl_space_ok" == "false" ]]; do
-        log_warning "Free space after predownload is still less than ${MIN_FREE_SPACE_GB} GB."
+        NOREPORTS=1 log_warning "Free space after predownload is still less than ${MIN_FREE_SPACE_GB} GB."
         if show_predownload_full_options; then
             # User chose "Keep packages and Retry"
             show_instruct_free_space_dialog
@@ -3080,7 +3078,7 @@ enable_boot_upgrade_conf() {
     done
 
     if [[ "$post_dl_space_ok" == "false" ]]; then
-        log_error "Free space after predownload is less than the required ${MIN_FREE_SPACE_GB} GB. Cleaning predownloaded packages and aborting upgrade."
+        NOREPORTS=1 log_error "Free space after predownload is less than the required ${MIN_FREE_SPACE_GB} GB. Cleaning predownloaded packages and aborting upgrade."
         apt-get clean 2>/dev/null || true
         restore_sources_on_cancel
         upgrade_state_clear
@@ -3185,7 +3183,7 @@ EOF
             init_configured=true
             log_info "systemd service enabled successfully"
         else
-            log_warning "Failed to enable systemd service"
+            log_warning "Failed to enable systemd service (elive-distro-upgrader.service)"
         fi
     fi
 
@@ -3196,7 +3194,7 @@ EOF
                 init_configured=true
                 log_info "OpenRC service enabled successfully"
             else
-                log_warning "Failed to enable OpenRC service"
+                log_warning "Failed to enable OpenRC service (elive-distro-upgrader)"
             fi
         else
             log_error "/etc/init.d/elive-distro-upgrader init script is missing!"
@@ -3208,7 +3206,7 @@ EOF
             init_configured=true
             log_info "sysvinit script enabled successfully"
         else
-            log_warning "Failed to enable sysvinit script"
+            log_warning "Failed to enable sysvinit script (elive-distro-upgrader)"
         fi
     fi
 
