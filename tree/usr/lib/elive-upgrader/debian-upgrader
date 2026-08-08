@@ -305,7 +305,7 @@ LOG_DIR="/var/log/elive-upgrader"
 #       RETURNS:  Prints formatted log file path string
 #===============================================================================
 get_log_filename(){
-    local step_v="${1:-boot}"
+    local step_v="${1:-prepare-system}"
     local timestamp_v=""
     local from_cn_v=""
     local target_cn_v=""
@@ -324,9 +324,9 @@ get_log_filename(){
 # Determine current step for log naming
 init_logging() {
     if [[ -z "${LOG_FILE_INITIALIZED:-}" ]]; then
-        CURRENT_STEP_NAME="boot"
+        CURRENT_STEP_NAME="prepare-system"
         if [[ "$BOOT_MODE" == "true" ]]; then
-            CURRENT_STEP_NAME="boot-mode"
+            CURRENT_STEP_NAME="boot-console-upgrade"
         fi
 
         DEBIAN_UPGRADE_LOGFILE="${DEBIAN_UPGRADE_LOGFILE:-$(get_log_filename "$CURRENT_STEP_NAME")}"
