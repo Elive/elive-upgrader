@@ -475,20 +475,13 @@ to_kb() {
     fi
 }
 
-# Perform full OS backup
-full_os_backup() {
-    if ! command -v rsync &>/dev/null; then
-        log_warning "rsync is not installed. Skipping full OS backup."
-        return 0
-    fi
-
-    # Clean up any previous backup first to free space and avoid double-counting
-    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
-        log_info "Removing previous OS backup..."
-        rm -rf "$FULL_OS_BACKUP_DIR"
-    fi
-
-    # Directories to backup (OS-only, no user data)
+#===  FUNCTION  ================================================================
+#          NAME:  get_os_dirs_size_kb
+#   DESCRIPTION:  Calculates total size of OS directories in KB for backup estimation
+#    PARAMETERS:  None
+#       RETURNS:  Prints total size in KB
+#===============================================================================
+get_os_dirs_size_kb(){
     local backup_dirs=(
         "/usr"
         "/boot"
@@ -505,7 +498,6 @@ full_os_backup() {
         "/sbin"
     )
 
-    # Exclude pattern list matching rsync excludes
     local du_excludes=(
         --exclude='/var/cache/elive-upgrader'
         --exclude='/var/cache/apt/archives/*'
@@ -515,10 +507,10 @@ full_os_backup() {
         --exclude='/var/cache/thumbnails/*'
     )
 
-    # Calculate total size of main OS directories to backup in KB (excluding /home, caches, etc.)
-    log_info "Calculating size of main OS directories for backup..."
     local os_dirs_size_kb=0
     local existing_dirs=()
+    local d=""
+
     for d in "${backup_dirs[@]}"; do
         if [[ -d "$d" ]]; then
             existing_dirs+=("$d")
@@ -540,9 +532,71 @@ full_os_backup() {
         done
     fi
 
-    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade space + 2 GB safety
+    echo "${os_dirs_size_kb}"
+}
+
+#===  FUNCTION  ================================================================
+#          NAME:  warn_no_full_backup_dialog
+#   DESCRIPTION:  Displays GUI prompt warning user about insufficient backup space
+#    PARAMETERS:  $1 = os_size_kb, $2 = req_space_kb, $3 = free_space_kb
+#       RETURNS:  0 if user agrees to continue, 1 if cancelled
+#===============================================================================
+warn_no_full_backup_dialog(){
+    local os_size_kb="$1"
+    local req_space_kb="$2"
+    local free_space_kb="$3"
+
+    local os_gb req_gb avail_gb
+    os_gb=$(awk -v k="$os_size_kb" 'BEGIN {printf "%.1f", k/1048576}')
+    req_gb=$(awk -v k="$req_space_kb" 'BEGIN {printf "%.1f", k/1048576}')
+    avail_gb=$(awk -v k="$free_space_kb" 'BEGIN {printf "%.1f", k/1048576}')
+
+    local title="$(eval_gettext "Full OS Backup Space Warning")"
+    local msg="$(printf "$(eval_gettext "There is not enough free disk space to create a full OS backup before upgrading.\n\n- Current OS Size: %s GB\n- Required Free Space for Full Backup: %s GB\n- Available Free Space: %s GB\n\nCritical configuration files will still be backed up, but a complete OS image backup will be skipped.\n\nDo you want to continue with the upgrade without a full OS backup?")" "${os_gb}" "${req_gb}" "${avail_gb}")"
+
+    if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
+        $yad --question --title="$title" --text="$msg" --width=500 \
+            --button="$(eval_gettext "Continue without Full Backup"):0" \
+            --button="$(eval_gettext "Cancel"):1"
+        return $?
+    elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+        zenity --question --title="$title" --text="$msg" --width=500 \
+            --ok-label="$(eval_gettext "Continue without Full Backup")" \
+            --cancel-label="$(eval_gettext "Cancel")" 2>/dev/null
+        return $?
+    else
+        echo -e "\n*** ${YELLOW}WARNING: INSUFFICIENT SPACE FOR FULL OS BACKUP${NC} ***"
+        echo -e "$msg\n"
+        read -p "$(eval_gettext "Type 'yes' to continue without full OS backup, or any other key to cancel: ")" choice
+        if [[ "$choice" == "yes" ]]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+
+# Perform full OS backup
+full_os_backup() {
+    if ! command -v rsync &>/dev/null; then
+        log_warning "rsync is not installed. Skipping full OS backup."
+        return 0
+    fi
+
+    # Clean up any previous backup first to free space and avoid double-counting
+    if [[ -d "$FULL_OS_BACKUP_DIR" ]]; then
+        log_info "Removing previous OS backup..."
+        rm -rf "$FULL_OS_BACKUP_DIR"
+    fi
+
+    # Calculate total size of main OS directories to backup in KB (excluding /home, caches, etc.)
+    log_info "Calculating size of main OS directories for backup..."
+    local os_dirs_size_kb
+    os_dirs_size_kb=$(get_os_dirs_size_kb)
+
+    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + MIN_FREE_SPACE_KB (5 GB) + 4 GB safety shift
     local upgrade_extra_kb=$MIN_FREE_SPACE_KB
-    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 2097152 ))
+    local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 4194304 ))
 
     # Check free space on root partition
     local free_space_kb
@@ -2599,6 +2653,20 @@ enable_boot_upgrade_conf() {
     fi
     if [[ "$check_result" -ne 0 ]]; then
         exit 1
+    fi
+
+    # Check if we have enough free space for a full OS backup during prepare step
+    local os_size_kb req_backup_space_kb free_root_kb
+    os_size_kb=$(get_os_dirs_size_kb)
+    req_backup_space_kb=$(( os_size_kb + MIN_FREE_SPACE_KB + 4194304 ))
+    free_root_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
+
+    if (( free_root_kb < req_backup_space_kb )); then
+        log_warning "Insufficient disk space for full OS backup (Required: $(( req_backup_space_kb / 1024 )) MB, Available: $(( free_root_kb / 1024 )) MB)."
+        if ! warn_no_full_backup_dialog "$os_size_kb" "$req_backup_space_kb" "$free_root_kb"; then
+            log_info "Upgrade cancelled by user due to insufficient space for full OS backup."
+            exit 0
+        fi
     fi
 
     log_info "Pre-downloading packages for the upgrade to $target_codename to ensure a reliable offline/boot-time upgrade..."
