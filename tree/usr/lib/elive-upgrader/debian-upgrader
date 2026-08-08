@@ -1330,6 +1330,7 @@ log_error() {
 
 free_emergency_disk_space() {
     log_warning "Running emergency disk space cleanup to recover system upgrade..."
+    log_warning "Removing cache and temporal files..."
 
     # 1. Clean temporary files, caches, trash, and system logs
     # log_info "Cleaning temporary files, browser caches, thumbnail caches, trash, and system logs..."
@@ -1401,7 +1402,7 @@ free_emergency_disk_space() {
     local old_backups
     old_backups=$(ls -d /root/debian-upgrade-backup-* 2>/dev/null || true)
     if [[ -n "$old_backups" ]]; then
-        log_warning "Removing backup directories in /root to free up disk space..."
+        log_warning "Removing backup directories in /root..."
         rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
     fi
 
