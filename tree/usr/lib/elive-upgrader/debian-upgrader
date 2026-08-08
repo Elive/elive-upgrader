@@ -105,6 +105,7 @@ MIN_FREE_SPACE_KB=$(( MIN_FREE_SPACE_GB * 1024 * 1024 ))
 
 # Full OS backup directory
 FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
+SKIP_FULL_OS_BACKUP_FLAG="/var/cache/elive-upgrader/skip-full-os-backup"
 
 # Recovery notification file - placed where desktop session can find it
 RECOVERY_NOTIFICATION_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
@@ -578,6 +579,12 @@ warn_no_full_backup_dialog(){
 
 # Perform full OS backup
 full_os_backup() {
+    if [[ -f "$SKIP_FULL_OS_BACKUP_FLAG" ]]; then
+        log_info "Skipping full OS backup (user chose to proceed without backup during preparation)."
+        rm -f "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
+        return 0
+    fi
+
     if ! command -v rsync &>/dev/null; then
         log_warning "rsync is not installed. Skipping full OS backup."
         return 0
@@ -2666,7 +2673,13 @@ enable_boot_upgrade_conf() {
         if ! warn_no_full_backup_dialog "$os_size_kb" "$req_backup_space_kb" "$free_root_kb"; then
             log_info "Upgrade cancelled by user due to insufficient space for full OS backup."
             exit 0
+        else
+            log_info "User chose to proceed without full OS backup. Setting skip flag for boot mode."
+            mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+            touch "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
         fi
+    else
+        rm -f "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
     fi
 
     log_info "Pre-downloading packages for the upgrade to $target_codename to ensure a reliable offline/boot-time upgrade..."
@@ -3128,6 +3141,7 @@ EOF
 disable_boot_upgrade() {
     sync
     log_info "Disabling elive-distro-upgrader service..."
+    rm -f "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
     if ((is_systemd)); then
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
@@ -3150,6 +3164,7 @@ disable_boot_upgrade() {
 }
 
 restore_sources_on_cancel() {
+    rm -f "$SKIP_FULL_OS_BACKUP_FLAG" 2>/dev/null || true
     # Restore APT sources and preferences from target codename back to original codename
     # This is used when cancelling a boot upgrade that hasn't completed
     local target_cn
