@@ -1244,6 +1244,11 @@ trigger_reboot() {
     log_info "=================================================="
     log_info "  SYSTEM IS READY FOR REBOOT TO APPLY CHANGES"
     log_info "=================================================="
+    if ((is_openrc)); then
+        log_info "Stopping anacron service..."
+        rc-service anacron stop 2>/dev/null || service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
+        pkill -f anacron 2>/dev/null || true
+    fi
     log_info "Rebooting now..."
     sync
 
@@ -2941,6 +2946,11 @@ EOF
     done
 
     log_info "User agreed. Rebooting system using elive-pm..."
+    if ((is_openrc)); then
+        log_info "Stopping anacron service before reboot..."
+        rc-service anacron stop 2>/dev/null || service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
+        pkill -f anacron 2>/dev/null || true
+    fi
     elive-pm reboot || trigger_reboot
 }
 
