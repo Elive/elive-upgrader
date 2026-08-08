@@ -2682,8 +2682,42 @@ run_post_hooks() {
         log_info "Updating package lists after full upgrade before installing post-upgrade packages..."
         safe_apt_run apt-get update || log_warning "Failed to update package lists before post-hooks, proceeding with current cache..."
 
+        local all_dirs=()
+        if [[ -d "$cache_dir" ]]; then
+            all_dirs+=("$cache_dir")
+        fi
+        for d in "${hook_dirs[@]}"; do
+            if [[ "$d" != "$cache_dir" ]]; then
+                all_dirs+=("$d")
+            fi
+        done
+
+        local processed_remove_post=()
+
+        for hook_dir in "${all_dirs[@]}"; do
+            # 1. Remove packages specified in debian-upgrade-packages-to-remove-post.txt
+            if [[ -f "$hook_dir/debian-upgrade-packages-to-remove-post.txt" ]]; then
+                local remove_file="$hook_dir/debian-upgrade-packages-to-remove-post.txt"
+                if [[ ! " ${processed_remove_post[*]:-} " =~ " ${remove_file} " ]]; then
+                    processed_remove_post+=("$remove_file")
+                    local pkgs
+                    local raw_pkgs
+                    raw_pkgs=$(cat "$remove_file" | grep -v "^#" | tr '\n' ' ')
+                    pkgs=$(filter_installed_packages "$raw_pkgs")
+                    if [[ -n "$pkgs" ]]; then
+                        log_info "Removing post-upgrade packages: $pkgs"
+                        if ! safe_apt_run apt-get remove --purge -y $pkgs; then
+                            log_error "Failed to remove post-upgrade packages: $pkgs"
+                        fi
+                    else
+                        log_info "No post-upgrade packages need to be removed (none are installed)."
+                    fi
+                fi
+            fi
+        done
+
         for hook_dir in "${hook_dirs[@]}"; do
-            # 1. Install packages specified in debian-upgrade-packages-to-install.txt
+            # 2. Install packages specified in debian-upgrade-packages-to-install.txt
             if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
                 local pkgs
                 pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
@@ -2695,7 +2729,7 @@ run_post_hooks() {
                     fi
                 fi
             fi
-            # 2. Run post-upgrade script
+            # 3. Run post-upgrade script
             if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
                 log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
                 if ! "$hook_dir/debian-upgrade-post-script.sh"; then

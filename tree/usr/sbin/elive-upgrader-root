@@ -53,11 +53,15 @@
 #      - List of supporting packages to install AFTER the full upgrade step completes, BEFORE rebooting.
 #      - Runs after full-upgrade, kernel install, update-initramfs, and update-grub.
 #
-#   12. debian-upgrade-post-script.sh
+#   12. debian-upgrade-packages-to-remove-post.txt
+#      - List of packages to remove AFTER completing the full upgrade step, BEFORE rebooting.
+#      - Runs during post-hooks before installing debian-upgrade-packages-to-install.txt.
+#
+#   13. debian-upgrade-post-script.sh
 #      - Script executed AFTER completing the full upgrade step, BEFORE rebooting.
 #      - Runs during post-hooks right after debian-upgrade-packages-to-install.txt.
 #
-#   13. debian-upgrade-packages-to-remove-if-not-before.txt
+#   14. debian-upgrade-packages-to-remove-if-not-before.txt
 #      - List of packages to remove near the end of the upgrade process (BEFORE reboot),
 #        or on first boot as a fallback, if they were NOT present on the system before the upgrade.
 #      - Supports wildcards (e.g., exim4*).
