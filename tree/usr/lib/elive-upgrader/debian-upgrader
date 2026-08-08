@@ -741,6 +741,28 @@ if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
     exit 0
 fi
 
+# Wait for GUI display and desktop session to be fully ready before showing notifications
+wait_for_desktop() {
+    local max_wait=30
+    local count=0
+    while (( count < max_wait )); do
+        if [[ -n "${DISPLAY:-}" ]] || [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+            if command -v xset &>/dev/null && xset q &>/dev/null; then
+                break
+            fi
+            if command -v xhost &>/dev/null && xhost &>/dev/null; then
+                break
+            fi
+        fi
+        sleep 1
+        (( count++ ))
+    done
+    # Give window manager time to settle desktop and panels
+    sleep 3
+}
+
+wait_for_desktop
+
 # Show insufficient disk space notification
 show_insufficient_space_notification() {
     local free_mb=""
@@ -761,8 +783,8 @@ show_insufficient_space_notification() {
         zenity --warning --title="$title" --text="$message" --width=520 2>/dev/null
     elif command -v kdialog &>/dev/null; then
         kdialog --title "$title" --sorry "$message" 2>/dev/null
-    elif command -v notify-send &>/dev/null; then
-        notify-send -u critical "$title" "$message" 2>/dev/null
+    elif command -v xmessage &>/dev/null; then
+        xmessage -center "$message" 2>/dev/null
     else
         echo "$title: $message"
     fi
@@ -789,25 +811,58 @@ show_success_notification() {
     local message="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to Debian %s.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files.\n\nWould you like to open the logs folder now?")" "${target_cn}")"
 
     local open_folder=false
+    local dialog_shown=false
+    local attempts=0
 
-    if command -v zenity &>/dev/null; then
-        if zenity --question --title="$title" --text="$message" --ok-label="$(eval_gettext "Open Log Folder")" --cancel-label="$(eval_gettext "Close")" --width=520 2>/dev/null; then
-            open_folder=true
+    while [[ "$dialog_shown" == "false" ]] && (( attempts < 10 )); do
+        (( attempts++ ))
+
+        if command -v ${yad%% *} &>/dev/null; then
+            $yad --question --title="$title" --text="$message" --button="$(eval_gettext "Open Log Folder"):0" --button="$(eval_gettext "Close"):1" --width=520 2>/dev/null
+            local exit_code=$?
+            if [[ $exit_code -eq 0 ]]; then
+                open_folder=true
+                dialog_shown=true
+            elif [[ $exit_code -eq 1 || $exit_code -eq 252 ]]; then
+                open_folder=false
+                dialog_shown=true
+            fi
+        elif command -v zenity &>/dev/null; then
+            zenity --question --title="$title" --text="$message" --ok-label="$(eval_gettext "Open Log Folder")" --cancel-label="$(eval_gettext "Close")" --width=520 2>/dev/null
+            local exit_code=$?
+            if [[ $exit_code -eq 0 ]]; then
+                open_folder=true
+                dialog_shown=true
+            elif [[ $exit_code -eq 1 ]]; then
+                open_folder=false
+                dialog_shown=true
+            fi
+        elif command -v kdialog &>/dev/null; then
+            kdialog --title "$title" --yesno "$message" 2>/dev/null
+            local exit_code=$?
+            if [[ $exit_code -eq 0 ]]; then
+                open_folder=true
+                dialog_shown=true
+            elif [[ $exit_code -eq 1 ]]; then
+                open_folder=false
+                dialog_shown=true
+            fi
+        elif command -v xmessage &>/dev/null; then
+            xmessage -center -buttons "$(eval_gettext "Open Log Folder"):101,$(eval_gettext "Close"):102" "$message" 2>/dev/null
+            local exit_code=$?
+            if [[ $exit_code -eq 101 ]]; then
+                open_folder=true
+                dialog_shown=true
+            elif [[ $exit_code -eq 102 ]]; then
+                open_folder=false
+                dialog_shown=true
+            fi
         fi
-    elif command -v ${yad%% *} &>/dev/null; then
-        if $yad --question --title="$title" --text="$message" --button="$(eval_gettext "Open Log Folder"):0" --button="$(eval_gettext "Close"):1" --width=520 2>/dev/null; then
-            open_folder=true
+
+        if [[ "$dialog_shown" == "false" ]]; then
+            sleep 3
         fi
-    elif command -v kdialog &>/dev/null; then
-        if kdialog --title "$title" --yesno "$message" 2>/dev/null; then
-            open_folder=true
-        fi
-    else
-        if command -v notify-send &>/dev/null; then
-            notify-send -u normal "$title" "$message" 2>/dev/null
-        fi
-        echo "$title: $message"
-    fi
+    done
 
     if [[ "$open_folder" == "true" ]]; then
         if command -v thunar &>/dev/null; then
@@ -842,13 +897,13 @@ show_notification() {
     local title="$1"
     local message="$2"
 
-    if command -v zenity &>/dev/null; then
-        zenity --warning --title="$title" --text="$message" --width=500 2>/dev/null
+    if command -v ${yad%% *} &>/dev/null; then
+        $yad --warning --title="$title" --text="$message" --width=500 2>/dev/null
         return
     fi
 
-    if command -v ${yad%% *} &>/dev/null; then
-        $yad --warning --title="$title" --text="$message" --width=500 2>/dev/null
+    if command -v zenity &>/dev/null; then
+        zenity --warning --title="$title" --text="$message" --width=500 2>/dev/null
         return
     fi
 
@@ -859,12 +914,6 @@ show_notification() {
 
     if command -v xmessage &>/dev/null; then
         xmessage -center "$message" 2>/dev/null
-        return
-    fi
-
-    # Fallback: try notify-send for a passive notification
-    if command -v notify-send &>/dev/null; then
-        notify-send -u critical "$title" "$message" 2>/dev/null
         return
     fi
 
