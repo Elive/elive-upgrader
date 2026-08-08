@@ -6,13 +6,6 @@
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
-if command -v openrc &>/dev/null || [[ -f /etc/rc.conf ]] || command -v rc-service &>/dev/null; then
-    is_openrc=1
-else
-    is_openrc=0
-fi
-export is_openrc
-
 # Shared Debian version mapping
 declare -g -A DEBIAN_CODENAMES=(
     ["wheezy"]=7

@@ -1294,12 +1294,21 @@ trigger_reboot() {
         log_info "Stopping anacron service..."
         rc-service anacron stop 2>/dev/null || service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
         pkill -f anacron 2>/dev/null || true
+    elif ((is_systemd)); then
+        log_info "Stopping anacron service..."
+        systemctl stop anacron.service 2>/dev/null || true
+        pkill -f anacron 2>/dev/null || true
     fi
     log_info "Rebooting now..."
     sync
 
-    # Run standard reboot directly as it is known to work
-    reboot || /sbin/reboot || reboot -f || true
+    if ((is_systemd)); then
+        systemctl reboot 2>/dev/null || reboot || /sbin/reboot || reboot -f || true
+    elif ((is_openrc)); then
+        rc-service reboot restart 2>/dev/null || openrc-shutdown -r now 2>/dev/null || reboot || /sbin/reboot || reboot -f || true
+    else
+        reboot || /sbin/reboot || reboot -f || true
+    fi
 
     # Ultimate kernel-level emergency reboot fallback (SysRq) if still running
     sleep 5
@@ -1991,12 +2000,16 @@ stop_services() {
 
     # Stop monitoring services that might interfere
     if ((is_systemd)); then
-        systemctl stop monit 2>/dev/null || true
+        systemctl stop monit.service 2>/dev/null || true
+        systemctl stop micro-evtd.service 2>/dev/null || true
+    elif ((is_openrc)); then
+        rc-service monit stop 2>/dev/null || true
+        rc-service micro-evtd stop 2>/dev/null || true
+    else
+        service monit stop 2>/dev/null || true
+        service micro-evtd stop 2>/dev/null || true
     fi
-    service monit stop 2>/dev/null || true
 
-    # Stop watchdog if present
-    service micro-evtd stop 2>/dev/null || true
     if command -v microapl &> /dev/null; then
         microapl -a system_set_watchdog off 2>/dev/null || true
     fi
@@ -3216,6 +3229,10 @@ EOF
     if ((is_openrc)); then
         log_info "Stopping anacron service before reboot..."
         rc-service anacron stop 2>/dev/null || service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
+        pkill -f anacron 2>/dev/null || true
+    elif ((is_systemd)); then
+        log_info "Stopping anacron service before reboot..."
+        systemctl stop anacron.service 2>/dev/null || true
         pkill -f anacron 2>/dev/null || true
     fi
     elive-pm reboot || trigger_reboot

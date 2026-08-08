@@ -140,9 +140,11 @@ suspend_tty1_and_dms(){
     if ((is_systemd)); then
         systemctl stop getty@tty1.service 2>/dev/null || true
         systemctl mask getty@tty1.service 2>/dev/null || true
-    fi
-
-    if ((is_openrc)); then
+        for dm_v in ${dm_list_v}; do
+            systemctl stop "${dm_v}.service" 2>/dev/null || true
+        done
+        systemctl stop display-manager.service 2>/dev/null || true
+    elif ((is_openrc)); then
         for dm_v in ${dm_list_v}; do
             if rc-service "${dm_v}" status >/dev/null 2>&1; then
                 echo "Stopping OpenRC display manager: ${dm_v}" >/dev/console 2>/dev/null || true
@@ -217,11 +219,11 @@ restore_tty1_and_dms(){
         for dm_v in ${dm_list_v}; do
             rc-service "${dm_v}" start 2>/dev/null || true
         done
-    elif command -v service &>/dev/null; then
+    elif ! ((is_systemd)) && command -v service &>/dev/null; then
         for dm_v in ${dm_list_v}; do
             service "${dm_v}" start 2>/dev/null || true
         done
-    elif command -v invoke-rc.d &>/dev/null; then
+    elif ! ((is_systemd)) && command -v invoke-rc.d &>/dev/null; then
         for dm_v in ${dm_list_v}; do
             invoke-rc.d "${dm_v}" start 2>/dev/null || true
         done
