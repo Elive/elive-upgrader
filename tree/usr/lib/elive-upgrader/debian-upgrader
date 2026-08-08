@@ -2128,6 +2128,10 @@ sanitize_upgrade_logs() {
     local host_name
     host_name=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || true)
 
+    # Collect machine ID
+    local machine_id
+    machine_id=$(tr -d '\r\n ' < /etc/machine-id 2>/dev/null || tr -d '\r\n ' < /var/lib/dbus/machine-id 2>/dev/null || true)
+
     for log_f in "${log_files[@]}"; do
         chmod 644 "$log_f" 2>/dev/null || true
 
@@ -2137,16 +2141,31 @@ sanitize_upgrade_logs() {
             sed -i "s|/home/${u}|/home/user|g" "$log_f" 2>/dev/null || true
             sed -i -E "s/\b${u}\b/user/g" "$log_f" 2>/dev/null || true
         done
+    done
 
-        # Replace custom hostname
-        if [[ -n "$host_name" && "$host_name" != "localhost" && "$host_name" != "elive" ]]; then
+    # Replace custom hostname
+    if [[ -n "$host_name" && "$host_name" != "localhost" && "$host_name" != "elive" ]]; then
+        log_info " - Sanitizing system hostname..."
+        for log_f in "${log_files[@]}"; do
             sed -i -E "s/\b${host_name}\b/elive-host/g" "$log_f" 2>/dev/null || true
-        fi
+        done
+    fi
 
-        # Replace IPv4 addresses
+    # Replace machine ID
+    if [[ -n "$machine_id" && ${#machine_id} -ge 32 ]]; then
+        log_info " - Sanitizing machine ID..."
+        for log_f in "${log_files[@]}"; do
+            sed -i "s|${machine_id}|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|g" "$log_f" 2>/dev/null || true
+        done
+    fi
+
+    log_info " - Sanitizing IPv4 addresses..."
+    for log_f in "${log_files[@]}"; do
         sed -i -E 's/\b(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/x.x.x.x/g' "$log_f" 2>/dev/null || true
+    done
 
-        # Replace MAC addresses
+    log_info " - Sanitizing MAC addresses..."
+    for log_f in "${log_files[@]}"; do
         sed -i -E 's/\b([0-9a-Fa-f]{2}[:-]){5}([0-9a-Fa-f]{2})\b/xx:xx:xx:xx:xx:xx/g' "$log_f" 2>/dev/null || true
     done
 
