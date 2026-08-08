@@ -1278,21 +1278,39 @@ free_emergency_disk_space() {
     log_warning "Running emergency disk space cleanup to recover system upgrade..."
 
     # 1. Clean temporary files, caches, trash, and system logs
-    log_info "Cleaning temporary files, browser caches, thumbnail caches, trash, and system logs..."
-    rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+    # log_info "Cleaning temporary files, browser caches, thumbnail caches, trash, and system logs..."
+    # rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
 
     # Kill processes that lock cache files
-    pkill -9 -f efreetd 2>/dev/null || true
+    for i in efreetd rhythmbox chromium google-chrome opera palemoon firefox-esr picard netsurf opera
+    do
+        timeout 10 pkill "$i" 2>/dev/null || pkill -9 -f "$i" 2>/dev/null || true
+    done
+
+    # pkill -9 -f google-chrome 2>/dev/null || true
 
     # Specific user caches and desktop caches across all user directories and root
-    rm -rf /home/*/.cache/mesa_shader_cache /home/*/.cache/chromium /home/*/.cache/google-chrome \
-           /home/*/.cache/moonchild_productions /home/*/.cache/thumbnails /home/*/.cache/mozilla \
-           /home/*/.cache/MuzicBrainz /home/*/.cache/network /home/*/.cache/rhythmbox \
-           /home/*/.cache/efreet /home/*/.cache/netsurf /home/*/.cache/el_speak /home/*/.cache/opera \
+    rm -rf /home/*/.cache/mesa_shader_cache* \
+        /home/*/.cache/MuzicBrainz \
+        /home/*/.cache/bkp \
+        /home/*/.cache/calibre \
+        /home/*/.cache/chromium \
+        /home/*/.cache/efreet \
+        /home/*/.cache/el_speak \
+        /home/*/.cache/google-chrome \
+        /home/*/.cache/moonchild_productions \
+        /home/*/.cache/mozilla \
+        /home/*/.cache/netsurf \
+        /home/*/.cache/network \
+        /home/*/.cache/opera \
+        /home/*/.cache/shotwell \
+        /home/*/.cache/efreet \
+        /home/*/.cache/rhythmbox \
+        /home/*/.cache/thumbnails \
            /root/.cache/* 2>/dev/null || true
 
     # Delete general cache files (preserving zsh and elive caches)
-    find /home/*/.cache /root/.cache -not -path "*/.cache/zsh/*" -not -path "*/.cache/elive*" -type f -delete 2>/dev/null || true
+    find /root/.cache -not -path "*/.cache/zsh/*" -not -path "*/.cache/elive*" -type f -delete 2>/dev/null || true
     find /home/*/.thumbnails /home/*/.local/share/thumbnails /root/.thumbnails /root/.local/share/thumbnails -type f -delete 2>/dev/null || true
 
     # Clean compile caches
@@ -2746,22 +2764,6 @@ enable_boot_upgrade_conf() {
         fi
     }
 
-    show_5gb_free_required_dialog() {
-        local title="$(eval_gettext "Insufficient Free Space for Upgrade")"
-        local avail_kb avail_mb
-        avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
-        avail_mb=$(( avail_kb / 1024 ))
-        local msg="$(printf "$(eval_gettext "Package predownload complete, but system requires at least %s GB of free space to safely perform the upgrade (you have %s MB available).\n\nPlease free up between %s and 10 GB of disk space on your system before running the upgrade.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
-
-        if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
-            $yad --error --title="$title" --text="$msg" --width=450
-        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
-            zenity --error --title="$title" --text="$msg" --width=450 2>/dev/null
-        else
-            echo -e "\n*** ${RED}INSUFFICIENT DISK SPACE${NC} ***"
-            echo -e "$msg\n"
-        fi
-    }
 
     local dl_success=false
     if "${dl_cmd[@]}"; then
@@ -2830,8 +2832,44 @@ enable_boot_upgrade_conf() {
     fi
 
     if [[ "$post_dl_space_ok" == "false" ]]; then
-        log_error "Free space after predownload is less than the required ${MIN_FREE_SPACE_GB} GB."
-        show_5gb_free_required_dialog
+        log_warning "Free space after predownload is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
+        free_emergency_disk_space
+
+        avail_root_kb=$(df -P / | awk 'NR==2 {print $4}')
+        avail_var_kb=$(df -P /var 2>/dev/null | awk 'NR==2 {print $4}')
+        post_dl_space_ok=true
+        if (( avail_root_kb < min_extra_space_kb )); then
+            post_dl_space_ok=false
+        fi
+        if [[ "$var_dev_dl" != "$root_dev_dl" ]] && [[ -n "$avail_var_kb" ]] && (( avail_var_kb < min_extra_space_kb )); then
+            post_dl_space_ok=false
+        fi
+    fi
+
+    while [[ "$post_dl_space_ok" == "false" ]]; do
+        log_warning "Free space after predownload is still less than ${MIN_FREE_SPACE_GB} GB."
+        if show_predownload_full_options; then
+            # User chose "Keep packages and Retry"
+            show_instruct_free_space_dialog
+            log_info "Re-checking free disk space after user freed space..."
+            avail_root_kb=$(df -P / | awk 'NR==2 {print $4}')
+            avail_var_kb=$(df -P /var 2>/dev/null | awk 'NR==2 {print $4}')
+            post_dl_space_ok=true
+            if (( avail_root_kb < min_extra_space_kb )); then
+                post_dl_space_ok=false
+            fi
+            if [[ "$var_dev_dl" != "$root_dev_dl" ]] && [[ -n "$avail_var_kb" ]] && (( avail_var_kb < min_extra_space_kb )); then
+                post_dl_space_ok=false
+            fi
+        else
+            # User chose "Delete predownloaded packages and Exit"
+            break
+        fi
+    done
+
+    if [[ "$post_dl_space_ok" == "false" ]]; then
+        log_error "Free space after predownload is less than the required ${MIN_FREE_SPACE_GB} GB. Cleaning predownloaded packages and aborting upgrade."
+        apt-get clean 2>/dev/null || true
         restore_sources_on_cancel
         upgrade_state_clear
         disable_boot_upgrade
