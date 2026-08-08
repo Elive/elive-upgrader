@@ -828,7 +828,6 @@ show_insufficient_space_notification() {
 if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
     show_insufficient_space_notification
     rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
-    true > "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     exit 0
 fi
 
@@ -931,7 +930,6 @@ show_success_notification() {
 if [[ ! -s "$RECOVERY_FLAG" ]] && [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
     show_success_notification
     rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
-    true > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
     # Clean up backups asynchronously in the background so desktop startup is not delayed
     ( do_backup_cleanup ) &
     exit 0
@@ -1056,7 +1054,6 @@ esac
 # Remove the notification flag if restore was chosen
 if [[ "$CHOICE" == "restore" ]]; then
     rm -f "$RECOVERY_FLAG" 2>/dev/null || true
-    true > "$RECOVERY_FLAG" 2>/dev/null || true
 fi
 
 exit 0
@@ -1071,9 +1068,7 @@ RECOVERY_SCRIPT
 clear_recovery_notification() {
     log_info "Clearing recovery notification..."
     rm -f "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
-    true > "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
     rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
-    true > "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     if [[ ! -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
     fi
@@ -2746,11 +2741,12 @@ enable_boot_upgrade_conf() {
     local sim_failed=0
     local sim_log
     sim_log=$(mktemp)
-    if ! apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages > "$sim_log" 2>&1; then
+    if ! apt-get -s dist-upgrade -y -q=2 -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1 > "$sim_log" 2>&1; then
         sim_failed=1
     fi
-    # Print the filtered output (excluding extremely verbose Inst/Conf lines)
-    grep -v -E "^(Inst|Conf) " "$sim_log" || true
+    if [[ -s "$sim_log" ]]; then
+        cat "$sim_log" || true
+    fi
     rm -f "$sim_log"
 
     if ((sim_failed)); then
