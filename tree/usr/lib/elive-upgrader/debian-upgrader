@@ -95,6 +95,10 @@ else
     fi
 fi
 
+# Minimum free disk space required for upgrade (in GB and KB)
+MIN_FREE_SPACE_GB=5
+MIN_FREE_SPACE_KB=$(( MIN_FREE_SPACE_GB * 1024 * 1024 ))
+
 # Full OS backup directory
 FULL_OS_BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 
@@ -570,46 +574,8 @@ full_os_backup() {
         done
     fi
 
-    # Estimate additional space needed for the upgrade itself (download + unpack + safety)
-    local download_kb=0 install_kb=0
-    local sim_out
-    sim_out=$( LC_ALL=C apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
-
-    # Parse download size from simulation output
-    local dl_line dl_val dl_unit
-    dl_line=$(echo "$sim_out" | grep -i "Need to get" | head -n 1)
-    if [[ -n "$dl_line" ]]; then
-        local dl_line_clean
-        dl_line_clean=$(echo "$dl_line" | sed 's/,//g')
-        dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-        if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
-            download_kb=$(to_kb "$dl_val" "$dl_unit")
-        fi
-    fi
-
-    # Parse net install size from simulation output
-    local inst_line inst_val inst_unit inst_sign=1
-    inst_line=$(echo "$sim_out" | grep -i "After this operation" | head -n 1)
-    if [[ -n "$inst_line" ]]; then
-        local inst_line_clean
-        inst_line_clean=$(echo "$inst_line" | sed 's/,//g')
-        inst_val=$(echo "$inst_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-        if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
-            echo "$inst_line" | grep -qi "freed" && inst_sign=-1
-            install_kb=$(to_kb "$inst_val" "$inst_unit")
-            (( install_kb *= inst_sign ))
-        fi
-    fi
-
-    # Total needed: backup copy (same size as OS) + download + unpack (1.5 * download) + net extra (if positive) + safety (500 MB)
-    local upgrade_extra_kb=$(( download_kb + download_kb * 3 / 2 + 524288 ))
-    if (( install_kb > 0 )); then
-        upgrade_extra_kb=$(( upgrade_extra_kb + install_kb ))
-    fi
-
-    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade_extra_kb + 2 GB safety
+    # Required space for full OS backup: OS_DIRS_SIZE (1x for backup copy) + upgrade space + 2 GB safety
+    local upgrade_extra_kb=$MIN_FREE_SPACE_KB
     local required_space_kb=$(( os_dirs_size_kb + upgrade_extra_kb + 2097152 ))
 
     # Check free space on root partition
@@ -793,6 +759,42 @@ do_backup_cleanup() {
 
 # Only run if we have a display (graphical session)
 if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    exit 0
+fi
+
+# Show insufficient disk space notification
+show_insufficient_space_notification() {
+    local free_mb=""
+    if [[ -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
+        free_mb=$(cat "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true)
+    fi
+
+    local title="Elive System Upgrade Aborted"
+    local space_info="at least ${MIN_FREE_SPACE_GB} GB required"
+    if [[ -n "$free_mb" ]]; then
+        space_info="at least ${MIN_FREE_SPACE_GB} GB required; only ${free_mb} MB available"
+    fi
+    local message="The system upgrade was aborted during boot because there was not enough free disk space (${space_info}).\n\nPlease delete unnecessary files to free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system and try running the upgrade again."
+
+    if command -v zenity &>/dev/null; then
+        zenity --warning --title="$title" --text="$message" --width=520 2>/dev/null
+    elif command -v yad &>/dev/null; then
+        yad --warning --title="$title" --text="$message" --width=520 2>/dev/null
+    elif command -v kdialog &>/dev/null; then
+        kdialog --title "$title" --sorry "$message" 2>/dev/null
+    elif command -v notify-send &>/dev/null; then
+        notify-send -u critical "$title" "$message" 2>/dev/null
+    else
+        echo "$title: $message"
+    fi
+}
+
+# Check if this is an insufficient disk space failure
+if [[ -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
+    show_insufficient_space_notification
+    rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space"
+    rm -f "${HOME}/.config/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
+    rm -f "/etc/xdg/autostart/elive-upgrade-recovery-notification.desktop" 2>/dev/null
     exit 0
 fi
 
@@ -1007,6 +1009,7 @@ RECOVERY_SCRIPT
 clear_recovery_notification() {
     log_info "Clearing recovery notification..."
     rm -f "$RECOVERY_NOTIFICATION_FLAG"
+    rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     # Do not wipe desktop autostart entry if a success notification is pending
     if [[ ! -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         rm -f "${RECOVERY_DESKTOP_NOTIFICATION_DIR}/${RECOVERY_DESKTOP_NOTIFICATION_FILE}" 2>/dev/null || true
@@ -1777,247 +1780,73 @@ cleanup_packages() {
 }
 
 check_disk_space() {
-    log_info "Checking disk space..."
+    log_info "Checking disk space for upgrade (minimum ${MIN_FREE_SPACE_GB} GB required)..."
 
+    local min_free_kb=$MIN_FREE_SPACE_KB
+    local root_free_kb
+    root_free_kb=$(df -P / | awk 'NR==2 {print $4}')
 
-        # Run a quick simulation to estimate required space
-    log_info "Simulating upgrade to estimate required disk space (calculating, please wait)..."
-    local sim_out
-    # the -s option doesn't give the "Need to get" line when there are no downloads, 
-    # so we'll use --print-uris as fallback.
-    sim_out=$( LC_ALL=C apt-get -s dist-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>&1 || true)
+    local var_dev root_dev var_free_kb
+    var_dev=$(df -P /var 2>/dev/null | awk 'NR==2 {print $1}')
+    root_dev=$(df -P / 2>/dev/null | awk 'NR==2 {print $1}')
+    var_free_kb=$(df -P /var 2>/dev/null | awk 'NR==2 {print $4}')
 
-    log_debug "Simulation output:\n$sim_out"
+    local space_ok=true
 
-    local download_kb=0
-    local install_kb=0
-    local download_parsed=0
-    local install_parsed=0
-
-    # ------------------------------------------------------------
-    # 1. Parse download size from "Need to get X.Y [MB|kB|...]"
-    # ------------------------------------------------------------
-    local dl_line
-    dl_line=$(echo "$sim_out" | grep -i "Need to get" | head -n 1)
-    if [[ -n "$dl_line" ]]; then
-        local dl_val dl_unit
-        local dl_line_clean
-        dl_line_clean=$(echo "$dl_line" | sed 's/,//g')
-        dl_val=$(echo "$dl_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        dl_unit=$(echo "$dl_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-        if [[ -n "$dl_val" && -n "$dl_unit" ]]; then
-            download_kb=$(to_kb "$dl_val" "$dl_unit")
-            download_parsed=1
-            log_debug "Parsed download size from 'Need to get': $dl_val $dl_unit = ${download_kb} KB"
-        else
-            log_debug "Failed to parse 'Need to get' line: $dl_line"
-        fi
+    if (( root_free_kb < min_free_kb )); then
+        space_ok=false
     fi
 
-    # ------------------------------------------------------------
-    # 2. Fallback: use --print-uris to get total download size (most reliable)
-    #    This works even when "Need to get" is missing (e.g. 0 B).
-    # ------------------------------------------------------------
-    if (( download_parsed == 0 )); then
-        log_debug "Primary download parsing failed, using --print-uris fallback..."
-        # Run the same upgrade simulation with --print-uris to get package sizes
-        # Capture only the lines that contain a .deb URL (they have the size as 3rd field)
-        local total_bytes=0
-        # We use the same options, but --print-uris instead of -s
-        local print_out
-        print_out=$( LC_ALL=C apt-get --print-uris dist-upgrade -y \
-            -o Dpkg::Options::="--force-confdef" \
-            -o Dpkg::Options::="--force-confold" \
-            -o Dpkg::Options::="--force-overwrite" \
-            --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true )
-
-        # The format is: 'http://...' package.deb 1234567 MD5Sum:...
-        # We sum the third field (size in bytes) for lines that start with a quote.
-        total_bytes=$(echo "$print_out" | awk '/^'\''/ {sum += $3} END {print sum}')
-        if [[ -n "$total_bytes" && "$total_bytes" -ge 0 ]]; then
-            # Convert bytes to KB (integer division, rounding down)
-            download_kb=$(( total_bytes / 1024 ))
-            download_parsed=1
-            log_debug "Download size from --print-uris: ${total_bytes} bytes = ${download_kb} KB"
-        else
-            log_debug "No packages to download (total_bytes = 0 or empty)"
-            download_kb=0
-            download_parsed=1   # We consider it parsed (0 is a valid value)
-        fi
+    if [[ "$var_dev" != "$root_dev" ]] && [[ -n "$var_free_kb" ]] && (( var_free_kb < min_free_kb )); then
+        space_ok=false
     fi
 
-    # ------------------------------------------------------------
-    # 3. Ultimate fallback: parse individual "Inst" lines (if still zero)
-    #    (kept for compatibility, but rarely needed)
-    # ------------------------------------------------------------
-    if (( download_parsed == 0 )); then
-        log_debug "Still no download size, trying fallback from Inst lines..."
-        local sum_kb=0
-        while IFS= read -r line; do
-            local b_val b_unit
-            local line_clean
-            line_clean=$(echo "$line" | sed 's/,//g')
-            b_val=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?' | grep -oP '[0-9]+(\.[0-9]+)?' | head -n 1)
-            b_unit=$(echo "$line_clean" | grep -oP '\[\s*[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-            if [[ -n "$b_val" && -n "$b_unit" ]]; then
-                local pkg_kb
-                pkg_kb=$(to_kb "$b_val" "$b_unit")
-                sum_kb=$(( sum_kb + pkg_kb ))
-                log_debug "Inst line: $b_val $b_unit = ${pkg_kb} KB"
-            fi
-        done <<< "$(echo "$sim_out" | grep -E "^Inst " || true)"
-        if (( sum_kb > 0 )); then
-            download_kb=$sum_kb
-            download_parsed=1
-            log_debug "Fallback download size from Inst lines: ${download_kb} KB"
-        else
-            # If still nothing, assume 0 and mark as parsed
-            download_kb=0
-            download_parsed=1
-            log_debug "No download size found from any method, assuming 0"
-        fi
-    fi
-
-    # ------------------------------------------------------------
-    # Parse install size from "After this operation, X.Y MB ..."
-    # (unchanged, it works well)
-    # ------------------------------------------------------------
-    local inst_line
-    inst_line=$(echo "$sim_out" | grep -i "After this operation" | head -n 1)
-    if [[ -n "$inst_line" ]]; then
-        local inst_val inst_unit inst_sign
-        local inst_line_clean
-        inst_line_clean=$(echo "$inst_line" | sed 's/,//g')
-        inst_val=$(echo "$inst_line_clean" | grep -oE '[0-9]+(\.[0-9]+)?' | head -n 1)
-        inst_unit=$(echo "$inst_line_clean" | grep -oP '[0-9]+(\.[0-9]+)?\s*\K[a-zA-Z]+' | head -n 1)
-
-        if [[ -n "$inst_val" && -n "$inst_unit" ]]; then
-            if echo "$inst_line" | grep -qi "freed"; then
-                inst_sign=-1
-            else
-                inst_sign=1
-            fi
-            install_kb=$(to_kb "$inst_val" "$inst_unit")
-            install_kb=$(( install_kb * inst_sign ))
-            install_parsed=1
-            log_debug "Parsed install size: $inst_val $inst_unit (sign: $inst_sign) = ${install_kb} KB"
-        else
-            log_debug "Failed to parse install line: $inst_line"
-        fi
-    fi
-
-    # Fallback to safe defaults if simulation didn't yield results
-    if (( download_parsed == 0 )); then
-        log_warning "Could not estimate download size from simulation. Using fallback estimate of 2.5 GB."
-        download_kb=2621440
-    fi
-    if (( install_parsed == 0 )); then
-        log_warning "Could not estimate install size from simulation. Using fallback estimate of 15 GB."
-        install_kb=$(( 15 * 1024 * 1024 ))
-    fi
-
-    log_info "Estimated download size: $(( download_kb / 1024 )) MB"
-    log_info "Estimated net install size change: $(( install_kb / 1024 )) MB"
-
-    # Calculate required free space dynamically: download + unpack (1.5 * download) + net install + 2GB buffer
-    local upgrade_needed_kb=$(( download_kb + download_kb * 3 / 2 ))
-    if (( install_kb > 0 )); then
-        upgrade_needed_kb=$(( upgrade_needed_kb + install_kb ))
-    fi
-    local required_root_kb=$(( upgrade_needed_kb + 2097152 ))
-    if (( required_root_kb < 2097152 )); then
-        required_root_kb=2097152
-    fi
-
-    # Check if /var is on a separate partition
-    local var_on_separate=false
-    local var_dev root_dev
-    var_dev=$(df -P /var | awk 'NR==2 {print $1}')
-    root_dev=$(df -P / | awk 'NR==2 {print $1}')
-    if [[ "$var_dev" != "$root_dev" ]]; then
-        var_on_separate=true
-    fi
-
-    local var_space_free
-    var_space_free=$(df -P /var | awk 'NR==2 {print $4}')
-    local root_space_free
-    root_space_free=$(df -P / | awk 'NR==2 {print $4}')
-
-    attempt_space_cleanup() {
-        log_warning "Attempting to free up space automatically..."
+    if [[ "$space_ok" == "false" ]]; then
+        log_warning "Free space is below ${MIN_FREE_SPACE_GB} GB threshold. Attempting emergency disk space cleanup..."
         free_emergency_disk_space
-    }
+        root_free_kb=$(df -P / | awk 'NR==2 {print $4}')
+        space_ok=true
+        if (( root_free_kb < min_free_kb )); then
+            space_ok=false
+        fi
+        if [[ "$var_dev" != "$root_dev" ]] && [[ -n "$var_free_kb" ]]; then
+            var_free_kb=$(df -P /var 2>/dev/null | awk 'NR==2 {print $4}')
+            if (( var_free_kb < min_free_kb )); then
+                space_ok=false
+            fi
+        fi
+    fi
 
-    handle_insufficient_space() {
-        local partition="$1"
-        local req_mb="$2"
-        local free_mb="$3"
-        local msg="Insufficient space in ${partition}. Required: ${req_mb} MB, Free: ${free_mb} MB"
+    if [[ "$space_ok" == "false" ]]; then
+        local lowest_free_kb=$root_free_kb
+        if [[ "$var_dev" != "$root_dev" ]] && [[ -n "$var_free_kb" ]] && (( var_free_kb < root_free_kb )); then
+            lowest_free_kb=$var_free_kb
+        fi
+
+        local msg="Insufficient space (Free: $(( lowest_free_kb / 1024 )) MB, Required: $(( MIN_FREE_SPACE_GB * 1024 )) MB). Rebooting..."
         log_error "$msg"
 
-        # Setup recovery notification and record failure log
+        # Flag for desktop notification on reboot
+        mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+        echo "$(( lowest_free_kb / 1024 ))" > /var/cache/elive-upgrader/notify-upgrade-failed-space 2>/dev/null || true
+        chmod 666 /var/cache/elive-upgrader/notify-upgrade-failed-space 2>/dev/null || true
+
         mkdir -p /var/log/elive-upgrader 2>/dev/null || true
         echo "$msg" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         chmod 666 /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
-        create_recovery_notification
 
-        # Restore APT sources to original and clean upgrade state
+        create_recovery_notification
         restore_sources_on_cancel
         upgrade_state_clear
+        disable_boot_upgrade
 
-        if ((is_systemd)); then
-            systemctl disable elive-distro-upgrader.service 2>/dev/null || true
-            systemctl daemon-reload 2>/dev/null || true
-        fi
-        if command -v update-rc.d &>/dev/null; then
-            update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-        fi
-        if ((is_openrc)); then
-            rc-update del elive-distro-upgrader 2>/dev/null || true
-        fi
-
-        log_info "Rebooting in 60 seconds due to insufficient space so you can read error messages..."
-        for ((i=60; i>0; i--)); do
-            echo -ne "Rebooting in ${i} seconds...\r"
-            sleep 1
-        done
-        echo ""
+        log_info "Rebooting in 10 seconds due to insufficient space so you can return to desktop..."
+        sleep 10
         trigger_reboot
         exit 1
-    }
-
-    if [[ "$var_on_separate" == "true" ]]; then
-        # /var needs enough space for the download + small safety margin (100MB)
-        local required_var_kb=$(( download_kb + 102400 ))
-        log_info "Checking separate /var partition (Free: $(( var_space_free / 1024 )) MB, Required: $(( required_var_kb / 1024 )) MB)"
-        if (( var_space_free < required_var_kb )); then
-            attempt_space_cleanup
-            var_space_free=$(df -P /var | awk 'NR==2 {print $4}')
-            if (( var_space_free < required_var_kb )); then
-                handle_insufficient_space "/var" "$(( required_var_kb / 1024 ))" "$(( var_space_free / 1024 ))"
-            fi
-        fi
-        log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
-        if (( root_space_free < required_root_kb )); then
-            attempt_space_cleanup
-            root_space_free=$(df -P / | awk 'NR==2 {print $4}')
-            if (( root_space_free < required_root_kb )); then
-                handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
-            fi
-        fi
-    else
-        # Everything is on /
-        log_info "Checking / partition (Free: $(( root_space_free / 1024 )) MB, Required: $(( required_root_kb / 1024 )) MB)"
-        if (( root_space_free < required_root_kb )); then
-            attempt_space_cleanup
-            root_space_free=$(df -P / | awk 'NR==2 {print $4}')
-            if (( root_space_free < required_root_kb )); then
-                handle_insufficient_space "/" "$(( required_root_kb / 1024 ))" "$(( root_space_free / 1024 ))"
-            fi
-        fi
     fi
 
-    log_info "Disk space check passed successfully."
+    log_info "Disk space check passed (at least ${MIN_FREE_SPACE_GB} GB free space available)."
 }
 
 stop_services() {
@@ -2791,10 +2620,134 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Downloading packages (download-only)..."
-    if ! apt-get dist-upgrade --download-only -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages; then
-        log_warning "Some packages failed to download. We will attempt to download remaining packages during boot."
+    local dl_cmd=(apt-get dist-upgrade --download-only -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages)
+
+    show_predownload_full_options() {
+        local title="$(eval_gettext "Disk Full - Insufficient Space")"
+        local msg="$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nYou need to delete at least ${MIN_FREE_SPACE_GB} to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")"
+
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            ${yad:-yad} --question --title="$title" --text="$msg" --width=500 \
+                --button="$(eval_gettext "Keep packages and Retry"):0" \
+                --button="$(eval_gettext "Delete predownloaded packages and Exit"):1"
+            return $?
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --question --title="$title" --text="$msg" --width=500 \
+                --ok-label="$(eval_gettext "Keep packages and Retry")" \
+                --cancel-label="$(eval_gettext "Delete predownloaded packages and Exit")" 2>/dev/null
+            return $?
+        else
+            echo -e "\n*** ${RED}DISK FULL${NC} ***"
+            echo -e "$msg\n"
+            echo "1) Keep predownloaded packages and retry"
+            echo "2) Delete predownloaded packages and exit"
+            read -p "Select option (1 or 2): " choice
+            if [[ "$choice" == "1" ]]; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    }
+
+    show_instruct_free_space_dialog() {
+        local title="$(eval_gettext "Free Up Disk Space")"
+        local msg="$(eval_gettext "Please open your file manager or terminal, delete unnecessary files to free up at least ${MIN_FREE_SPACE_GB} to 10 GB, then click Continue to retry downloading.")"
+
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            ${yad:-yad} --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --info --title="$title" --text="$msg" --width=450 2>/dev/null
+        else
+            echo -e "\n$msg"
+            read -p "Press Enter when ready to continue..."
+        fi
+    }
+
+    show_5gb_free_required_dialog() {
+        local title="$(eval_gettext "Insufficient Free Space for Upgrade")"
+        local msg="$(eval_gettext "Package predownload complete, but system requires at least ${MIN_FREE_SPACE_GB} GB of free space to safely perform the upgrade.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system before running the upgrade.")"
+
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            ${yad:-yad} --error --title="$title" --text="$msg" --width=450
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --error --title="$title" --text="$msg" --width=450 2>/dev/null
+        else
+            echo -e "\n*** ${RED}INSUFFICIENT DISK SPACE${NC} ***"
+            echo -e "$msg\n"
+        fi
+    }
+
+    local dl_success=false
+    if "${dl_cmd[@]}"; then
+        dl_success=true
     else
-        log_info "All packages pre-downloaded successfully!"
+        log_warning "Predownload failed. Cleaning safe temporary files and retrying..."
+        free_emergency_disk_space
+        if "${dl_cmd[@]}"; then
+            dl_success=true
+        fi
+    fi
+
+    while [[ "$dl_success" != "true" ]]; do
+        log_warning "Predownload failed due to disk space limitations."
+        if show_predownload_full_options; then
+            # User chose "Keep packages and Retry"
+            show_instruct_free_space_dialog
+            log_info "Retrying package predownload after user freed space..."
+            if "${dl_cmd[@]}"; then
+                dl_success=true
+            fi
+        else
+            # User chose "Delete predownloaded packages and Exit"
+            break
+        fi
+    done
+
+    if [[ "$dl_success" != "true" ]]; then
+        log_error "Predownload failed. Cleaning predownloaded packages and aborting upgrade."
+        apt-get clean 2>/dev/null || true
+        restore_sources_on_cancel
+        upgrade_state_clear
+        disable_boot_upgrade
+
+        local err_msg="$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space and try running the upgrade again later.")"
+        if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+            $yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450 2>/dev/null
+        else
+            echo -e "\n*** ${RED}ERROR: DISK FULL${NC} ***"
+            echo -e "$err_msg\n"
+        fi
+        exit 1
+    fi
+
+    log_info "All packages pre-downloaded successfully!"
+
+    # Verify that we have an extra space for the upgrade after downloading
+    local min_extra_space_kb=$MIN_FREE_SPACE_KB
+    local avail_root_kb var_dev_dl root_dev_dl avail_var_kb
+    avail_root_kb=$(df -P / | awk 'NR==2 {print $4}')
+    var_dev_dl=$(df -P /var 2>/dev/null | awk 'NR==2 {print $1}')
+    root_dev_dl=$(df -P / 2>/dev/null | awk 'NR==2 {print $1}')
+    avail_var_kb=$(df -P /var 2>/dev/null | awk 'NR==2 {print $4}')
+
+    local post_dl_space_ok=true
+    if (( avail_root_kb < min_extra_space_kb )); then
+        post_dl_space_ok=false
+    fi
+    if [[ "$var_dev_dl" != "$root_dev_dl" ]] && [[ -n "$avail_var_kb" ]] && (( avail_var_kb < min_extra_space_kb )); then
+        post_dl_space_ok=false
+    fi
+
+    if [[ "$post_dl_space_ok" == "false" ]]; then
+        log_error "Free space after predownload is less than the required ${MIN_FREE_SPACE_GB} GB."
+        show_5gb_free_required_dialog
+        restore_sources_on_cancel
+        upgrade_state_clear
+        disable_boot_upgrade
+        exit 1
     fi
 
     # Restore sources.list and preferences to the original codename immediately after download
