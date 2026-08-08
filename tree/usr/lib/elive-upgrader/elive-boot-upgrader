@@ -12,6 +12,10 @@ else
 fi
 el_make_environment
 
+if [[ -z "${yad:-}" ]]; then
+    yad="/usr/bin/yad --borders=15 --center --image=logo-elive"
+fi
+
 #===  FUNCTION  ================================================================
 #          NAME:  locales_source
 #   DESCRIPTION:  Sources default locales and normalizes non-Latin locale settings
