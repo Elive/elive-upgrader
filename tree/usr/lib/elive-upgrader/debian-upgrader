@@ -753,7 +753,7 @@ show_insufficient_space_notification() {
     local title="$(eval_gettext "Elive System Upgrade Aborted")"
     local space_info="$(printf "$(eval_gettext "at least %s GB required")" "${MIN_FREE_SPACE_GB}")"
     if [[ -n "$free_mb" ]]; then
-        space_info="$(printf "$(eval_gettext "at least %s GB required; only %s MB available")" "${MIN_FREE_SPACE_GB}" "${free_mb}")"
+        space_info="$(printf "$(eval_gettext "at least %s GB required; you have %s MB available")" "${MIN_FREE_SPACE_GB}" "${free_mb}")"
     fi
     local message="$(printf "$(eval_gettext "The system upgrade was aborted during boot because there was not enough free disk space (%s).\n\nPlease delete unnecessary files to free up between %s and 10 GB of disk space on your system and try running the upgrade again.")" "${space_info}" "${MIN_FREE_SPACE_GB}")"
 
@@ -2700,7 +2700,10 @@ enable_boot_upgrade_conf() {
 
     show_predownload_full_options() {
         local title="$(eval_gettext "Disk Full - Insufficient Space")"
-        local msg="$(printf "$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nYou need to delete at least %s to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")" "${MIN_FREE_SPACE_GB}")"
+        local avail_kb avail_mb
+        avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
+        avail_mb=$(( avail_kb / 1024 ))
+        local msg="$(printf "$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nAt least %s GB of free space is required (you have %s MB available).\n\nYou need to delete at least %s to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --question --title="$title" --text="$msg" --width=500 \
@@ -2728,7 +2731,10 @@ enable_boot_upgrade_conf() {
 
     show_instruct_free_space_dialog() {
         local title="$(eval_gettext "Free Up Disk Space")"
-        local msg="$(printf "$(eval_gettext "Please open your file manager or terminal, delete unnecessary files to free up at least %s to 10 GB, then click Continue to retry downloading.")" "${MIN_FREE_SPACE_GB}")"
+        local avail_kb avail_mb
+        avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
+        avail_mb=$(( avail_kb / 1024 ))
+        local msg="$(printf "$(eval_gettext "At least %s GB of free space is required (you have %s MB available).\n\nPlease open your file manager or terminal, delete unnecessary files to free up at least %s to 10 GB, then click Continue to retry downloading.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
@@ -2742,7 +2748,10 @@ enable_boot_upgrade_conf() {
 
     show_5gb_free_required_dialog() {
         local title="$(eval_gettext "Insufficient Free Space for Upgrade")"
-        local msg="$(printf "$(eval_gettext "Package predownload complete, but system requires at least %s GB of free space to safely perform the upgrade.\n\nPlease free up between %s and 10 GB of disk space on your system before running the upgrade.")" "${MIN_FREE_SPACE_GB}" "${MIN_FREE_SPACE_GB}")"
+        local avail_kb avail_mb
+        avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
+        avail_mb=$(( avail_kb / 1024 ))
+        local msg="$(printf "$(eval_gettext "Package predownload complete, but system requires at least %s GB of free space to safely perform the upgrade (you have %s MB available).\n\nPlease free up between %s and 10 GB of disk space on your system before running the upgrade.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --error --title="$title" --text="$msg" --width=450
@@ -2787,7 +2796,10 @@ enable_boot_upgrade_conf() {
         upgrade_state_clear
         disable_boot_upgrade
 
-        local err_msg="$(printf "$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nPlease free up between %s and 10 GB of disk space and try running the upgrade again later.")" "${MIN_FREE_SPACE_GB}")"
+        local avail_kb avail_mb
+        avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
+        avail_mb=$(( avail_kb / 1024 ))
+        local err_msg="$(printf "$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nAt least %s GB of free space is required (you have %s MB available).\n\nPlease free up between %s and 10 GB of disk space and try running the upgrade again later.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
