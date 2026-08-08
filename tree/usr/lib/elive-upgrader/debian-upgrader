@@ -1393,7 +1393,7 @@ free_emergency_disk_space() {
 
     # Purge residual configuration files (rc state packages)
     local rc_pkgs
-    rc_pkgs=$(dpkg -l | grep '^rc' | awk '{print $2}' || true)
+    rc_pkgs=$(dpkg-query -W -f='${db:Status-Status} ${Package}\n' 2>/dev/null | awk '/^not-installed/ {print $2}' || true)
     if [[ -n "$rc_pkgs" ]]; then
         log_info "Purging residual config files to free space..."
         dpkg --purge $rc_pkgs 2>/dev/null || true
@@ -1403,10 +1403,11 @@ free_emergency_disk_space() {
     rm -rf /var/lib/snapd/cache/* /var/tmp/flatpak-cache-* 2>/dev/null || true
 
     # Clean unused kernel headers in /usr/src for non-running kernels
-    local running_k
+    local running_k running_k_base
     running_k=$(uname -r)
+    running_k_base="${running_k%-*}"
     for h_dir in /usr/src/linux-headers-*; do
-        if [[ -d "$h_dir" ]] && [[ "$h_dir" != *"$running_k"* ]]; then
+        if [[ -d "$h_dir" ]] && [[ -n "$running_k_base" ]] && [[ "$h_dir" != *"$running_k_base"* ]]; then
             log_info "Removing unneeded kernel headers in $h_dir..."
             rm -rf "$h_dir" 2>/dev/null || true
         fi
@@ -1578,9 +1579,6 @@ safe_apt_run() {
         if grep -qi "trying to overwrite.*which is also in package" "$err_log" 2>/dev/null; then
             log_warning "Package overwrite conflict detected. Forcing dpkg configuration with overwrite..."
             dpkg --configure -a --force-overwrite --force-confdef --force-confold 2>/dev/null || true
-            if ls /var/cache/apt/archives/*.deb &>/dev/null; then
-                dpkg -i --force-overwrite --force-confdef --force-confold /var/cache/apt/archives/*.deb 2>/dev/null || true
-            fi
         fi
 
         # Detect DKMS compilation failure
