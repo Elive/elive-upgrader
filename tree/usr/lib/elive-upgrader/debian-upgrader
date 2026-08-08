@@ -776,10 +776,10 @@ show_insufficient_space_notification() {
     fi
     local message="The system upgrade was aborted during boot because there was not enough free disk space (${space_info}).\n\nPlease delete unnecessary files to free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system and try running the upgrade again."
 
-    if command -v zenity &>/dev/null; then
-        zenity --warning --title="$title" --text="$message" --width=520 2>/dev/null
-    elif command -v yad &>/dev/null; then
+    if command -v yad &>/dev/null; then
         yad --warning --title="$title" --text="$message" --width=520 2>/dev/null
+    elif command -v zenity &>/dev/null; then
+        zenity --warning --title="$title" --text="$message" --width=520 2>/dev/null
     elif command -v kdialog &>/dev/null; then
         kdialog --title "$title" --sorry "$message" 2>/dev/null
     elif command -v notify-send &>/dev/null; then
@@ -2609,8 +2609,9 @@ enable_boot_upgrade_conf() {
         local fail_msg
         fail_msg="$(eval_gettext "The upgrade simulation failed. This usually means there are conflicting packages or broken dependencies that prevent a safe upgrade.\n\nTo upgrade your system, please download a new Elive ISO and perform a normal reinstall in upgrade mode, which will keep your files and settings.")"
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            # note the variable "$yad" comes from elive-tools functions which is a wrapper for yad
-            $yad --error --text="$fail_msg" --title="$(eval_gettext "Upgrade Simulation Failed")" --width=450
+            yad --error --text="$fail_msg" --title="$(eval_gettext "Upgrade Simulation Failed")" --width=450
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            zenity --error --text="$fail_msg" --title="$(eval_gettext "Upgrade Simulation Failed")" --width=450 2>/dev/null
         else
             echo -e "\n*** ${RED}ERROR${NC} ***"
             echo -e "$fail_msg"
@@ -2627,7 +2628,7 @@ enable_boot_upgrade_conf() {
         local msg="$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nYou need to delete at least ${MIN_FREE_SPACE_GB} to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            ${yad:-yad} --question --title="$title" --text="$msg" --width=500 \
+            yad --question --title="$title" --text="$msg" --width=500 \
                 --button="$(eval_gettext "Keep packages and Retry"):0" \
                 --button="$(eval_gettext "Delete predownloaded packages and Exit"):1"
             return $?
@@ -2655,7 +2656,7 @@ enable_boot_upgrade_conf() {
         local msg="$(eval_gettext "Please open your file manager or terminal, delete unnecessary files to free up at least ${MIN_FREE_SPACE_GB} to 10 GB, then click Continue to retry downloading.")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            ${yad:-yad} --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
+            yad --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
             zenity --info --title="$title" --text="$msg" --width=450 2>/dev/null
         else
@@ -2669,7 +2670,7 @@ enable_boot_upgrade_conf() {
         local msg="$(eval_gettext "Package predownload complete, but system requires at least ${MIN_FREE_SPACE_GB} GB of free space to safely perform the upgrade.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system before running the upgrade.")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            ${yad:-yad} --error --title="$title" --text="$msg" --width=450
+            yad --error --title="$title" --text="$msg" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
             zenity --error --title="$title" --text="$msg" --width=450 2>/dev/null
         else
@@ -2713,7 +2714,7 @@ enable_boot_upgrade_conf() {
 
         local err_msg="$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space and try running the upgrade again later.")"
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            $yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
+            yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
             zenity --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450 2>/dev/null
         else
@@ -2889,10 +2890,13 @@ EOF
 
     while true; do
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-            # note the variable "$yad" comes from elive-tools functions which is a wrapper for yad
-            $yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
+            yad --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 \
                 --button="$(eval_gettext "reboot now"):0" --button="$(eval_gettext "Cancel"):1"
             if [[ $? -eq 0 ]]; then
+                break
+            fi
+        elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+            if zenity --question --text="$msg" --title="$(eval_gettext "System Ready for Upgrade")" --width=450 2>/dev/null; then
                 break
             fi
         else
