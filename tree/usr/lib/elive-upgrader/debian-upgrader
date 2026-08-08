@@ -1644,7 +1644,7 @@ safe_apt_run() {
 
         local err_msg
         err_msg=$(cat "$err_log" | tail -n 5)
-        log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts. Error: $err_msg"
+        NOREPORTS=1 log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts. Error: $err_msg"
         # Don't repair on the last attempt - just fail
         if (( attempt < max_attempts )); then
             repair_apt
