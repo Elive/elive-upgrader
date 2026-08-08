@@ -2144,6 +2144,7 @@ send_upgrade_report() {
     log_info "Sending upgrade report to Elive server..."
 
     local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
+    local prepare_log="" boot_log=""
 
     source /etc/elive/settings 2>/dev/null || true
     [[ -z "$conf_send_debug_reports_email" ]] && conf_send_debug_reports_email="anonymous"
@@ -2155,9 +2156,28 @@ send_upgrade_report() {
 
     logs_tmp=$(mktemp /tmp/debian-upgrade-report.XXXXXX)
 
-    if [[ -s "$LOG_FILE" ]] && el_verify_internet 2>/dev/null ; then
+    prepare_log="$(ls -t /var/log/elive-upgrader/debian-upgrade-*-prepare-system-*.log 2>/dev/null | head -n 1 || true)"
+    boot_log="${LOG_FILE:-}"
+    if [[ -z "$boot_log" ]] || [[ ! -s "$boot_log" ]]; then
+        boot_log="$(ls -t /var/log/elive-upgrader/debian-upgrade-*-boot-console-upgrade-*.log 2>/dev/null | head -n 1 || true)"
+    fi
+
+    if { [[ -n "$prepare_log" && -s "$prepare_log" ]] || [[ -n "$boot_log" && -s "$boot_log" ]]; } && el_verify_internet 2>/dev/null ; then
         if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
-            { echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::" ; { cat "$LOG_FILE" | gzip -9 -f ; } ; } > "$logs_tmp"
+            {
+                echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::"
+                {
+                    if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
+                        cat "$prepare_log"
+                        echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
+                        cat "$boot_log"
+                    elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
+                        cat "$boot_log"
+                    elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
+                        cat "$prepare_log"
+                    fi
+                } | gzip -9 -f
+            } > "$logs_tmp"
 
             if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
                 is_reports_sent=1
