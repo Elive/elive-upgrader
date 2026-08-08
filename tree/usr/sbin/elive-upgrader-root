@@ -34,27 +34,33 @@
 #   7. post-*.sh
 #      - Executed during the "post" phase. Must be executable (chmod +x).
 #
-#   8. debian-upgrade (Must be in 'root' directory only)
+#   8. debian-upgrade (Must be in 'root' directory of distro-upgrade hook)
+#      - Required marker file to activate distro-upgrade hooks.
 #      - Contains the upgrade tier: "alpha", "beta", or "stable".
-#      - "alpha" requires the user to be a betatester (e.g., elive-upgrader --betatest).
-#      - "beta" requires the user to be a Premium user.
+#      - "alpha" forces debug report generation (FORCE_REPORTS="1") and requires betatester mode.
+#      - "beta" requires Premium membership.
 #      - "stable" is available to all users.
 #
 #   9. debian-upgrade-packages-to-remove.txt
-#      - List of packages to remove specifically before a distro-upgrade.
+#      - List of blocking packages to remove BEFORE starting the distro-upgrade.
+#      - Executed during pre-hooks before APT sources update and before package downloads/upgrades.
 #
 #   10. debian-upgrade-pre-script.sh
-#      - Script executed specifically before starting a distro-upgrade.
+#      - Script executed BEFORE starting the distro-upgrade (during pre-hooks).
+#      - Runs after debian-upgrade-packages-to-remove.txt and before APT sources update.
 #
 #   11. debian-upgrade-packages-to-install.txt
-#      - List of packages to install specifically after a distro-upgrade.
+#      - List of supporting packages to install AFTER the full upgrade step completes, BEFORE rebooting.
+#      - Runs after full-upgrade, kernel install, update-initramfs, and update-grub.
 #
 #   12. debian-upgrade-post-script.sh
-#      - Script executed specifically after completing a distro-upgrade.
+#      - Script executed AFTER completing the full upgrade step, BEFORE rebooting.
+#      - Runs during post-hooks right after debian-upgrade-packages-to-install.txt.
 #
 #   13. debian-upgrade-packages-to-remove-if-not-before.txt
-#      - List of packages to remove after the first boot of the upgraded system
-#        if they were not present before the upgrade. Supports wildcards.
+#      - List of packages to remove near the end of the upgrade process (BEFORE reboot),
+#        or on first boot as a fallback, if they were NOT present on the system before the upgrade.
+#      - Supports wildcards (e.g., exim4*).
 #
 # ==============================================================================
 # DIFFERENCE BETWEEN 'root' AND 'user' HOOK DIRECTORIES
