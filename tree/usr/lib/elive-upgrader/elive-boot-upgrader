@@ -536,7 +536,7 @@ main(){
 
     echo "Rebooting system to apply changes in 10 seconds..."
     sync
-    ( sleep 10 ; sync ; reboot || /sbin/reboot || reboot -f ) &
+    ( sleep 10 ; sync ; reboot || /sbin/reboot || reboot -f ) & disown 2>/dev/null || true
     exit 0
 }
 

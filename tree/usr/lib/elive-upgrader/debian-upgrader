@@ -1534,8 +1534,8 @@ safe_apt_run() {
             free_emergency_disk_space
         fi
 
-        # Detect DKMS compilation failure (exit code 100 from dpkg)
-        if [[ "$exit_code" -eq 100 ]]; then
+        # Detect DKMS compilation failure
+        if [[ "$exit_code" -ne 0 ]]; then
             if grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
                 # Extract the failing DKMS package name from the error log
                 dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '\S*dkms\S*' | head -1)
@@ -2036,9 +2036,13 @@ perform_upgrade() {
     ) &
     local dkms_monitor_pid=$!
 
-    safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
+    if ! safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
         --allow-downgrades --allow-remove-essential --allow-change-held-packages \
-        -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1
+        -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1; then
+        kill "$dkms_monitor_pid" 2>/dev/null || true
+        log_error "Full upgrade step failed!"
+        return 1
+    fi
 
     kill "$dkms_monitor_pid" 2>/dev/null || true
 
@@ -2972,6 +2976,18 @@ enable_boot_upgrade_conf() {
             sed -i "s|$target_codename|$current_codename|g" "$file"
         fi
     done
+    if [[ -f /etc/elive-version ]]; then
+        sed -i "s|$target_codename|$current_codename|g" /etc/elive-version
+    fi
+    if [[ -f /etc/lsb-release ]]; then
+        local new_ver=${DEBIAN_CODENAMES[$target_codename]:-}
+        local old_ver=${DEBIAN_CODENAMES[$current_codename]:-}
+        if [[ -n "$new_ver" && -n "$old_ver" ]]; then
+            sed -i "s|DISTRIB_RELEASE=\"$new_ver\"|DISTRIB_RELEASE=\"$old_ver\"|g" /etc/lsb-release
+        fi
+        sed -i "s|DISTRIB_CODENAME=\"$target_codename\"|DISTRIB_CODENAME=\"$current_codename\"|g" /etc/lsb-release
+        sed -i "s|$target_codename|$current_codename|g" /etc/lsb-release
+    fi
 
     log_info "Restoring package lists back to normal..."
     apt-get update >/dev/null 2>&1 || true
