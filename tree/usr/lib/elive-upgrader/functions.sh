@@ -532,9 +532,6 @@ check_for_new_elive_version() {
                     local message_failed
                     message_failed="$( eval_gettext "Failed to enable the distro upgrade. Please check the logs for more information." )"
                     $guitool --error --text="$message_failed" 1>/dev/null 2>&1
-                    # Only disable notifications on failure
-                    conf_debian_upgrade_notification="never"
-                    el_config_save "conf_debian_upgrade_notification"
                 fi
                 return 0
                 ;;
