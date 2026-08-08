@@ -735,6 +735,11 @@ DESKTOP_ENTRY
 #!/bin/bash
 # Upgrade notification script - shown to user on desktop after upgrade
 
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
+
+MIN_FREE_SPACE_GB=5
 RECOVERY_FLAG="/var/log/elive-upgrader/recovery-mode-pending"
 BACKUP_DIR="/var/cache/elive-upgrader/full-os-backup"
 CLEANUP_FLAG="/var/cache/elive-upgrader/cleanup-backups-pending"
@@ -769,12 +774,12 @@ show_insufficient_space_notification() {
         free_mb=$(cat "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true)
     fi
 
-    local title="Elive System Upgrade Aborted"
-    local space_info="at least ${MIN_FREE_SPACE_GB} GB required"
+    local title="$(eval_gettext "Elive System Upgrade Aborted")"
+    local space_info="$(printf "$(eval_gettext "at least %s GB required")" "${MIN_FREE_SPACE_GB}")"
     if [[ -n "$free_mb" ]]; then
-        space_info="at least ${MIN_FREE_SPACE_GB} GB required; only ${free_mb} MB available"
+        space_info="$(printf "$(eval_gettext "at least %s GB required; only %s MB available")" "${MIN_FREE_SPACE_GB}" "${free_mb}")"
     fi
-    local message="The system upgrade was aborted during boot because there was not enough free disk space (${space_info}).\n\nPlease delete unnecessary files to free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system and try running the upgrade again."
+    local message="$(printf "$(eval_gettext "The system upgrade was aborted during boot because there was not enough free disk space (%s).\n\nPlease delete unnecessary files to free up between %s and 10 GB of disk space on your system and try running the upgrade again.")" "${space_info}" "${MIN_FREE_SPACE_GB}")"
 
     if command -v yad &>/dev/null; then
         yad --warning --title="$title" --text="$message" --width=520 2>/dev/null
@@ -804,18 +809,19 @@ show_success_notification() {
     if [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         target_cn=$(cat "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true)
     fi
+    [[ -z "$target_cn" ]] && target_cn="system"
 
-    local title="Elive System Upgrade Complete"
-    local message="Congratulations! Your Elive system has been successfully upgraded to Debian ${target_cn:-system}.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files.\n\nWould you like to open the logs folder now?"
+    local title="$(eval_gettext "Elive System Upgrade Complete")"
+    local message="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to Debian %s.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files.\n\nWould you like to open the logs folder now?")" "${target_cn}")"
 
     local open_folder=false
 
     if command -v zenity &>/dev/null; then
-        if zenity --question --title="$title" --text="$message" --ok-label="Open Log Folder" --cancel-label="Close" --width=520 2>/dev/null; then
+        if zenity --question --title="$title" --text="$message" --ok-label="$(eval_gettext "Open Log Folder")" --cancel-label="$(eval_gettext "Close")" --width=520 2>/dev/null; then
             open_folder=true
         fi
     elif command -v yad &>/dev/null; then
-        if yad --question --title="$title" --text="$message" --button="Open Log Folder:0" --button="Close:1" --width=520 2>/dev/null; then
+        if yad --question --title="$title" --text="$message" --button="$(eval_gettext "Open Log Folder"):0" --button="$(eval_gettext "Close"):1" --width=520 2>/dev/null; then
             open_folder=true
         fi
     elif command -v kdialog &>/dev/null; then
@@ -892,52 +898,48 @@ show_notification() {
 }
 
 # Build the message
-MSG="A system upgrade has failed and the system may be in an inconsistent state.
+MSG="$(printf "$(eval_gettext "A system upgrade has failed and the system may be in an inconsistent state.\n\nA full OS backup was created before the upgrade attempt.\n\nOptions:\n1. Try to run the upgrade again\n2. Restore the system from the backup\n3. Get help from the Elive community\n\nThe backup is located at: %s\n\nWould you like to restore the system from the backup now?")" "${BACKUP_DIR}")"
 
-A full OS backup was created before the upgrade attempt.
-
-Options:
-1. Try to run the upgrade again
-2. Restore the system from the backup
-3. Get help from the Elive community
-
-The backup is located at: ${BACKUP_DIR}
-
-Would you like to restore the system from the backup now?"
-
-TITLE="Elive System Upgrade Recovery"
+TITLE="$(eval_gettext "Elive System Upgrade Recovery")"
 
 # Show the notification
 show_notification "$TITLE" "$MSG"
 
 # Ask user what to do
 ask_user() {
+    local prompt_text="$(eval_gettext "What would you like to do?")"
+    local col_action="$(eval_gettext "Action")"
+    local col_desc="$(eval_gettext "Description")"
+    local opt_restore="$(eval_gettext "Restore system from backup (recommended)")"
+    local opt_retry="$(eval_gettext "Try the upgrade again")"
+    local opt_ignore="$(eval_gettext "Ignore for now (ask again next login)")"
+
     if command -v zenity &>/dev/null; then
-        zenity --list --title="$TITLE" --text="What would you like to do?" \
-            --column="Action" --column="Description" \
-            "restore" "Restore system from backup (recommended)" \
-            "retry" "Try the upgrade again" \
-            "ignore" "Ignore for now (ask again next login)" \
+        zenity --list --title="$TITLE" --text="$prompt_text" \
+            --column="$col_action" --column="$col_desc" \
+            "restore" "$opt_restore" \
+            "retry" "$opt_retry" \
+            "ignore" "$opt_ignore" \
             --width=500 --height=300 2>/dev/null
         return
     fi
 
     if command -v yad &>/dev/null; then
-        yad --list --title="$TITLE" --text="What would you like to do?" \
-            --column="Action" --column="Description" \
-            "restore" "Restore system from backup (recommended)" \
-            "retry" "Try the upgrade again" \
-            "ignore" "Ignore for now (ask again next login)" \
+        yad --list --title="$TITLE" --text="$prompt_text" \
+            --column="$col_action" --column="$col_desc" \
+            "restore" "$opt_restore" \
+            "retry" "$opt_retry" \
+            "ignore" "$opt_ignore" \
             --width=500 --height=300 2>/dev/null
         return
     fi
 
     # Fallback: use a simple text prompt
-    echo "What would you like to do?"
-    echo "1. Restore system from backup (recommended)"
-    echo "2. Try the upgrade again"
-    echo "3. Ignore for now"
-    read -p "Enter choice (1/2/3): " choice
+    echo "$prompt_text"
+    echo "1. $opt_restore"
+    echo "2. $opt_retry"
+    echo "3. $opt_ignore"
+    read -p "$(eval_gettext "Enter choice (1/2/3): ")" choice
     case "$choice" in
         1) echo "restore" ;;
         2) echo "retry" ;;
@@ -957,7 +959,7 @@ case "$CHOICE" in
         elif command -v kdesu &>/dev/null; then
             kdesu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
         else
-            show_notification "Error" "Cannot restore: no graphical sudo tool found. Please run from terminal:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup"
+            show_notification "$(eval_gettext "Error")" "$(eval_gettext "Cannot restore: no graphical sudo tool found. Please run from terminal:\nsudo /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup")"
             exit 1
         fi
         ;;
@@ -968,7 +970,7 @@ case "$CHOICE" in
         elif command -v gksu &>/dev/null; then
             gksu /usr/lib/elive-upgrader/debian-upgrader
         else
-            show_notification "Retry" "Please run the Elive Upgrader from the application menu or terminal to retry the upgrade."
+            show_notification "$(eval_gettext "Retry")" "$(eval_gettext "Please run the Elive Upgrader from the application menu or terminal to retry the upgrade.")"
         fi
         ;;
     ignore)
@@ -2625,7 +2627,7 @@ enable_boot_upgrade_conf() {
 
     show_predownload_full_options() {
         local title="$(eval_gettext "Disk Full - Insufficient Space")"
-        local msg="$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nYou need to delete at least ${MIN_FREE_SPACE_GB} to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")"
+        local msg="$(printf "$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nYou need to delete at least %s to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
             yad --question --title="$title" --text="$msg" --width=500 \
@@ -2640,9 +2642,9 @@ enable_boot_upgrade_conf() {
         else
             echo -e "\n*** ${RED}DISK FULL${NC} ***"
             echo -e "$msg\n"
-            echo "1) Keep predownloaded packages and retry"
-            echo "2) Delete predownloaded packages and exit"
-            read -p "Select option (1 or 2): " choice
+            echo "1) $(eval_gettext "Keep predownloaded packages and retry")"
+            echo "2) $(eval_gettext "Delete predownloaded packages and exit")"
+            read -p "$(eval_gettext "Select option (1 or 2): ")" choice
             if [[ "$choice" == "1" ]]; then
                 return 0
             else
@@ -2653,7 +2655,7 @@ enable_boot_upgrade_conf() {
 
     show_instruct_free_space_dialog() {
         local title="$(eval_gettext "Free Up Disk Space")"
-        local msg="$(eval_gettext "Please open your file manager or terminal, delete unnecessary files to free up at least ${MIN_FREE_SPACE_GB} to 10 GB, then click Continue to retry downloading.")"
+        local msg="$(printf "$(eval_gettext "Please open your file manager or terminal, delete unnecessary files to free up at least %s to 10 GB, then click Continue to retry downloading.")" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
             yad --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
@@ -2667,7 +2669,7 @@ enable_boot_upgrade_conf() {
 
     show_5gb_free_required_dialog() {
         local title="$(eval_gettext "Insufficient Free Space for Upgrade")"
-        local msg="$(eval_gettext "Package predownload complete, but system requires at least ${MIN_FREE_SPACE_GB} GB of free space to safely perform the upgrade.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space on your system before running the upgrade.")"
+        local msg="$(printf "$(eval_gettext "Package predownload complete, but system requires at least %s GB of free space to safely perform the upgrade.\n\nPlease free up between %s and 10 GB of disk space on your system before running the upgrade.")" "${MIN_FREE_SPACE_GB}" "${MIN_FREE_SPACE_GB}")"
 
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
             yad --error --title="$title" --text="$msg" --width=450
@@ -2712,7 +2714,7 @@ enable_boot_upgrade_conf() {
         upgrade_state_clear
         disable_boot_upgrade
 
-        local err_msg="$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nPlease free up between ${MIN_FREE_SPACE_GB} and 10 GB of disk space and try running the upgrade again later.")"
+        local err_msg="$(printf "$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nPlease free up between %s and 10 GB of disk space and try running the upgrade again later.")" "${MIN_FREE_SPACE_GB}")"
         if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
             yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
