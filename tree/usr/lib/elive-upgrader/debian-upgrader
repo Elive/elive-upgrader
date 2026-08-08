@@ -1701,7 +1701,20 @@ check_tmux() {
 }
 
 backup_system() {
+    # Check if a system backup already exists for this upgrade session
+    local existing_backup
+    existing_backup=$(ls -d /root/debian-upgrade-backup-* 2>/dev/null | tail -n 1 || true)
+
+    if [[ -n "$existing_backup" && -d "$existing_backup" ]]; then
+        BACKUP_DIR="$existing_backup"
+        log_info "System backup already exists at: $BACKUP_DIR (skipping duplicate backup)"
+        return 0
+    fi
+
     log_info "Starting system backup..."
+
+    # Delete any previous backup directories to ensure we keep only one
+    rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
 
     # Create backup directory
     BACKUP_DIR="/root/debian-upgrade-backup-$(date +%Y%m%d-%H%M%S)"
@@ -2682,6 +2695,9 @@ enable_boot_upgrade_conf() {
 
     log_info "Pre-downloading packages for the upgrade to $target_codename to ensure a reliable offline/boot-time upgrade..."
 
+    # Remove any stale system backups before starting a new upgrade preparation
+    rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
+
     # Backup system configuration before changing sources
     backup_system
 
@@ -3335,6 +3351,9 @@ main_upgrade() {
         exit 1
     fi
 
+    if [[ "$BOOT_MODE" == "false" ]]; then
+        rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
+    fi
     backup_system
 
     # Perform full OS backup if conditions are met (SSD/NVMe or BTRFS with 50GB+ free)
