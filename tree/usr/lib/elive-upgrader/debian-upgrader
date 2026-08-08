@@ -100,7 +100,7 @@ else
 fi
 
 # Minimum free disk space required for upgrade (in GB and KB)
-MIN_FREE_SPACE_GB=5
+MIN_FREE_SPACE_GB=2
 MIN_FREE_SPACE_KB=$(( MIN_FREE_SPACE_GB * 1024 * 1024 ))
 
 # Full OS backup directory
