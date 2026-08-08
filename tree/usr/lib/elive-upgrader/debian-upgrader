@@ -2142,7 +2142,7 @@ send_upgrade_report() {
     log_info "Sending upgrade report to Elive server..."
 
     local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
-    local prepare_log="" boot_log=""
+    local prepare_log="" boot_log="" report_copy_f="" timestamp_v=""
 
     source /etc/elive/settings 2>/dev/null || true
     [[ -z "$conf_send_debug_reports_email" ]] && conf_send_debug_reports_email="anonymous"
@@ -2151,6 +2151,7 @@ send_upgrade_report() {
     id="$( dd if=/dev/urandom bs=1k count=2 2>/dev/null | sha1sum | awk '{print $1}' )"
     architecture="$( el_architecture "host" 2>/dev/null || dpkg --print-architecture 2>/dev/null || echo "unknown" )"
     exit_status=0
+    timestamp_v="$(date +%Y%m%d-%H%M%S)"
 
     logs_tmp=$(mktemp /tmp/debian-upgrade-report.XXXXXX)
 
@@ -2160,36 +2161,66 @@ send_upgrade_report() {
         boot_log="$(ls -t /var/log/elive-upgrader/debian-upgrade-*-boot-console-upgrade-*.log 2>/dev/null | head -n 1 || true)"
     fi
 
-    if { [[ -n "$prepare_log" && -s "$prepare_log" ]] || [[ -n "$boot_log" && -s "$boot_log" ]]; } && el_verify_internet 2>/dev/null ; then
-        if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
-            {
-                echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::"
-                {
-                    if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
-                        cat "$prepare_log"
-                        echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
-                        cat "$boot_log"
-                    elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
-                        cat "$boot_log"
-                    elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
-                        cat "$prepare_log"
-                    fi
-                } | gzip -9 -f
-            } > "$logs_tmp"
-
-            if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
-                is_reports_sent=1
-            else
-                sleep 2
-                if nc -N www.elivecd.org 60001 -w 30 < "$logs_tmp" 2>/dev/null ; then
-                    is_reports_sent=1
-                fi
+    if { [[ -n "$prepare_log" && -s "$prepare_log" ]] || [[ -n "$boot_log" && -s "$boot_log" ]]; } ; then
+        report_copy_f="/var/log/elive-upgrader/debian-upgrade-report-sent-${timestamp_v}.txt"
+        {
+            echo "======================================================================"
+            echo "ELIVE DISTRO UPGRADE - REPORT SUMMARY"
+            echo "======================================================================"
+            echo "Report ID: ${id}"
+            echo "User Email / Contact: ${conf_send_debug_reports_email}"
+            echo "Architecture: ${architecture}"
+            echo "Elive Version: ${eliveversion}"
+            echo "Date: $(date)"
+            echo "======================================================================"
+            echo ""
+            if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
+                cat "$prepare_log"
+                echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
+                cat "$boot_log"
+            elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
+                cat "$boot_log"
+            elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
+                cat "$prepare_log"
             fi
+        } > "$report_copy_f" 2>/dev/null || true
+        chmod 644 "$report_copy_f" 2>/dev/null || true
+        cp -f "$report_copy_f" /var/log/elive-upgrader/debian-upgrade-report-sent.txt 2>/dev/null || true
+        chmod 644 /var/log/elive-upgrader/debian-upgrade-report-sent.txt 2>/dev/null || true
 
-            if ((is_reports_sent)) ; then
-                log_info "Upgrade report sent successfully (ID: $id)."
-            else
-                log_warning "Could not send upgrade report to Elive server."
+        log_info "A readable copy of the upgrade report was saved to: /var/log/elive-upgrader/debian-upgrade-report-sent.txt"
+
+        if el_verify_internet 2>/dev/null ; then
+            if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
+                {
+                    echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::"
+                    {
+                        if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
+                            cat "$prepare_log"
+                            echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
+                            cat "$boot_log"
+                        elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
+                            cat "$boot_log"
+                        elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
+                            cat "$prepare_log"
+                        fi
+                    } | gzip -9 -f
+                } > "$logs_tmp"
+
+                if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
+                    is_reports_sent=1
+                else
+                    sleep 2
+                    if nc -N www.elivecd.org 60001 -w 30 < "$logs_tmp" 2>/dev/null ; then
+                        is_reports_sent=1
+                    fi
+                fi
+
+                if ((is_reports_sent)) ; then
+                    log_info "Upgrade report sent successfully (ID: $id)."
+                else
+                    log_warning "Could not send upgrade report to Elive server."
+                fi
             fi
         fi
     fi
