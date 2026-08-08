@@ -2214,6 +2214,11 @@ post_upgrade_cleanup() {
 
     # Update alternatives if needed
     update-alternatives --all --auto 2>/dev/null || true
+
+    if ((is_systemd)); then
+        systemctl unmask getty@tty1.service 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    fi
 }
 
 verify_upgrade() {

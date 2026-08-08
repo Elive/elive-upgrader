@@ -15,7 +15,7 @@ ConditionPathExists=!/etc/default/elive-distro-upgrade-recovery
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/elive-upgrader/elive-boot-upgrader
-ExecStopPost=-/bin/systemctl unmask getty@tty1.service
+ExecStopPost=-/bin/sh -c 'systemctl unmask getty@tty1.service 2>/dev/null || true'
 StandardInput=tty
 StandardOutput=tty
 StandardError=tty

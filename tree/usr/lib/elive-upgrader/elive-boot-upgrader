@@ -110,6 +110,7 @@ upgrade_check_target_reached(){
 disable_boot_services(){
     if ((is_systemd)); then
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
+        systemctl unmask getty@tty1.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
     if command -v update-rc.d &>/dev/null; then
