@@ -2426,6 +2426,23 @@ send_upgrade_report() {
 
     rm -f "$logs_tmp" 2>/dev/null || true
 
+    local partials_dir="/var/log/elive-upgrader/partials"
+    mkdir -p "$partials_dir" 2>/dev/null || true
+    chmod 755 "$partials_dir" 2>/dev/null || true
+
+    local f
+    for f in /var/log/elive-upgrader/*; do
+        if [[ -f "$f" ]]; then
+            case "$(basename "$f")" in
+                debian-upgrade-report-sent-*.txt)
+                    ;;
+                *)
+                    mv -f "$f" "$partials_dir/" 2>/dev/null || true
+                    ;;
+            esac
+        fi
+    done
+
     log_info "Waiting 10 seconds before rebooting..."
     sleep 10
 }
