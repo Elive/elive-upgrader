@@ -627,7 +627,7 @@ full_os_backup() {
     # Perform a single, clean rsync run from / to the backup directory
     # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
     # from traversing or copying its own destination directory.
-    rsync -aAXq --delete --info=progress2 \
+    rsync -aAX --delete --info=progress2 \
         --exclude='/home/*' \
         --exclude='/proc/*' \
         --exclude='/sys/*' \
@@ -692,7 +692,6 @@ restore_from_backup() {
         -aAXHv
         --omit-dir-times
         -u
-        -q
         --numeric-ids
         --info=progress2
         --ignore-errors
