@@ -2322,6 +2322,20 @@ sanitize_upgrade_logs() {
         sed -i -E 's/\b([0-9a-Fa-f]{2}[:-]){5}([0-9a-Fa-f]{2})\b/xx:xx:xx:xx:xx:xx/g' "$log_f" 2>/dev/null || true
     done
 
+    log_info " - Cleaning progress floods and package status entries from logs..."
+    for log_f in "${log_files[@]}"; do
+        # Convert carriage returns to newlines so progress lines can be filtered line-by-line
+        sed -i 's/\r/\n/g' "$log_f" 2>/dev/null || true
+
+        # Remove Inst/Conf/Remv entries and rsync progress flood lines
+        grep -v -E '^\s*(Inst|Conf|Remv)\b|ir-chk=|xfr#|\b[0-9]+%\s+[0-9.]+[kKMGT]?B/s' "$log_f" | sed '/^$/N;/^\n$/D' > "${log_f}.tmp" 2>/dev/null || true
+        if [[ -s "${log_f}.tmp" ]]; then
+            mv -f "${log_f}.tmp" "$log_f" 2>/dev/null || true
+        else
+            rm -f "${log_f}.tmp" 2>/dev/null || true
+        fi
+    done
+
     log_info "Upgrade logs sanitized successfully."
 }
 
