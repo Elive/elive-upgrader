@@ -52,17 +52,10 @@ case "$1" in
             exit 1
         fi
 
-        # Run the boot upgrader script
-        "$BOOT_UPGRADER"
-        exit_code=$?
-
-        if [ "$exit_code" -ne 0 ]; then
-            log_end_msg "$exit_code"
-        else
-            log_end_msg 0
-        fi
-
-        exit "$exit_code"
+        # Run the boot upgrader script in background so OpenRC/SysVinit returns immediately without timing out
+        ("$BOOT_UPGRADER" >/dev/console 2>&1 &)
+        log_end_msg 0
+        exit 0
         ;;
 
     stop)
