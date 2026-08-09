@@ -847,7 +847,7 @@ show_success_notification() {
     [[ -z "$target_cn" ]] && target_cn="system"
 
     local title="$(eval_gettext "Elive System Upgrade Complete")"
-    local message="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to Debian %s.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nSharing these logs in the Elive forum (using a pastebin website with an expiration set to 1 month) is very useful for Elive development and improvements!\n\nNote: All private user information has been automatically sanitized from the log files.\n\nWould you like to open the logs folder now?")" "${target_cn}")"
+    local message="$(printf "$(eval_gettext "Congratulations! Your Elive system has been successfully upgraded to Debian %s.\n\nLogs of the upgrade process are saved in:\n/var/log/elive-upgrader/\n\nWould you like to view them?")" "${target_cn}")"
 
     local open_folder=false
     local dialog_shown=false
