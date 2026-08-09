@@ -2324,9 +2324,6 @@ sanitize_upgrade_logs() {
 
     log_info " - Cleaning progress floods and package status entries from logs..."
     for log_f in "${log_files[@]}"; do
-        # Convert carriage returns to newlines so progress lines can be filtered line-by-line
-        sed -i 's/\r/\n/g' "$log_f" 2>/dev/null || true
-
         # Remove Inst/Conf/Remv entries and rsync progress flood lines
         grep -v -E '^\s*(Inst|Conf|Remv)\b|ir-chk=|xfr#|\b[0-9]+%\s+[0-9.]+[kKMGT]?B/s' "$log_f" | sed '/^$/N;/^\n$/D' > "${log_f}.tmp" 2>/dev/null || true
         if [[ -s "${log_f}.tmp" ]]; then
@@ -2349,7 +2346,7 @@ send_upgrade_report() {
     [[ -z "$conf_send_debug_reports_email" ]] && conf_send_debug_reports_email="anonymous"
 
     eliveversion="$( awk '$1 ~ /elive-version/ {($1="");print $0}' /etc/elive-version 2>/dev/null | sed 's/^\ //g' )"
-    id="$( dd if=/dev/urandom bs=1k count=2 2>/dev/null | sha1sum | awk '{print $1}' )"
+    id="$( el_get_machine_id )"
     architecture="$( el_architecture "host" 2>/dev/null || dpkg --print-architecture 2>/dev/null || echo "unknown" )"
     exit_status=0
     timestamp_v="$(date +%Y%m%d-%H%M%S)"
