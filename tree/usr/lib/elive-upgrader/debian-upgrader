@@ -2023,19 +2023,27 @@ perform_upgrade() {
     local nvidia_was_installed=false
     local nvidia_version=""
 
+    log_info "Checking for NVIDIA drivers and installer tool..."
     if command -v nvidia-privative-drivers-install &>/dev/null; then
         if nvidia-privative-drivers-install -t &>/dev/null; then
             nvidia_was_installed=true
             if command -v get_nvidia_version &>/dev/null; then
                 nvidia_version=$(get_nvidia_version)
             fi
+            log_info "NVIDIA drivers detected working on system (Version: ${nvidia_version:-current})."
             draw_banner "NVIDIA DRIVERS DETECTED WORKING (Version: ${nvidia_version:-current})" "$MAGENTA"
         else
             log_info "No working NVIDIA drivers detected by test (-t)."
         fi
 
-        log_info "Always removing NVIDIA drivers before system upgrade..."
-        nvidia-privative-drivers-install -q -u || nvidia-privative-drivers-install -u || true
+        log_info "Running NVIDIA driver removal tool before system upgrade..."
+        if nvidia-privative-drivers-install -q -u 2>/dev/null || nvidia-privative-drivers-install -u 2>/dev/null; then
+            log_info "NVIDIA drivers removal/cleanup completed successfully."
+        else
+            log_warning "NVIDIA driver removal command finished with an error. Continuing with upgrade..."
+        fi
+    else
+        log_info "NVIDIA tool 'nvidia-privative-drivers-install' not found on system. Skipping NVIDIA detection and removal."
     fi
 
     # Update package lists (offline fallback if no internet, using local cache)
@@ -2177,20 +2185,28 @@ perform_upgrade() {
         draw_banner "RE-INSTALLING NVIDIA PROPRIETARY DRIVERS" "$MAGENTA"
         log_info "Re-installing NVIDIA proprietary drivers after system and kernel upgrade..."
         if [[ -n "$nvidia_version" ]]; then
-            log_info "Attempting re-install with explicit model: $nvidia_version"
-            if ! nvidia-privative-drivers-install -s -f -a -q -m "$nvidia_version"; then
-                log_warning "Failed to re-install NVIDIA driver version $nvidia_version with explicit model. Trying auto-install..."
-                nvidia-privative-drivers-install -s -f -a -q || log_warning "Failed to re-install NVIDIA drivers."
-            else
+            log_info "Running NVIDIA installer tool with explicit model version: $nvidia_version..."
+            if nvidia-privative-drivers-install -s -f -a -m "$nvidia_version"; then
                 log_info "NVIDIA driver version $nvidia_version re-installed successfully."
+            else
+                log_warning "Failed to re-install NVIDIA driver version $nvidia_version with explicit model."
+                log_info "Running NVIDIA installer tool with automatic model detection fallback..."
+                if nvidia-privative-drivers-install -s -f -a ; then
+                    log_info "NVIDIA driver re-installed successfully using automatic model detection."
+                else
+                    log_error "Failed to re-install NVIDIA drivers using automatic model detection!"
+                fi
             fi
         else
-            if nvidia-privative-drivers-install -s -f -a -q; then
+            log_info "Running NVIDIA installer tool with automatic model detection..."
+            if nvidia-privative-drivers-install -s -f -a ; then
                 log_info "NVIDIA driver re-installed successfully."
             else
-                log_warning "Failed to re-install NVIDIA drivers."
+                log_error "Failed to re-install NVIDIA drivers!"
             fi
         fi
+    else
+        log_info "NVIDIA drivers were not active prior to upgrade. Skipping NVIDIA driver re-installation."
     fi
 
     set_progress 85 "Creating new initramfs for all kernels (building modules, please wait)..."
