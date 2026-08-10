@@ -736,15 +736,27 @@ restore_from_backup() {
 create_recovery_notification() {
     log_info "Creating recovery notification for desktop..."
 
-    # Create the notification flag file
     mkdir -p /var/log/elive-upgrader
-    touch "$RECOVERY_NOTIFICATION_FLAG"
-    chmod 666 "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
+    mkdir -p /var/cache/elive-upgrader
+    chmod 1777 /var/cache/elive-upgrader 2>/dev/null || true
+
+    # Create the recovery flag file only if explicitly requested for failure mode
+    if [[ "${1:-}" == "failure" ]]; then
+        touch "$RECOVERY_NOTIFICATION_FLAG"
+        chmod 666 "$RECOVERY_NOTIFICATION_FLAG" 2>/dev/null || true
+    fi
 
     # Create the upgrade-complete notification and cleanup script
     cat > "/usr/lib/elive-upgrader/recovery-notification" << 'RECOVERY_SCRIPT'
 #!/bin/bash
 # Upgrade notification script - shown to user on desktop after upgrade
+
+# Single instance lock to prevent duplicate dialogs if launched multiple times concurrently
+LOCK_DIR="/tmp/.elive-recovery-notification.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    exit 0
+fi
+trap 'rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
 
 if [[ -z "${yad:-}" ]]; then
     yad="/usr/bin/yad --borders=15 --center --image=logo-elive"
@@ -779,6 +791,12 @@ do_backup_cleanup() {
 
 # Only run if we have a display (graphical session)
 if [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    exit 0
+fi
+
+# If no notification or recovery flags exist, exit immediately without showing anything
+if [[ ! -s "$RECOVERY_FLAG" ]] && [[ ! -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]] && [[ ! -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
+    ( do_backup_cleanup ) &
     exit 0
 fi
 
@@ -843,6 +861,7 @@ show_success_notification() {
     local target_cn=""
     if [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         target_cn=$(cat "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true)
+        rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
     fi
     [[ -z "$target_cn" ]] && target_cn="system"
 
@@ -2037,7 +2056,7 @@ check_disk_space() {
         echo "$msg" > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         chmod 666 /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
 
-        create_recovery_notification
+        create_recovery_notification "failure"
         restore_sources_on_cancel
         upgrade_state_clear
         disable_boot_upgrade
@@ -3836,6 +3855,7 @@ main_upgrade() {
 
     # Create a pending notification flag for the user session on first boot
     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+    chmod 1777 /var/cache/elive-upgrader 2>/dev/null || true
     echo "$TARGET_CODENAME" > /var/cache/elive-upgrader/notify-upgrade-complete
     chmod 666 /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true
 
@@ -4144,7 +4164,7 @@ main() {
         --setup-recovery-notification)
             # Internal command used by elive-boot-upgrader to set up recovery notification
             # after a failed upgrade. Creates desktop notification for next login.
-            create_recovery_notification
+            create_recovery_notification "failure"
             exit 0
             ;;
         -h|--help)
