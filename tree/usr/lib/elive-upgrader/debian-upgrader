@@ -2310,6 +2310,97 @@ perform_upgrade() {
                     fi
                 done
             fi
+
+            if [[ ${#nv_failed_kernels[@]} -gt 0 ]]; then
+                # Check if we have any upgraded kernel where NVIDIA installed successfully
+                local has_working_upgraded_kernel=false
+                local running_k
+                running_k="$(uname -r)"
+                if [[ ${#nv_installed_kernels[@]} -gt 0 ]]; then
+                    for kver in "${nv_installed_kernels[@]}"; do
+                        if [[ -n "$kver" ]] && [[ "$kver" != "$running_k" ]] && dpkg -l "linux-image-${kver}" 2>/dev/null | grep -q '^ii'; then
+                            has_working_upgraded_kernel=true
+                            break
+                        fi
+                    done
+                fi
+
+                if [[ "$has_working_upgraded_kernel" == "false" ]]; then
+                    log_warning "No upgraded kernel has working NVIDIA drivers. Searching for previous available kernel versions to try..."
+                    local arch
+                    arch=$(dpkg --print-architecture)
+
+                    # Get available linux-image packages sorted by version descending
+                    local avail_kernels=()
+                    local kpkg=""
+                    while IFS= read -r kpkg; do
+                        [[ -z "$kpkg" ]] && continue
+                        local kver="${kpkg#linux-image-}"
+                        # Skip if running kernel or already tried/failed or currently installed
+                        if [[ -z "$kver" ]] || [[ "$kver" == "$running_k" ]]; then continue; fi
+                        local failed_already=false
+                        local fk=""
+                        for fk in "${nv_failed_kernels[@]}"; do
+                            if [[ "$kver" == "$fk" ]]; then
+                                failed_already=true
+                                break
+                            fi
+                        done
+                        if [[ "$failed_already" == "true" ]]; then continue; fi
+                        if dpkg -l "linux-image-${kver}" 2>/dev/null | grep -q '^ii'; then continue; fi
+
+                        avail_kernels+=("$kver")
+                    done < <(apt-cache search "^linux-image-[0-9]" 2>/dev/null | awk '{print $1}' | grep -E "^linux-image-[0-9].*-$arch$" | grep -vE "(unsigned|dbg|cloud|rt-|meta-package|template)" | sort -rV)
+
+                    local attempt=0
+                    local max_attempts=3
+                    local cand_kver=""
+                    for cand_kver in "${avail_kernels[@]}"; do
+                        if (( attempt >= max_attempts )); then
+                            log_warning "Reached maximum kernel fallback attempts ($max_attempts)."
+                            break
+                        fi
+                        (( attempt++ ))
+                        log_info "Fallback kernel attempt $attempt of $max_attempts: Trying kernel $cand_kver..."
+
+                        local pkgs_to_inst=()
+                        if apt-cache show "linux-image-${cand_kver}" &>/dev/null; then
+                            pkgs_to_inst+=("linux-image-${cand_kver}")
+                        fi
+                        if apt-cache show "linux-headers-${cand_kver}" &>/dev/null; then
+                            pkgs_to_inst+=("linux-headers-${cand_kver}")
+                        fi
+
+                        if [[ ${#pkgs_to_inst[@]} -eq 0 ]]; then
+                            log_warning "Package linux-image-${cand_kver} not found in apt cache, skipping."
+                            continue
+                        fi
+
+                        if safe_apt_run apt-get install -y --no-install-recommends "${pkgs_to_inst[@]}"; then
+                            log_info "Re-running NVIDIA driver installer for candidate kernel $cand_kver..."
+                            if [[ -n "$nvidia_version" ]]; then
+                                nvidia-privative-drivers-install -s -f -a -m "$nvidia_version" 2>/dev/null || nvidia-privative-drivers-install -s -f -a 2>/dev/null || true
+                            else
+                                nvidia-privative-drivers-install -s -f -a 2>/dev/null || true
+                            fi
+
+                            if grep -q "^NVIDIA_KERNEL_INSTALLED: ${cand_kver}" "$nvidia_install_log" 2>/dev/null; then
+                                log_info "NVIDIA drivers installed successfully for kernel $cand_kver!"
+                                break
+                            else
+                                log_warning "NVIDIA drivers failed to install for kernel $cand_kver. Removing..."
+                                safe_apt_run apt-get remove --purge -y "${pkgs_to_inst[@]}" || true
+                                nv_failed_kernels+=("$cand_kver")
+                            fi
+                        else
+                            log_warning "Failed to install kernel package(s): ${pkgs_to_inst[*]}"
+                        fi
+                    done
+
+                    log_info "Cleaning up APT state after kernel fallback attempts..."
+                    safe_apt_run apt-get -f install -y || true
+                fi
+            fi
         fi
 
         log_info "Updating initramfs and checking for missing firmware after NVIDIA driver installation..."
