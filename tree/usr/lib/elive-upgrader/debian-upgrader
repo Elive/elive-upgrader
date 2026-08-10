@@ -3639,6 +3639,14 @@ main_upgrade() {
     draw_banner "ELIVE SYSTEM UPGRADE IN PROGRESS" "$BLUE"
     log_info "Starting Debian upgrade to: ${BOLD}$TARGET_CODENAME${NC}"
 
+    if ((is_systemd)); then
+        log_info "Running system init: systemd"
+    elif ((is_openrc)); then
+        log_info "Running system init: OpenRC"
+    else
+        log_info "Running system init: SysVinit"
+    fi
+
     # Display the warning prominently in bold yellow/cyan
     if [[ "$BOOT_MODE" == "true" ]]; then
         echo -e "  ${YELLOW}[ WARN ]${NC} ${YELLOW}${BOLD}Please do NOT turn off or reboot your computer during this process.${NC}"
