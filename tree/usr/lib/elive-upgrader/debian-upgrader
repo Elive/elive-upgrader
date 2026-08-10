@@ -2264,6 +2264,54 @@ perform_upgrade() {
             fi
         fi
 
+        local nvidia_install_log="/var/log/nvidia-privative-drivers-install.log"
+        if [[ -f "$nvidia_install_log" ]]; then
+            log_info "Verifying NVIDIA driver installation status per kernel:"
+            local nv_status_line
+            local nv_installed_kernels=()
+            local nv_failed_kernels=()
+
+            while IFS= read -r nv_status_line; do
+                if [[ "$nv_status_line" == NVIDIA_KERNEL_INSTALLED:* ]]; then
+                    local kver="${nv_status_line#NVIDIA_KERNEL_INSTALLED: }"
+                    nv_installed_kernels+=("$kver")
+                    log_info " - Installed for kernel: $kver"
+                elif [[ "$nv_status_line" == NVIDIA_KERNEL_NOT_INSTALLED:* ]]; then
+                    local kver="${nv_status_line#NVIDIA_KERNEL_NOT_INSTALLED: }"
+                    nv_failed_kernels+=("$kver")
+                    log_warning " - NOT installed for kernel: $kver"
+                fi
+            done < <(grep -E "^NVIDIA_KERNEL_(NOT_)?INSTALLED:" "$nvidia_install_log" 2>/dev/null || true)
+
+            if [[ ${#nv_installed_kernels[@]} -gt 0 ]] && [[ ${#nv_failed_kernels[@]} -gt 0 ]]; then
+                log_warning "NVIDIA drivers installed successfully for kernel(s) [${nv_installed_kernels[*]}], but failed for [${nv_failed_kernels[*]}]."
+                log_info "Uninstalling kernel(s) where NVIDIA drivers failed to install..."
+
+                local running_k
+                running_k="$(uname -r)"
+                local kver_to_remove
+                for kver_to_remove in "${nv_failed_kernels[@]}"; do
+                    if [[ "$kver_to_remove" == "$running_k" ]]; then
+                        log_warning "Skipping removal of running kernel ($running_k) despite NVIDIA driver installation failure."
+                        continue
+                    fi
+
+                    local pkgs_to_purge=()
+                    if dpkg -l "linux-image-${kver_to_remove}" 2>/dev/null | grep -q '^ii'; then
+                        pkgs_to_purge+=("linux-image-${kver_to_remove}")
+                    fi
+                    if dpkg -l "linux-headers-${kver_to_remove}" 2>/dev/null | grep -q '^ii'; then
+                        pkgs_to_purge+=("linux-headers-${kver_to_remove}")
+                    fi
+
+                    if [[ ${#pkgs_to_purge[@]} -gt 0 ]]; then
+                        log_info "Purging kernel package(s) where NVIDIA driver failed: ${pkgs_to_purge[*]}"
+                        safe_apt_run apt-get remove --purge -y "${pkgs_to_purge[@]}" || true
+                    fi
+                done
+            fi
+        fi
+
         log_info "Updating initramfs and checking for missing firmware after NVIDIA driver installation..."
         rm -f /tmp/.initrd.log 2>/dev/null || true
         run_and_show_plymouth_on_boot update-initramfs -u -k all 2>&1 | tee /tmp/.initrd.log || true
