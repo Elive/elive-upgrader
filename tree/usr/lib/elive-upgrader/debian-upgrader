@@ -1667,67 +1667,6 @@ safe_apt_run() {
             dpkg --configure -a --force-overwrite --force-confdef --force-confold 2>/dev/null || true
         fi
 
-        # Detect DKMS compilation failure
-        if [[ "$exit_code" -ne 0 ]]; then
-            local is_kernel_cmd=false
-            local cmd_arg
-            for cmd_arg in "${cmd[@]}"; do
-                if [[ "$cmd_arg" == *linux-image* || "$cmd_arg" == *linux-headers* ]]; then
-                    is_kernel_cmd=true
-                    break
-                fi
-            done
-
-            if [[ "$is_kernel_cmd" == "false" ]] && grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
-                # Extract the failing DKMS package name from the error log
-                dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '\S*dkms\S*' | head -1)
-
-                # If we couldn't extract the name, try alternative patterns
-                if [[ -z "$dkms_failure_package" ]]; then
-                    dkms_failure_package=$(grep -iP "dkms|module.*build.*fail|build.*error" "$err_log" 2>/dev/null | grep -oP '\b[\w-]+dkms\b' | head -1)
-                fi
-
-                # If still no name, look for the package being installed that triggered the failure
-                if [[ -z "$dkms_failure_package" ]]; then
-                    dkms_failure_package=$(grep -iP "Setting up|Installing" "$err_log" 2>/dev/null | grep -iP "dkms|module|driver" | tail -1 | awk '{print $NF}' || true)
-                fi
-
-                # If we found a specific DKMS package that failed
-                if [[ -n "$dkms_failure_package" ]]; then
-                    log_warning "DKMS compilation failure detected for package: $dkms_failure_package. This package failed to compile for the new kernel. It will be removed to allow the upgrade to continue. You can reinstall it after the upgrade completes if needed."
-                    sleep 8
-
-                    # Remove the problematic DKMS package
-                    local dkms_packages
-                    dkms_packages=$(dpkg-query -W -f='${Package}\n' "*${dkms_failure_package}*" 2>/dev/null | grep -i dkms || true)
-                    if [[ -z "$dkms_packages" ]]; then
-                        dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
-                    fi
-                    if [[ -n "$dkms_packages" ]]; then
-                        log_info "Removing conflicting DKMS packages: $dkms_packages"
-                        apt-get remove --purge -y $dkms_packages 2>/dev/null || true
-                    fi
-                else
-                    # No specific package found - try to find all DKMS packages and check build logs
-                    all_dkms_packages=$(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -i dkms || true)
-                    if [[ -n "$all_dkms_packages" ]]; then
-                        log_warning "DKMS compilation failure detected. Checking DKMS build logs..."
-                        for dkms_pkg in $all_dkms_packages; do
-                            local dkms_log_dir="/var/lib/dkms"
-                            local latest_log
-                            latest_log=$(find "$dkms_log_dir" -path "*/$dkms_pkg/*/build/make.log" -type f 2>/dev/null | sort -t'/' -k6 | tail -1)
-                            if [[ -n "$latest_log" ]] && grep -qi "error\|fail" "$latest_log" 2>/dev/null; then
-                                log_warning "DKMS package $dkms_pkg has compilation errors. Removing to allow upgrade to continue."
-                                dkms_failure_package="$dkms_pkg"
-                                apt-get remove --purge -y "$dkms_pkg" 2>/dev/null || true
-                                break
-                            fi
-                        done
-                    fi
-                fi
-            fi
-        fi
-
         local err_msg
         err_msg=$(cat "$err_log" | tail -n 5)
         NOREPORTS=1 log_warning "Command failed (exit code: $exit_code): $*. Attempt $attempt of $max_attempts. Error: $err_msg"
@@ -2413,7 +2352,11 @@ perform_upgrade() {
                             continue
                         fi
 
-                        if safe_apt_run apt-get install -y --no-install-recommends "${pkgs_to_inst[@]}"; then
+                        # Attempt candidate kernel installation
+                        local inst_success=true
+                        apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" install -y --no-install-recommends "${pkgs_to_inst[@]}" || inst_success=false
+
+                        if [[ "$inst_success" == "true" ]]; then
                             log_info "Re-running NVIDIA driver installer for candidate kernel $cand_kver..."
                             if [[ -n "$nvidia_version" ]]; then
                                 nvidia-privative-drivers-install -s -f -a -m "$nvidia_version" 2>/dev/null || nvidia-privative-drivers-install -s -f -a 2>/dev/null || true
@@ -2426,12 +2369,17 @@ perform_upgrade() {
                                 break
                             else
                                 log_warning "NVIDIA drivers failed to install for kernel $cand_kver. Removing..."
-                                safe_apt_run apt-get remove --purge -y "${pkgs_to_inst[@]}" || true
-                                rm -f "/boot/vmlinuz-${cand_kver}"* "/boot/initrd.img-${cand_kver}"* "/boot/System.map-${cand_kver}"* "/boot/config-${cand_kver}"* 2>/dev/null || true
-                                nv_failed_kernels+=("$cand_kver")
+                                inst_success=false
                             fi
-                        else
-                            log_warning "Failed to install kernel package(s): ${pkgs_to_inst[*]}"
+                        fi
+
+                        if [[ "$inst_success" == "false" ]]; then
+                            log_warning "Kernel candidate $cand_kver failed. Cleaning up failed kernel packages..."
+                            dpkg --purge "${pkgs_to_inst[@]}" 2>/dev/null || true
+                            apt-get remove --purge -y "${pkgs_to_inst[@]}" 2>/dev/null || true
+                            rm -f "/boot/vmlinuz-${cand_kver}"* "/boot/initrd.img-${cand_kver}"* "/boot/System.map-${cand_kver}"* "/boot/config-${cand_kver}"* 2>/dev/null || true
+                            apt-get -f install -y 2>/dev/null || true
+                            nv_failed_kernels+=("$cand_kver")
                         fi
                     done
 
