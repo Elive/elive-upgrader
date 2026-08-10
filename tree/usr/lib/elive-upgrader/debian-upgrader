@@ -1544,6 +1544,19 @@ repair_apt() {
     # Configure any unconfigured packages with forced options
     dpkg --configure -a --force-confdef --force-confold --force-overwrite 2>/dev/null || dpkg --configure -a 2>/dev/null || true
 
+    # Check for packages stuck in half-configured / broken state via dpkg audit (inspired by 0020_drivers_extra.hook.chroot)
+    local broken_pkgs
+    broken_pkgs="$(LC_ALL=C dpkg -C 2>/dev/null | grep -E "^\s+[a-zA-Z0-9]" | awk '{print $1}' | tr '\n' ' ' || true)"
+    if [[ -n "$broken_pkgs" ]]; then
+        log_warning "Found packages in broken/half-configured state: $broken_pkgs"
+        local broken_kernels
+        broken_kernels="$(echo "$broken_pkgs" | tr ' ' '\n' | grep -E '^linux-(image|headers)-' || true)"
+        if [[ -n "$broken_kernels" ]]; then
+            log_warning "Purging unconfigurable candidate kernel package(s): $broken_kernels"
+            dpkg --purge $broken_kernels 2>/dev/null || true
+        fi
+    fi
+
     # Fix broken dependencies with aggressive forced options
     apt-get install -f -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true
 
