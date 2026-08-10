@@ -1669,7 +1669,16 @@ safe_apt_run() {
 
         # Detect DKMS compilation failure
         if [[ "$exit_code" -ne 0 ]]; then
-            if grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
+            local is_kernel_cmd=false
+            local cmd_arg
+            for cmd_arg in "${cmd[@]}"; do
+                if [[ "$cmd_arg" == *linux-image* || "$cmd_arg" == *linux-headers* ]]; then
+                    is_kernel_cmd=true
+                    break
+                fi
+            done
+
+            if [[ "$is_kernel_cmd" == "false" ]] && grep -qi "dkms.*error\|dkms.*fail\|dkms.*build.*error\|ERROR.*dkms\|Failed.*build.*module\|dkms.*install.*error\|Bad return status for module build" "$err_log" 2>/dev/null; then
                 # Extract the failing DKMS package name from the error log
                 dkms_failure_package=$(grep -iP "dkms.*(error|fail)|Bad return status for module build|Failed to build|ERROR:.*dkms" "$err_log" 2>/dev/null | grep -oP '\S*dkms\S*' | head -1)
 
@@ -2326,6 +2335,7 @@ perform_upgrade() {
                     if [[ ${#pkgs_to_purge[@]} -gt 0 ]]; then
                         log_info "Purging kernel package(s) where NVIDIA driver failed: ${pkgs_to_purge[*]}"
                         safe_apt_run apt-get remove --purge -y "${pkgs_to_purge[@]}" || true
+                        rm -f "/boot/vmlinuz-${kver_to_remove}"* "/boot/initrd.img-${kver_to_remove}"* "/boot/System.map-${kver_to_remove}"* "/boot/config-${kver_to_remove}"* 2>/dev/null || true
                     fi
                 done
             fi
@@ -2417,6 +2427,7 @@ perform_upgrade() {
                             else
                                 log_warning "NVIDIA drivers failed to install for kernel $cand_kver. Removing..."
                                 safe_apt_run apt-get remove --purge -y "${pkgs_to_inst[@]}" || true
+                                rm -f "/boot/vmlinuz-${cand_kver}"* "/boot/initrd.img-${cand_kver}"* "/boot/System.map-${cand_kver}"* "/boot/config-${cand_kver}"* 2>/dev/null || true
                                 nv_failed_kernels+=("$cand_kver")
                             fi
                         else
