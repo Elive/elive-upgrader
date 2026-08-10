@@ -1540,6 +1540,64 @@ repair_apt() {
     fi
 }
 
+check_and_install_missing_firmware() {
+    local initrd_log="${1:-/tmp/.initrd.log}"
+    if [[ -f "$initrd_log" ]] && grep -qs "Possible missing firmware" "$initrd_log"; then
+        log_info "Searching for required missing firmwares..."
+
+        # Ensure apt-file is installed
+        if ! [[ -f /var/lib/dpkg/info/apt-file.list ]]; then
+            log_info "Installing apt-file..."
+            safe_apt_run apt-get install -y --no-install-recommends apt-file || true
+        fi
+
+        # Ensure apt-file database is updated
+        if command -v apt-file &>/dev/null; then
+            log_info "Updating apt-file database..."
+            apt-file update 2>/dev/null || apt-file update 2>/dev/null || true
+        fi
+
+        local firmwares_file="/tmp/.firmwares-to-install.txt"
+        rm -f "$firmwares_file" 2>/dev/null || true
+
+        if command -v apt-file &>/dev/null; then
+            while read -ru 3 line; do
+                [[ -z "$line" ]] && continue
+                apt-file search "$line" 2>/dev/null | sed -e 's|: .*$||g'
+            done 3<<< "$( grep -E "Possible missing firmware" "$initrd_log" | sed -e 's|^.*Possible missing firmware ||g' -e 's| for .*$||g' -e 's|[^/]*$||' | sort -u )" | sort -u > "$firmwares_file"
+        fi
+
+        if [[ -s "$firmwares_file" ]]; then
+            local firmwares_list
+            firmwares_list=$(grep -vE '^\s*$' "$firmwares_file" | sort -u | tr '\n' ' ')
+            if [[ -n "$firmwares_list" ]]; then
+                log_info "Installing missing firmwares: $firmwares_list"
+                if ! safe_apt_run apt-get install -y --no-install-recommends $firmwares_list; then
+                    log_error "Error installing missing firmwares ($firmwares_list)"
+                    safe_apt_run apt-get -f -y install || true
+                fi
+
+                log_info "Rebuilding initramfs after firmware installation..."
+                rm -f /boot/initrd.img* /tmp/.initrd.log 2>/dev/null || true
+                if run_and_show_plymouth_on_boot update-initramfs -c -k all 2>&1 | tee /tmp/.initrd.log; then
+                    log_info "Initramfs rebuilt successfully after firmware installation."
+                else
+                    log_warning "First attempt to rebuild initramfs failed, retrying for running kernel..."
+                    if run_and_show_plymouth_on_boot update-initramfs -c -k "$(uname -r)" 2>&1 | tee /tmp/.initrd.log; then
+                        log_info "Initramfs rebuilt successfully for kernel $(uname -r)."
+                    else
+                        log_error "Problem generating initramfs after firmware installation!"
+                    fi
+                fi
+                rm -f /boot/*old-dkms 2>/dev/null || true
+            fi
+        else
+            log_info "No matching firmware packages found via apt-file."
+        fi
+        rm -f "$firmwares_file" "$initrd_log" 2>/dev/null || true
+    fi
+}
+
 safe_apt_run() {
     local attempt=1
     local max_attempts=5
@@ -2205,18 +2263,24 @@ perform_upgrade() {
                 log_error "Failed to re-install NVIDIA drivers!"
             fi
         fi
+
+        log_info "Updating initramfs and checking for missing firmware after NVIDIA driver installation..."
+        rm -f /tmp/.initrd.log 2>/dev/null || true
+        run_and_show_plymouth_on_boot update-initramfs -u -k all 2>&1 | tee /tmp/.initrd.log || true
+        check_and_install_missing_firmware
     else
         log_info "NVIDIA drivers were not active prior to upgrade. Skipping NVIDIA driver re-installation."
     fi
 
     set_progress 85 "Creating new initramfs for all kernels (building modules, please wait)..."
     log_info "Removing existing initramfs images to force fresh creation..."
-    rm -f /boot/initrd.img-* 2>/dev/null || true
-    if run_and_show_plymouth_on_boot update-initramfs -c -k all; then
+    rm -f /boot/initrd.img-* /tmp/.initrd.log 2>/dev/null || true
+    if run_and_show_plymouth_on_boot update-initramfs -c -k all 2>&1 | tee /tmp/.initrd.log; then
         log_info "New initramfs created successfully."
     else
         log_error "Failed to create new initramfs!"
     fi
+    check_and_install_missing_firmware
 
     set_progress 90 "Updating GRUB configuration (detecting operating systems)..."
     if run_and_show_plymouth_on_boot update-grub; then
