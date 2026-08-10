@@ -487,9 +487,9 @@ main(){
 
         latest_log_f="$(ls -t /var/log/elive-upgrader/debian-upgrade-*.log 2>/dev/null | head -n 1 || true)"
         if [[ -n "${latest_log_f}" ]] && [[ -f "${latest_log_f}" ]]; then
-            err_msg_v="$(grep -iE "E:|error:|insufficient space|failed|fail|cannot" "${latest_log_f}" 2>/dev/null | tail -n 5 || true)"
+            err_msg_v="$(tr -d '\r' < "${latest_log_f}" | grep -v -E '\(Reading database \.\.\.|^\s*Preparing to unpack\b' | grep -iE "E:|error:|insufficient space|failed|fail|cannot" 2>/dev/null | tail -n 5 || true)"
             if [[ -z "${err_msg_v}" ]]; then
-                err_msg_v="$(tail -n 10 "${latest_log_f}" 2>/dev/null || true)"
+                err_msg_v="$(tr -d '\r' < "${latest_log_f}" | grep -v -E '\(Reading database \.\.\.|^\s*Preparing to unpack\b' | tail -n 10 2>/dev/null || true)"
             fi
         fi
 

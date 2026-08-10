@@ -2404,8 +2404,8 @@ sanitize_upgrade_logs() {
 
     log_info " - Cleaning progress floods and package status entries from logs..."
     for log_f in "${log_files[@]}"; do
-        # Remove Inst/Conf/Remv entries and rsync progress flood lines
-        grep -v -E '^\s*(Inst|Conf|Remv)\b|ir-chk=|xfr#|\b[0-9]+%\s+[0-9.]+[kKMGT]?B/s' "$log_f" | sed '/^$/N;/^\n$/D' > "${log_f}.tmp" 2>/dev/null || true
+        # Remove Inst/Conf/Remv entries, Reading database progress lines, Preparing to unpack lines, and rsync progress flood lines
+        tr -d '\r' < "$log_f" | grep -v -E '^\s*(Inst|Conf|Remv)\b|ir-chk=|xfr#|\b[0-9]+%\s+[0-9.]+[kKMGT]?B/s|\(Reading database \.\.\.|^\s*Preparing to unpack\b' | sed '/^$/N;/^\n$/D' > "${log_f}.tmp" 2>/dev/null || true
         if [[ -s "${log_f}.tmp" ]]; then
             mv -f "${log_f}.tmp" "$log_f" 2>/dev/null || true
         else
