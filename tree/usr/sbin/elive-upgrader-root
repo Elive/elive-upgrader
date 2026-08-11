@@ -424,6 +424,12 @@ upgrade_firmwares(){
 
         # see if we have already answered to not update firmwares
         if [[ -n "$conf_firmwares_updates_available" ]] && ! ((is_force)) ; then
+            if [[ "$conf_firmwares_updates_available" = "never" ]] ; then
+                el_info "You selected to never ask for firmware updates again, ignoring..."
+                el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
+                return 0
+            fi
+
             updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
 
             # our updates available is the same as the one found when we answered to not update firmwares
@@ -471,22 +477,61 @@ upgrade_firmwares(){
             done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1
 
 
-            # ask to install
-            if $guitool --question --text="$( eval_gettext "Do you want to install firmware and BIOS updates for your system?" )" 1>/dev/null 2>&1 ; then
-                # ac power
-                if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" && laptop-detect ; then
-                    $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
-                fi
+            local fw_warning_text choice
+            fw_warning_text="$( eval_gettext "Firmware and BIOS updates are available for your computer.
 
-                urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+WARNING: Updating your BIOS/firmware is not always recommended unless you are resolving specific hardware problems. While firmware updates can fix bugs, they can also introduce new regressions or issues (for example, webcams, Wi-Fi, or audio devices may stop functioning).
+
+Select how you would like to proceed:" )"
+
+            if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+                $yad --title="$( eval_gettext "Firmware & BIOS Updates" )" \
+                    --text="$fw_warning_text" --width=520 --text-align=left \
+                    --button="$( eval_gettext "Install Updates" ):0" \
+                    --button="$( eval_gettext "Ignore for Now" ):1" \
+                    --button="$( eval_gettext "Skip this Update" ):2" \
+                    --button="$( eval_gettext "Never Ask Again" ):3"
+                choice=$?
             else
-                # we should remember the selection of "no"? the normal is that the user should always want to update firmware, but maybe not the first time and probably the second one, so do not remember this choice and instead, ask the question in every full upgrade request
-                updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
-
-                # remember them to not ask them again
-                conf_firmwares_updates_available="$updates_list"
-                el_config_save "conf_firmwares_updates_available"
+                echo -e "\n*** $( eval_gettext "Firmware & BIOS Updates" ) ***"
+                echo -e "$fw_warning_text\n"
+                echo "1) $( eval_gettext "Install Updates" )"
+                echo "2) $( eval_gettext "Ignore for Now" )"
+                echo "3) $( eval_gettext "Skip this Update" )"
+                echo "4) $( eval_gettext "Never Ask Again" )"
+                read -p "$( eval_gettext "Enter choice [1-4]: " )" opt
+                case "$opt" in
+                    1) choice=0 ;;
+                    2) choice=1 ;;
+                    3) choice=2 ;;
+                    4) choice=3 ;;
+                    *) choice=1 ;;
+                esac
             fi
+
+            case "$choice" in
+                0) # Install Updates
+                    if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" && laptop-detect ; then
+                        $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
+                    fi
+
+                    urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+                    ;;
+                1) # Ignore for Now
+                    el_info "Skipping firmware updates for now."
+                    ;;
+                2) # Skip this Update (until next new firmware release)
+                    updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
+                    conf_firmwares_updates_available="$updates_list"
+                    el_config_save "conf_firmwares_updates_available"
+                    el_info "Saved choice to skip this specific firmware update."
+                    ;;
+                3) # Never Ask Again
+                    conf_firmwares_updates_available="never"
+                    el_config_save "conf_firmwares_updates_available"
+                    el_info "Saved choice to never check or ask for firmware updates again."
+                    ;;
+            esac
 
         fi
     else
