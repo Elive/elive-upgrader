@@ -852,6 +852,7 @@ show_insufficient_space_notification() {
 # Check if this is an insufficient disk space failure
 if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]]; then
     show_insufficient_space_notification
+    : > "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     rm -f "/var/cache/elive-upgrader/notify-upgrade-failed-space" 2>/dev/null || true
     exit 0
 fi
@@ -861,6 +862,7 @@ show_success_notification() {
     local target_cn=""
     if [[ -f "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
         target_cn=$(cat "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true)
+        : > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
         rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
     fi
     [[ -z "$target_cn" ]] && target_cn="system"
@@ -955,7 +957,9 @@ show_success_notification() {
 # Check if this is a successful upgrade completion (not a failure recovery)
 if [[ ! -s "$RECOVERY_FLAG" ]] && [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]]; then
     show_success_notification
+    : > "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
     rm -f "/var/cache/elive-upgrader/notify-upgrade-complete" 2>/dev/null || true
+    rm -f "/usr/lib/elive-upgrader/recovery-notification" 2>/dev/null || true
     # Clean up backups asynchronously in the background so desktop startup is not delayed
     ( do_backup_cleanup ) &
     exit 0
