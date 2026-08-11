@@ -86,7 +86,7 @@ fi
 # Whether to use plymouth for boot-time messages.
 # Set to "true" to display messages in Plymouth.
 # Set to "false" to display beautiful, friendly messages directly on the TTY/console.
-if [[ "${is_bookworm:-0}" -eq 1 ]] || [[ "$(cat /etc/debian_version 2>/dev/null)" =~ ^12 ]]; then
+if [[ "${is_bookworm:-0}" -eq 1 ]] || [[ "${is_trixie:-0}" -eq 1 ]] || [[ "${is_forky:-0}" -eq 1 ]] || [[ "$(cat /etc/debian_version 2>/dev/null)" =~ ^(1[2-9]|[2-9][0-9]) ]]; then
     USE_PLYMOUTH="false"
     if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
         plymouth quit 2>/dev/null || true
@@ -2446,12 +2446,18 @@ post_upgrade_cleanup() {
 
     if ((is_systemd)); then
         systemctl unmask getty@tty1.service 2>/dev/null || true
+        systemctl unmask lightdm.service 2>/dev/null || true
+        systemctl unmask display-manager.service 2>/dev/null || true
+        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
 }
 
 verify_upgrade() {
     set_progress 98 "Verifying upgrade..."
+
+    # Refresh distro variables (is_trixie, is_bookworm, etc.) after upgrade
+    source /usr/lib/elive-tools/functions 2>/dev/null || true
 
     # Check Debian version
     new_release=$(cat /etc/debian_version)
@@ -3523,7 +3529,7 @@ EOF
 #       RETURNS:  0
 #===============================================================================
 restore_tty1_and_dms(){
-    log_info "Restoring TTY1 login configuration..."
+    log_info "Restoring TTY1 login and display manager configuration..."
 
     if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
         plymouth quit 2>/dev/null || true
@@ -3533,6 +3539,9 @@ restore_tty1_and_dms(){
 
     if ((is_systemd)); then
         systemctl unmask getty@tty1.service 2>/dev/null || true
+        systemctl unmask lightdm.service 2>/dev/null || true
+        systemctl unmask display-manager.service 2>/dev/null || true
+        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
 
@@ -3851,6 +3860,7 @@ main_upgrade() {
 
         # Update current_codename for the next iteration's update_sources
         current_codename="$step_codename"
+        source /usr/lib/elive-tools/functions 2>/dev/null || true
     done
 
     # Run extra hooks for setcap packages after the entire upgrade process has finished

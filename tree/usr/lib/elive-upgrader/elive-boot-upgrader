@@ -75,6 +75,7 @@ SCRIPT_PATH="/usr/lib/elive-upgrader/debian-upgrader"
 #       RETURNS:  Prints the Debian codename string
 #===============================================================================
 get_current_codename(){
+    source /usr/lib/elive-tools/functions 2>/dev/null || true
     local current_release_full_v=""
     local current_version_number_v=""
 
@@ -181,7 +182,7 @@ suspend_tty1_and_dms(){
 #       RETURNS:  0
 #===============================================================================
 restore_tty1_and_dms(){
-    echo "Restoring TTY1 login configuration..." >/dev/console 2>/dev/null || true
+    echo "Restoring TTY1 login and display manager configuration..." >/dev/console 2>/dev/null || true
 
     if command -v plymouth &>/dev/null && plymouth --ping &>/dev/null; then
         plymouth quit 2>/dev/null || true
@@ -191,6 +192,9 @@ restore_tty1_and_dms(){
 
     if ((is_systemd)); then
         systemctl unmask getty@tty1.service 2>/dev/null || true
+        systemctl unmask lightdm.service 2>/dev/null || true
+        systemctl unmask display-manager.service 2>/dev/null || true
+        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
 
@@ -451,6 +455,8 @@ main(){
     exit_code_v=$?
     set -e
 
+    source /usr/lib/elive-tools/functions 2>/dev/null || true
+
     if [[ "${exit_code_v}" -ne 0 ]]; then
         if [[ "${exit_code_v}" -eq 143 ]] || [[ "${exit_code_v}" -eq 130 ]] || [[ -f /run/systemd/shutdown/scheduled ]] || [[ -f /run/systemd/shutdown ]]; then
             echo "Upgrade process was interrupted by system shutdown/reboot (exit code ${exit_code_v}). Preserving state for next boot."
@@ -499,17 +505,8 @@ main(){
 
     echo "Upgrade completed successfully at $(date)"
 
-    if [[ ! -f "${DEFAULTS_FILE}" ]]; then
-        echo "State file removed by upgrade script - upgrade completed"
-    else
-        . "${DEFAULTS_FILE}"
-        if [[ "${UPGRADE_IN_PROGRESS}" == "no" ]]; then
-            echo "Upgrade marked as not in progress - cleaning up"
-            cleanup_and_disable
-        fi
-    fi
-
     cleanup_old_backups
+    cleanup_and_disable
 
     echo "Rebooting system to apply changes in 10 seconds..."
     sync
