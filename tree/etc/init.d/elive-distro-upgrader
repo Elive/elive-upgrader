@@ -45,6 +45,10 @@ case "$1" in
         ;;
 
     start)
+        if [ "$UPGRADE_ENABLED" != "yes" ] || [ ! -f "$DEFAULTS_FILE" ]; then
+            exit 0
+        fi
+
         log_daemon_msg "Starting Debian distribution upgrade" "elive-distro-upgrader"
 
         if [ ! -x "$BOOT_UPGRADER" ]; then
@@ -73,6 +77,14 @@ case "$1" in
             fi
             rm -f "$LOCK_FILE"
         fi
+        if [ -f /etc/inittab.bak-upgrader ]; then
+            mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
+        fi
+        if [ -f /etc/inittab ]; then
+            sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
+            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        fi
+        rm -f /etc/inittab.bak-upgrader 2>/dev/null || true
         log_action_msg "Upgrade process stopped. Run 'start' to resume or use debian-upgrader --cancel to abort."
         ;;
 
