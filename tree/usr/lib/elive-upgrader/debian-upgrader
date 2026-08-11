@@ -3342,6 +3342,9 @@ enable_boot_upgrade_conf() {
         exit 1
     fi
 
+    log_info "Upgrading elive-upgrader package to the latest version before reboot..."
+    apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages elive-upgrader || true
+
     # Restore sources.list and preferences to the original codename immediately after download
     # to prevent external tools from showing premature "system has been updated" notifications
     # and to eliminate the race condition window if the system crashes/reboots early.
