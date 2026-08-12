@@ -3418,9 +3418,7 @@ EOF
         else
             log_warning "Failed to enable systemd service (elive-distro-upgrader.service)"
         fi
-    fi
-
-    if ((is_openrc)); then
+    elif ((is_openrc)); then
         if [[ -f /etc/init.d/elive-distro-upgrader ]]; then
             log_info "Enabling elive-distro-upgrader service via OpenRC..."
             if rc-update add elive-distro-upgrader default >/dev/null 2>&1 || rc-update add elive-distro-upgrader boot >/dev/null 2>&1; then
@@ -3432,7 +3430,7 @@ EOF
         else
             log_error "/etc/init.d/elive-distro-upgrader init script is missing!"
         fi
-    elif ! ((is_systemd)) && command -v update-rc.d &>/dev/null; then
+    elif ((is_sysvinit)); then
         log_info "Enabling elive-distro-upgrader init script via SysVinit..."
         update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
         if update-rc.d elive-distro-upgrader defaults 2>/dev/null; then
