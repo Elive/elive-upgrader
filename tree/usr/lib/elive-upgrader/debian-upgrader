@@ -953,9 +953,11 @@ show_success_notification() {
         fi
     fi
 
+    sleep 10
+
     # Friendly, non-intrusive Patreon motivation
     local patreon_msg
-    patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you. If you enjoy these continuous updates, improvements, and next unique features, consider supporting this work. Every contribution helps keep the project alive and growing.\n\nSee the Patreon page to check what Premium features there's available." )"
+    patreon_msg="$(eval_gettext "Elive is a project built with passion and sustained entirely by users like you.\n\nIf you enjoy these continuous updates, improvements, and next unique features, consider supporting this work.\n\nEvery contribution helps keep the project alive and growing.\n\n\nDo you want to see the Premium features of Elive?." )"
     if command -v ${yad%% *} &>/dev/null; then
         if $yad --question --title="$(eval_gettext "Elive Premium available")" --text="$patreon_msg" --width=520 2>/dev/null; then
             if command -v web-launcher &>/dev/null; then
