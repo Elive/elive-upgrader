@@ -114,12 +114,10 @@ disable_boot_services(){
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
         systemctl unmask getty@tty1.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
-    fi
-    if command -v update-rc.d &>/dev/null; then
-        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-    fi
-    if ((is_openrc)); then
+    elif ((is_openrc)); then
         rc-update del elive-distro-upgrader 2>/dev/null || true
+    elif ((is_sysvinit)); then
+        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
     fi
     return 0
 }
@@ -184,7 +182,7 @@ suspend_tty1_and_dms(){
             fi
             rc-service getty.tty1 stop 2>/dev/null || true
         fi
-    elif command -v service &>/dev/null; then
+    elif ((is_sysvinit)); then
         for dm_v in ${dm_list_v}; do
             if service "${dm_v}" status >/dev/null 2>&1; then
                 if ! grep -qxF "SYSV_ACTIVE:${dm_v}" "${state_file_f}" 2>/dev/null; then
@@ -192,13 +190,6 @@ suspend_tty1_and_dms(){
                 fi
                 service "${dm_v}" stop 2>/dev/null || true
             fi
-        done
-    elif command -v invoke-rc.d &>/dev/null; then
-        for dm_v in ${dm_list_v}; do
-            if ! grep -qxF "SYSV_ACTIVE:${dm_v}" "${state_file_f}" 2>/dev/null; then
-                echo "SYSV_ACTIVE:${dm_v}" >> "${state_file_f}"
-            fi
-            invoke-rc.d "${dm_v}" stop 2>/dev/null || true
         done
     fi
 
@@ -271,15 +262,13 @@ restore_tty1_and_dms(){
                     fi
                     ;;
                 SYSV_ACTIVE)
-                    if command -v update-rc.d &>/dev/null; then
+                    if ((is_sysvinit)); then
                         update-rc.d "${srv_v}" defaults 2>/dev/null || true
-                    fi
-                    if command -v service &>/dev/null; then
                         service "${srv_v}" start 2>/dev/null || true
                     fi
                     ;;
                 SYSV_ENABLED)
-                    if command -v update-rc.d &>/dev/null; then
+                    if ((is_sysvinit)); then
                         update-rc.d "${srv_v}" defaults 2>/dev/null || true
                     fi
                     ;;

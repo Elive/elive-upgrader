@@ -1293,6 +1293,10 @@ trigger_reboot() {
         log_info "Stopping anacron service..."
         systemctl stop anacron.service 2>/dev/null || true
         pkill -f anacron 2>/dev/null || true
+    elif ((is_sysvinit)); then
+        log_info "Stopping anacron service..."
+        service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
+        pkill -f anacron 2>/dev/null || true
     fi
     log_info "Rebooting now..."
     sync
@@ -1301,6 +1305,8 @@ trigger_reboot() {
         systemctl reboot 2>/dev/null || reboot || /sbin/reboot || reboot -f || true
     elif ((is_openrc)); then
         rc-service reboot restart 2>/dev/null || openrc-shutdown -r now 2>/dev/null || reboot || /sbin/reboot || reboot -f || true
+    elif ((is_sysvinit)); then
+        reboot || /sbin/reboot || reboot -f || true
     else
         reboot || /sbin/reboot || reboot -f || true
     fi
@@ -2032,7 +2038,7 @@ stop_services() {
                 rc-service "$srv" stop 2>/dev/null || true
             fi
         done
-    else
+    elif ((is_sysvinit)); then
         for srv in monit micro-evtd; do
             if service "$srv" status >/dev/null 2>&1; then
                 if ! grep -qxF "SYSV_ACTIVE:$srv" "$state_file_f" 2>/dev/null; then
@@ -3553,15 +3559,13 @@ restore_tty1_and_dms(){
                     fi
                     ;;
                 SYSV_ACTIVE)
-                    if command -v update-rc.d &>/dev/null; then
+                    if ((is_sysvinit)); then
                         update-rc.d "${srv_v}" defaults 2>/dev/null || true
-                    fi
-                    if command -v service &>/dev/null; then
                         service "${srv_v}" start 2>/dev/null || true
                     fi
                     ;;
                 SYSV_ENABLED)
-                    if command -v update-rc.d &>/dev/null; then
+                    if ((is_sysvinit)); then
                         update-rc.d "${srv_v}" defaults 2>/dev/null || true
                     fi
                     ;;
@@ -3601,12 +3605,10 @@ disable_boot_upgrade() {
         systemctl disable elive-distro-upgrader.service 2>/dev/null || true
         systemctl unmask getty@tty1.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
-    fi
-    if command -v update-rc.d &>/dev/null; then
-        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
-    fi
-    if ((is_openrc)); then
+    elif ((is_openrc)); then
         rc-update del elive-distro-upgrader 2>/dev/null || true
+    elif ((is_sysvinit)); then
+        update-rc.d -f elive-distro-upgrader remove 2>/dev/null || true
     fi
 
     if [ -f /etc/default/elive-distro-upgrade ]; then
@@ -3719,8 +3721,12 @@ main_upgrade() {
         log_info "Running system init: systemd"
     elif ((is_openrc)); then
         log_info "Running system init: OpenRC"
-    else
+    elif ((is_runit)); then
+        log_info "Running system init: runit"
+    elif ((is_sysvinit)); then
         log_info "Running system init: SysVinit"
+    else
+        log_info "Running system init: unknown"
     fi
 
     # Display the warning prominently in bold yellow/cyan
