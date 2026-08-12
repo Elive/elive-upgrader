@@ -4078,6 +4078,7 @@ main() {
 
                 # Set BOOT_MODE before calling main_upgrade
                 BOOT_MODE="true"
+                export TERM="linux"
 
                 if [[ "$in_progress" == "yes" ]]; then
                     log_info "Detected in-progress boot upgrade to $target (reboot count: $reboot_count). Resuming..."
@@ -4143,6 +4144,7 @@ main() {
             ;;
         --boot-mode)
             BOOT_MODE="true"
+            export TERM="linux"
             shift # remove --boot-mode
             # Validate TARGET_CODENAME is provided
             if [[ -z "${1:-}" ]]; then

@@ -49,6 +49,7 @@ source /usr/lib/elive-tools/functions 2>/dev/null || true
 source /usr/lib/elive-upgrader/functions.sh 2>/dev/null || true
 
 export LANG="${EL_LC_EN}"
+export TERM="linux"
 
 if [[ -f "${hooks_d}/distro-upgrade/debian-upgrade" ]]; then
     _upgrade_type="$(tr -d '\r\n ' < "${hooks_d}/distro-upgrade/debian-upgrade")"
@@ -538,6 +539,7 @@ main(){
     fi
 
     echo "Starting upgrade to ${TARGET_CODENAME}"
+    export TERM="linux"
     set +e
     "${SCRIPT_PATH}" --boot-mode "${TARGET_CODENAME}"
     exit_code_v=$?
