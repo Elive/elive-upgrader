@@ -137,30 +137,67 @@ suspend_tty1_and_dms(){
 
     echo "Suspending TTY1 login and display managers..." >/dev/console 2>/dev/null || true
 
+    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+    local state_file_f="/var/cache/elive-upgrader/suspended-services.txt"
+
     if ((is_systemd)); then
-        systemctl stop getty@tty1.service 2>/dev/null || true
-        systemctl mask getty@tty1.service 2>/dev/null || true
+        if ! systemctl is-masked --quiet getty@tty1.service 2>/dev/null; then
+            if ! grep -qxF "SYSTEMD_MASKED:getty@tty1.service" "${state_file_f}" 2>/dev/null; then
+                echo "SYSTEMD_MASKED:getty@tty1.service" >> "${state_file_f}"
+            fi
+            systemctl stop getty@tty1.service 2>/dev/null || true
+            systemctl mask getty@tty1.service 2>/dev/null || true
+        fi
         for dm_v in ${dm_list_v}; do
-            systemctl stop "${dm_v}.service" 2>/dev/null || true
+            if systemctl is-active --quiet "${dm_v}.service" 2>/dev/null; then
+                if ! grep -qxF "SYSTEMD_ACTIVE:${dm_v}.service" "${state_file_f}" 2>/dev/null; then
+                    echo "SYSTEMD_ACTIVE:${dm_v}.service" >> "${state_file_f}"
+                fi
+                systemctl stop "${dm_v}.service" 2>/dev/null || true
+            elif systemctl is-enabled --quiet "${dm_v}.service" 2>/dev/null; then
+                if ! grep -qxF "SYSTEMD_ENABLED:${dm_v}.service" "${state_file_f}" 2>/dev/null; then
+                    echo "SYSTEMD_ENABLED:${dm_v}.service" >> "${state_file_f}"
+                fi
+                systemctl stop "${dm_v}.service" 2>/dev/null || true
+            fi
         done
         systemctl stop display-manager.service 2>/dev/null || true
     elif ((is_openrc)); then
         for dm_v in ${dm_list_v}; do
             if rc-service "${dm_v}" status >/dev/null 2>&1; then
+                if ! grep -qxF "OPENRC_ACTIVE:${dm_v}" "${state_file_f}" 2>/dev/null; then
+                    echo "OPENRC_ACTIVE:${dm_v}" >> "${state_file_f}"
+                fi
                 echo "Stopping OpenRC display manager: ${dm_v}" >/dev/console 2>/dev/null || true
                 rc-service "${dm_v}" stop 2>/dev/null || true
             fi
         done
         for srv_v in $(rc-status --all 2>/dev/null | grep -E "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|display-manager" | awk '{print $1}'); do
+            if ! grep -qxF "OPENRC_ACTIVE:${srv_v}" "${state_file_f}" 2>/dev/null; then
+                echo "OPENRC_ACTIVE:${srv_v}" >> "${state_file_f}"
+            fi
             rc-service "${srv_v}" stop 2>/dev/null || true
         done
-        rc-service getty.tty1 stop 2>/dev/null || true
+        if rc-service getty.tty1 status >/dev/null 2>&1; then
+            if ! grep -qxF "OPENRC_ACTIVE:getty.tty1" "${state_file_f}" 2>/dev/null; then
+                echo "OPENRC_ACTIVE:getty.tty1" >> "${state_file_f}"
+            fi
+            rc-service getty.tty1 stop 2>/dev/null || true
+        fi
     elif command -v service &>/dev/null; then
         for dm_v in ${dm_list_v}; do
-            service "${dm_v}" stop 2>/dev/null || true
+            if service "${dm_v}" status >/dev/null 2>&1; then
+                if ! grep -qxF "SYSV_ACTIVE:${dm_v}" "${state_file_f}" 2>/dev/null; then
+                    echo "SYSV_ACTIVE:${dm_v}" >> "${state_file_f}"
+                fi
+                service "${dm_v}" stop 2>/dev/null || true
+            fi
         done
     elif command -v invoke-rc.d &>/dev/null; then
         for dm_v in ${dm_list_v}; do
+            if ! grep -qxF "SYSV_ACTIVE:${dm_v}" "${state_file_f}" 2>/dev/null; then
+                echo "SYSV_ACTIVE:${dm_v}" >> "${state_file_f}"
+            fi
             invoke-rc.d "${dm_v}" stop 2>/dev/null || true
         done
     fi
@@ -168,9 +205,13 @@ suspend_tty1_and_dms(){
     pkill -f "lightdm|gdm|sddm|xdm|slim|nodm|lxdm|Xorg|Xwayland" 2>/dev/null || true
 
     if [[ -f /etc/inittab ]]; then
-        cp -a /etc/inittab /etc/inittab.bak-upgrader 2>/dev/null || true
-        sed -i 's/^\([0-9]\+:.*getty.*tty1.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
-        telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        if grep -qE '^[0-9]+:.*getty.*tty1' /etc/inittab 2>/dev/null; then
+            if ! grep -qxF "INITTAB_TTY1:true" "${state_file_f}" 2>/dev/null; then
+                echo "INITTAB_TTY1:true" >> "${state_file_f}"
+            fi
+            sed -i 's/^\([0-9]\+:.*getty.*tty1.*\)/#DISABLED-BY-UPGRADER#\1/' /etc/inittab 2>/dev/null || true
+            telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
+        fi
     fi
     return 0
 }
@@ -190,17 +231,75 @@ restore_tty1_and_dms(){
 
     stty sane 2>/dev/null || true
 
+    local state_file_f="/var/cache/elive-upgrader/suspended-services.txt"
+
+    if [[ -f "${state_file_f}" ]]; then
+        local entry_v=""
+        while read -r entry_v || [[ -n "${entry_v}" ]]; do
+            [[ -z "${entry_v}" ]] && continue
+            local action_v="${entry_v%%:*}"
+            local srv_v="${entry_v#*:}"
+
+            case "${action_v}" in
+                SYSTEMD_MASKED)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                SYSTEMD_ACTIVE)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                        systemctl enable "${srv_v}" 2>/dev/null || true
+                        systemctl start "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                SYSTEMD_ENABLED)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                        systemctl enable "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                OPENRC_ACTIVE)
+                    if ((is_openrc)); then
+                        rc-update add "${srv_v}" default 2>/dev/null || true
+                        rc-service "${srv_v}" start 2>/dev/null || true
+                    fi
+                    ;;
+                OPENRC_ENABLED)
+                    if ((is_openrc)); then
+                        rc-update add "${srv_v}" default 2>/dev/null || true
+                    fi
+                    ;;
+                SYSV_ACTIVE)
+                    if command -v update-rc.d &>/dev/null; then
+                        update-rc.d "${srv_v}" defaults 2>/dev/null || true
+                    fi
+                    if command -v service &>/dev/null; then
+                        service "${srv_v}" start 2>/dev/null || true
+                    fi
+                    ;;
+                SYSV_ENABLED)
+                    if command -v update-rc.d &>/dev/null; then
+                        update-rc.d "${srv_v}" defaults 2>/dev/null || true
+                    fi
+                    ;;
+            esac
+        done < <(sort -u "${state_file_f}" 2>/dev/null || cat "${state_file_f}")
+        rm -f "${state_file_f}" 2>/dev/null || true
+    else
+        if ((is_systemd)); then
+            systemctl unmask getty@tty1.service 2>/dev/null || true
+            systemctl unmask lightdm.service 2>/dev/null || true
+            systemctl unmask display-manager.service 2>/dev/null || true
+            systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
+        fi
+    fi
+
     if ((is_systemd)); then
-        systemctl unmask getty@tty1.service 2>/dev/null || true
-        systemctl unmask lightdm.service 2>/dev/null || true
-        systemctl unmask display-manager.service 2>/dev/null || true
-        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
 
-    if [[ -f /etc/inittab.bak-upgrader ]]; then
-        mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
-    fi
+    # Reconfigure actual /etc/inittab in-place without replacing it with ancient backup files
     if [[ -f /etc/inittab ]]; then
         sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
         telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true

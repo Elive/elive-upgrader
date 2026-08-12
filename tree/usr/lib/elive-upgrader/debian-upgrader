@@ -208,14 +208,21 @@ draw_banner(){
 #===============================================================================
 disable_automatic_clean(){
     local conf_file_f=""
+    local state_file_f="/var/cache/elive-upgrader/modified-apt-clean.txt"
+    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
 
-    log_info "Temporarily disabling automatic APT cleaning in all configuration files..."
+    log_info "Temporarily disabling automatic APT cleaning in configuration files..."
     for conf_file_f in /etc/apt/apt.conf.d/*; do
         if [[ -f "${conf_file_f}" ]]; then
-            sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            if grep -qE '^\s*(DSELECT::Clean|APT::Get::Clean)\s+("always"|always)' "${conf_file_f}" 2>/dev/null; then
+                if ! grep -qxF "${conf_file_f}" "${state_file_f}" 2>/dev/null; then
+                    echo "${conf_file_f}" >> "${state_file_f}"
+                fi
+                sed -i 's/^\s*DSELECT::Clean\s\+always/#DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^\s*APT::Get::Clean\s\+always/#APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^\s*DSELECT::Clean\s\+"always"/#DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^\s*APT::Get::Clean\s\+"always"/#APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            fi
         fi
     done
     return 0
@@ -229,16 +236,30 @@ disable_automatic_clean(){
 #===============================================================================
 enable_automatic_clean(){
     local conf_file_f=""
+    local state_file_f="/var/cache/elive-upgrader/modified-apt-clean.txt"
 
-    log_info "Re-enabling automatic APT cleaning in all configuration files..."
-    for conf_file_f in /etc/apt/apt.conf.d/*; do
-        if [[ -f "${conf_file_f}" ]]; then
-            sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
-            sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
-        fi
-    done
+    log_info "Re-enabling automatic APT cleaning in modified configuration files..."
+    if [[ -f "${state_file_f}" ]]; then
+        while read -r conf_file_f || [[ -n "${conf_file_f}" ]]; do
+            [[ -z "${conf_file_f}" ]] && continue
+            if [[ -f "${conf_file_f}" ]]; then
+                sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            fi
+        done < <(sort -u "${state_file_f}" 2>/dev/null || cat "${state_file_f}")
+        rm -f "${state_file_f}" 2>/dev/null || true
+    else
+        for conf_file_f in /etc/apt/apt.conf.d/*; do
+            if [[ -f "${conf_file_f}" ]]; then
+                sed -i 's/^#\s*DSELECT::Clean\s\+always/DSELECT::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*APT::Get::Clean\s\+always/APT::Get::Clean always/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*DSELECT::Clean\s\+"always"/DSELECT::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+                sed -i 's/^#\s*APT::Get::Clean\s\+"always"/APT::Get::Clean "always"/g' "${conf_file_f}" 2>/dev/null || true
+            fi
+        done
+    fi
     return 0
 }
 
@@ -1155,56 +1176,7 @@ upgrade_state_increment_reboot() {
     if (( count > 5 )); then
         log_error "Too many reboots during upgrade ($count). Aborting upgrade to prevent infinite loop."
         upgrade_state_set_upgrade_in_progress "no"
-        # Restore sources to the original codename to leave system in consistent state
-        local original_version
-        original_version=$(upgrade_state_read "CURRENT_VERSION" "")
-        if [[ -n "$original_version" ]]; then
-            local original_codename=${DEBIAN_VERSIONS[$original_version]:-}
-            if [[ -n "$original_codename" ]]; then
-                log_info "Attempting to restore sources, preferences, and configurations to $original_codename..."
-                current_codename="$original_codename"
-                # Best-effort restore - don't fail if this doesn't work
-                local target_cn
-                target_cn=$(upgrade_state_read "TARGET_CODENAME" "")
-                if [[ -n "$target_cn" ]]; then
-                    if [[ -f /etc/apt/sources.list ]]; then
-                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/sources.list 2>/dev/null || true
-                    fi
-                    for file in /etc/apt/sources.list.d/*; do
-                        if [[ -f "$file" ]]; then
-                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
-                        fi
-                    done
-                    if [[ -f /etc/apt/preferences ]]; then
-                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/preferences 2>/dev/null || true
-                    fi
-                    for file in /etc/apt/preferences.d/*; do
-                        if [[ -f "$file" ]]; then
-                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
-                        fi
-                    done
-                    if [[ -f /etc/apt/apt.conf ]]; then
-                        sed -i "s|$target_cn|$original_codename|g" /etc/apt/apt.conf 2>/dev/null || true
-                    fi
-                    for file in /etc/apt/apt.conf.d/*; do
-                        if [[ -f "$file" ]]; then
-                            sed -i "s|$target_cn|$original_codename|g" "$file" 2>/dev/null || true
-                        fi
-                    done
-                    if [[ -f /etc/elive-version ]]; then
-                        sed -i "s|$target_cn|$original_codename|g" /etc/elive-version 2>/dev/null || true
-                    fi
-                    if [[ -f /etc/lsb-release ]]; then
-                        local target_version=${DEBIAN_CODENAMES[$target_cn]:-}
-                        if [[ -n "$original_version" && -n "$target_version" ]]; then
-                            sed -i "s|DISTRIB_RELEASE=\"$target_version\"|DISTRIB_RELEASE=\"$original_version\"|g" /etc/lsb-release 2>/dev/null || true
-                        fi
-                        sed -i "s|DISTRIB_CODENAME=\"$target_cn\"|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
-                        sed -i "s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
-                    fi
-                fi
-            fi
-        fi
+        restore_sources_on_cancel
         disable_boot_upgrade
         release_lock
         log_info "Waiting 60 seconds before exiting so you can read error messages..."
@@ -1961,8 +1933,8 @@ cleanup_packages() {
     # Clean package cache
     run_and_show_plymouth_on_boot apt-get clean || true
 
-    # Remove leftover configuration files
-    find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -delete 2>/dev/null || true
+    # Remove leftover configuration and temporary upgrader backup files
+    find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -o -name '*.bak-upgrader' -o -name 'sources.list.bak.*' -o -name 'preferences.bak.*' -o -name 'apt.conf.bak.*' -o -name 'elive-version.bak.*' -o -name 'lsb-release.bak.*' -delete 2>/dev/null || true
 }
 
 check_disk_space() {
@@ -2038,16 +2010,37 @@ check_disk_space() {
 stop_services() {
     log_info "Stopping non-essential services..."
 
-    # Stop monitoring services that might interfere
+    local state_file_f="/var/cache/elive-upgrader/suspended-services.txt"
+    mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+
+    # Stop monitoring services that might interfere and record state
     if ((is_systemd)); then
-        systemctl stop monit.service 2>/dev/null || true
-        systemctl stop micro-evtd.service 2>/dev/null || true
+        for srv in monit.service micro-evtd.service; do
+            if systemctl is-active --quiet "$srv" 2>/dev/null; then
+                if ! grep -qxF "SYSTEMD_ACTIVE:$srv" "$state_file_f" 2>/dev/null; then
+                    echo "SYSTEMD_ACTIVE:$srv" >> "$state_file_f"
+                fi
+                systemctl stop "$srv" 2>/dev/null || true
+            fi
+        done
     elif ((is_openrc)); then
-        rc-service monit stop 2>/dev/null || true
-        rc-service micro-evtd stop 2>/dev/null || true
+        for srv in monit micro-evtd; do
+            if rc-service "$srv" status >/dev/null 2>&1; then
+                if ! grep -qxF "OPENRC_ACTIVE:$srv" "$state_file_f" 2>/dev/null; then
+                    echo "OPENRC_ACTIVE:$srv" >> "$state_file_f"
+                fi
+                rc-service "$srv" stop 2>/dev/null || true
+            fi
+        done
     else
-        service monit stop 2>/dev/null || true
-        service micro-evtd stop 2>/dev/null || true
+        for srv in monit micro-evtd; do
+            if service "$srv" status >/dev/null 2>&1; then
+                if ! grep -qxF "SYSV_ACTIVE:$srv" "$state_file_f" 2>/dev/null; then
+                    echo "SYSV_ACTIVE:$srv" >> "$state_file_f"
+                fi
+                service "$srv" stop 2>/dev/null || true
+            fi
+        done
     fi
 
     if command -v microapl &> /dev/null; then
@@ -2448,13 +2441,10 @@ post_upgrade_cleanup() {
     # Update alternatives if needed
     update-alternatives --all --auto 2>/dev/null || true
 
-    if ((is_systemd)); then
-        systemctl unmask getty@tty1.service 2>/dev/null || true
-        systemctl unmask lightdm.service 2>/dev/null || true
-        systemctl unmask display-manager.service 2>/dev/null || true
-        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
-    fi
+    # Remove leftover configuration and temporary upgrader backup files
+    find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -o -name '*.bak-upgrader' -o -name 'sources.list.bak.*' -o -name 'preferences.bak.*' -o -name 'apt.conf.bak.*' -o -name 'elive-version.bak.*' -o -name 'lsb-release.bak.*' -delete 2>/dev/null || true
+
+    restore_tty1_and_dms
 }
 
 verify_upgrade() {
@@ -3097,24 +3087,8 @@ enable_boot_upgrade_conf() {
 
     if [[ "$success" != "true" ]]; then
         NOREPORTS=1 log_warning "Failed to update package lists after 5 attempts. Restoring sources..."
-        # Restore sources from backup if update fails
-        if [[ -d "$BACKUP_DIR/sources.list.d" ]]; then
-            rm -rf /etc/apt/sources.list.d
-            cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
-        fi
-        if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
-            cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
-        else
-            # Fallback: restore from the backup we just created
-            if [[ -f "/etc/apt/sources.list.bak."* ]]; then
-                local latest_backup
-                latest_backup=$(ls -t /etc/apt/sources.list.bak.* 2>/dev/null | head -1)
-                if [[ -n "$latest_backup" ]]; then
-                    cp "$latest_backup" /etc/apt/sources.list
-                fi
-            fi
-        fi
-        # Try to update with restored sources
+        # Restore sources using in-place codename reversal rather than copying back old files
+        restore_sources_on_cancel
         log_info "Retrying apt-get update with restored sources..."
         if ! apt-get update; then
             log_error "Failed to update even with restored sources. System may be in an inconsistent state."
@@ -3149,14 +3123,8 @@ enable_boot_upgrade_conf() {
     if ((sim_failed)); then
         log_error "Upgrade simulation failed! The upgrade cannot be performed safely."
 
-        # Restore sources
-        if [[ -d "$BACKUP_DIR/sources.list.d" ]]; then
-            rm -rf /etc/apt/sources.list.d
-            cp -a "$BACKUP_DIR/sources.list.d" /etc/apt/sources.list.d
-        fi
-        if [[ -f "$BACKUP_DIR/etc/apt/sources.list" ]]; then
-            cp -a "$BACKUP_DIR/etc/apt/sources.list" /etc/apt/sources.list
-        fi
+        # Restore sources using in-place codename reversal
+        restore_sources_on_cancel
 
         log_info "Restoring package lists back to normal..."
         apt-get update >/dev/null 2>&1 || true
@@ -3529,9 +3497,10 @@ EOF
     elive-pm reboot || trigger_reboot
 }
 
+
 #===  FUNCTION  ================================================================
 #          NAME:  restore_tty1_and_dms
-#   DESCRIPTION:  Restores TTY1 getty login service, /etc/inittab, and display managers
+#   DESCRIPTION:  Restores TTY1 getty login service and display managers after upgrade
 #    PARAMETERS:  None
 #       RETURNS:  0
 #===============================================================================
@@ -3544,17 +3513,75 @@ restore_tty1_and_dms(){
 
     stty sane 2>/dev/null || true
 
+    local state_file_f="/var/cache/elive-upgrader/suspended-services.txt"
+
+    if [[ -f "${state_file_f}" ]]; then
+        local entry_v=""
+        while read -r entry_v || [[ -n "${entry_v}" ]]; do
+            [[ -z "${entry_v}" ]] && continue
+            local action_v="${entry_v%%:*}"
+            local srv_v="${entry_v#*:}"
+
+            case "${action_v}" in
+                SYSTEMD_MASKED)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                SYSTEMD_ACTIVE)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                        systemctl enable "${srv_v}" 2>/dev/null || true
+                        systemctl start "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                SYSTEMD_ENABLED)
+                    if ((is_systemd)); then
+                        systemctl unmask "${srv_v}" 2>/dev/null || true
+                        systemctl enable "${srv_v}" 2>/dev/null || true
+                    fi
+                    ;;
+                OPENRC_ACTIVE)
+                    if ((is_openrc)); then
+                        rc-update add "${srv_v}" default 2>/dev/null || true
+                        rc-service "${srv_v}" start 2>/dev/null || true
+                    fi
+                    ;;
+                OPENRC_ENABLED)
+                    if ((is_openrc)); then
+                        rc-update add "${srv_v}" default 2>/dev/null || true
+                    fi
+                    ;;
+                SYSV_ACTIVE)
+                    if command -v update-rc.d &>/dev/null; then
+                        update-rc.d "${srv_v}" defaults 2>/dev/null || true
+                    fi
+                    if command -v service &>/dev/null; then
+                        service "${srv_v}" start 2>/dev/null || true
+                    fi
+                    ;;
+                SYSV_ENABLED)
+                    if command -v update-rc.d &>/dev/null; then
+                        update-rc.d "${srv_v}" defaults 2>/dev/null || true
+                    fi
+                    ;;
+            esac
+        done < <(sort -u "${state_file_f}" 2>/dev/null || cat "${state_file_f}")
+        rm -f "${state_file_f}" 2>/dev/null || true
+    else
+        if ((is_systemd)); then
+            systemctl unmask getty@tty1.service 2>/dev/null || true
+            systemctl unmask lightdm.service 2>/dev/null || true
+            systemctl unmask display-manager.service 2>/dev/null || true
+            systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
+        fi
+    fi
+
     if ((is_systemd)); then
-        systemctl unmask getty@tty1.service 2>/dev/null || true
-        systemctl unmask lightdm.service 2>/dev/null || true
-        systemctl unmask display-manager.service 2>/dev/null || true
-        systemctl enable lightdm.service 2>/dev/null || systemctl enable display-manager.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
     fi
 
-    if [[ -f /etc/inittab.bak-upgrader ]]; then
-        mv -f /etc/inittab.bak-upgrader /etc/inittab 2>/dev/null || true
-    fi
+    # Reconfigure actual /etc/inittab in-place without replacing it with ancient backup files
     if [[ -f /etc/inittab ]]; then
         sed -i 's/^#DISABLED-BY-UPGRADER#//' /etc/inittab 2>/dev/null || true
         telinit q 2>/dev/null || kill -HUP 1 2>/dev/null || true
@@ -3639,6 +3666,8 @@ restore_sources_on_cancel() {
             sed -i "s|^DISTRIB_CODENAME=.*|DISTRIB_CODENAME=\"$original_codename\"|g" /etc/lsb-release 2>/dev/null || true
             sed -i "/^DISTRIB_DESCRIPTION=/s|$target_cn|$original_codename|g" /etc/lsb-release 2>/dev/null || true
         fi
+        # Remove leftover temporary backup files created during sources update
+        find /etc -name 'sources.list.bak.*' -o -name 'preferences.bak.*' -o -name 'apt.conf.bak.*' -o -name 'elive-version.bak.*' -o -name 'lsb-release.bak.*' -o -name '*.bak-upgrader' -delete 2>/dev/null || true
         # Clean up apt cache after restoring sources
         apt-get clean 2>/dev/null || true
         log_info "APT sources, preferences, and configurations restored to $original_codename"
