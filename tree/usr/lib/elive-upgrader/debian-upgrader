@@ -759,7 +759,8 @@ create_recovery_notification() {
 
     mkdir -p /var/log/elive-upgrader
     mkdir -p /var/cache/elive-upgrader
-    chmod 1777 /var/cache/elive-upgrader 2>/dev/null || true
+    chmod 777 /var/cache/elive-upgrader 2>/dev/null || true
+    chmod -R a+rwX /var/cache/elive-upgrader 2>/dev/null || true
 
     # Create the recovery flag file only if explicitly requested for failure mode
     if [[ "${1:-}" == "failure" ]]; then
@@ -3919,14 +3920,13 @@ main_upgrade() {
 
     # Create a pending notification flag for the user session on first boot
     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
-    chmod 1777 /var/cache/elive-upgrader 2>/dev/null || true
+    chmod 777 /var/cache/elive-upgrader 2>/dev/null || true
     echo "$TARGET_CODENAME" > /var/cache/elive-upgrader/notify-upgrade-complete
-    chmod 666 /var/cache/elive-upgrader/notify-upgrade-complete 2>/dev/null || true
 
     # Create a flag to indicate that backup cleanup should be done after
     # the user reaches the graphical session
     touch /var/cache/elive-upgrader/cleanup-backups-pending
-    chmod 666 /var/cache/elive-upgrader/cleanup-backups-pending 2>/dev/null || true
+    chmod -R a+rwX /var/cache/elive-upgrader 2>/dev/null || true
 
     # Create desktop notification executable and autostart entries for the desktop session
     create_recovery_notification

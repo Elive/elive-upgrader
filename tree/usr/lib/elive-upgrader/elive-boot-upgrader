@@ -137,6 +137,7 @@ suspend_tty1_and_dms(){
     echo "Suspending TTY1 login and display managers..." >/dev/console 2>/dev/null || true
 
     mkdir -p /var/cache/elive-upgrader 2>/dev/null || true
+    chmod 777 /var/cache/elive-upgrader 2>/dev/null || true
     local state_file_f="/var/cache/elive-upgrader/suspended-services.txt"
 
     if ((is_systemd)); then
