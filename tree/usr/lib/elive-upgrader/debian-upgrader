@@ -1431,7 +1431,9 @@ free_emergency_disk_space() {
 
     # 2. Clean APT caches and unused packages
     log_info "Cleaning APT cache and autoremoving unused packages..."
+    log_info "Executing: apt-get autoclean -y"
     apt-get autoclean -y 2>/dev/null || true
+    log_info "Executing: apt-get autoremove --purge -y"
     apt-get autoremove --purge -y 2>/dev/null || true
 
     # 3. If full OS backup exists, remove it to free up large amount of disk space
@@ -1453,6 +1455,7 @@ free_emergency_disk_space() {
     free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$free_kb" ]] && (( free_kb < 1048576 )); then
         NOREPORTS=1 log_warning "Free space still under 1GB ($(( free_kb / 1024 )) MB). Cleaning APT archive cache..."
+        log_info "Executing: apt-get clean"
         apt-get clean 2>/dev/null || true
     fi
 
@@ -1543,12 +1546,15 @@ repair_apt() {
     fi
 
     # Fix broken dependencies with aggressive forced options
+    log_info "Executing: apt-get install -f -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o Dpkg::Options::=\"--force-overwrite\" --allow-downgrades --allow-remove-essential --allow-change-held-packages"
     apt-get install -f -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true
 
     # Fix broken packages
+    log_info "Executing: apt-get --fix-broken install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o Dpkg::Options::=\"--force-overwrite\" --allow-downgrades --allow-remove-essential --allow-change-held-packages"
     apt-get --fix-broken install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages 2>/dev/null || true
 
     # Update package lists with fix-missing
+    log_info "Executing: apt-get update --fix-missing"
     apt-get update --fix-missing 2>/dev/null || true
 
     # Final check
@@ -1631,7 +1637,7 @@ safe_apt_run() {
 
     while (( attempt <= max_attempts )); do
         # Run the command and capture exit code explicitly
-        log_info "Running command: ${cmd[*]}"
+        log_info "Executing command: ${cmd[*]}"
         local run_log
         run_log=$(mktemp)
         set +o pipefail
@@ -1682,7 +1688,7 @@ safe_apt_run() {
 }
 
 run_and_show_plymouth_on_boot() {
-    echo "Executing: $*"
+    log_info "Executing: $*"
     local is_apt=false
     local start_pct=0
     local end_pct=100
@@ -2373,6 +2379,7 @@ perform_upgrade() {
 
                         # Attempt candidate kernel installation
                         local inst_success=true
+                        log_info "Executing: apt-get -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o Dpkg::Options::=\"--force-overwrite\" install -y --no-install-recommends ${pkgs_to_inst[*]}"
                         apt-get -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" install -y --no-install-recommends "${pkgs_to_inst[@]}" || inst_success=false
 
                         if [[ "$inst_success" == "true" ]]; then
@@ -2395,8 +2402,10 @@ perform_upgrade() {
                         if [[ "$inst_success" == "false" ]]; then
                             log_warning "Kernel candidate $cand_kver failed. Cleaning up failed kernel packages..."
                             dpkg --purge "${pkgs_to_inst[@]}" 2>/dev/null || true
+                            log_info "Executing: apt-get remove --purge -y ${pkgs_to_inst[*]}"
                             apt-get remove --purge -y "${pkgs_to_inst[@]}" 2>/dev/null || true
                             rm -f "/boot/vmlinuz-${cand_kver}"* "/boot/initrd.img-${cand_kver}"* "/boot/System.map-${cand_kver}"* "/boot/config-${cand_kver}"* 2>/dev/null || true
+                            log_info "Executing: apt-get -f install -y"
                             apt-get -f install -y 2>/dev/null || true
                             nv_failed_kernels+=("$cand_kver")
                         fi
@@ -3088,6 +3097,7 @@ enable_boot_upgrade_conf() {
     local success=false
     while (( attempt <= 5 )); do
         log_info "Attempt $attempt of 5 to update package lists..."
+        log_info "Executing: apt-get update"
         if apt-get update; then
             success=true
             break
@@ -3102,6 +3112,7 @@ enable_boot_upgrade_conf() {
         # Restore sources using in-place codename reversal rather than copying back old files
         restore_sources_on_cancel
         log_info "Retrying apt-get update with restored sources..."
+        log_info "Executing: apt-get update"
         if ! apt-get update; then
             log_error "Failed to update even with restored sources. System may be in an inconsistent state."
         fi
@@ -3124,6 +3135,7 @@ enable_boot_upgrade_conf() {
     local sim_failed=0
     local sim_log
     sim_log=$(mktemp)
+    log_info "Executing: apt-get -s dist-upgrade -y -q=2 -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o Dpkg::Options::=\"--force-overwrite\" --allow-downgrades --allow-remove-essential --allow-change-held-packages -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1"
     if ! apt-get -s dist-upgrade -y -q=2 -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1 > "$sim_log" 2>&1; then
         sim_failed=1
     fi
@@ -3161,6 +3173,7 @@ enable_boot_upgrade_conf() {
 
     log_info "Downloading packages (download-only)..."
     local dl_cmd=(apt-get dist-upgrade --download-only -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages)
+    log_info "Executing: ${dl_cmd[*]}"
 
     show_predownload_full_options() {
         local title="$(eval_gettext "Disk Full - Insufficient Space")"
@@ -3323,6 +3336,7 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Upgrading elive-upgrader package to the latest version before reboot..."
+    log_info "Executing: apt-get install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" -o Dpkg::Options::=\"--force-overwrite\" --allow-downgrades --allow-remove-essential --allow-change-held-packages elive-upgrader"
     apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages elive-upgrader || true
 
     # Restore sources.list and preferences to the original codename immediately after download
