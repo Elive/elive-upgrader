@@ -2802,6 +2802,54 @@ reconfigure_setcap_packages() {
     done
 }
 
+# Collect all packages specified in debian-upgrade-packages-to-install.txt
+# strictly from the distro-upgrade hook directory and active cache
+get_distro_upgrade_packages_to_install() {
+    local hooks_base="/usr/lib/elive-upgrader/hooks-${current_codename}"
+    if [[ "$current_codename" == "wheezy" ]]; then
+        hooks_base="/usr/lib/elive-upgrader/hooks"
+    fi
+
+    local candidate_files=(
+        "${hooks_base}/distro-upgrade/debian-upgrade-packages-to-install.txt"
+        "${hooks_base}/distro-upgrade/root/debian-upgrade-packages-to-install.txt"
+        "/var/cache/elive-upgrader/active-distro-upgrade-hook/debian-upgrade-packages-to-install.txt"
+        "/var/cache/elive-upgrader/active-distro-upgrade-hook/root/debian-upgrade-packages-to-install.txt"
+    )
+
+    local pkgs=""
+    local f=""
+    for f in "${candidate_files[@]}"; do
+        if [[ -f "$f" ]]; then
+            local content
+            content=$(grep -v '^\s*#' "$f" 2>/dev/null | grep -v '^\s*$' || true)
+            if [[ -n "$content" ]]; then
+                pkgs="${pkgs} ${content}"
+            fi
+        fi
+    done
+
+    # Include kernel and header metapackages
+    local arch
+    arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+    case "$arch" in
+        amd64)
+            pkgs="${pkgs} linux-image-amd64 linux-headers-amd64"
+            ;;
+        i386)
+            pkgs="${pkgs} linux-image-686 linux-headers-686"
+            ;;
+        arm64)
+            pkgs="${pkgs} linux-image-arm64 linux-headers-arm64"
+            ;;
+        *)
+            pkgs="${pkgs} linux-image-${arch} linux-headers-${arch}"
+            ;;
+    esac
+
+    echo "${pkgs}" | tr '\n' ' ' | xargs
+}
+
 # Expand wildcard patterns and filter to only installed packages
 # Input: space/newline separated package names, may include wildcards like "exim4*"
 # Output: space separated list of actually installed packages
@@ -2988,9 +3036,8 @@ run_post_hooks() {
                 pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
                 if [[ -n "$pkgs" ]]; then
                     log_info "Installing supporting packages after full upgrade: $pkgs"
-                    if ! safe_apt_run apt-get install -y $pkgs; then
-                        log_error "Failed to install post-upgrade packages: $pkgs"
-                        return 1
+                    if ! safe_apt_run apt-get install -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages $pkgs; then
+                        log_warning "Failed to install some post-upgrade packages ($pkgs). Continuing with post-hooks..."
                     fi
                 fi
             fi
@@ -2998,8 +3045,7 @@ run_post_hooks() {
             if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
                 log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
                 if ! "$hook_dir/debian-upgrade-post-script.sh"; then
-                    log_error "Post-upgrade script failed: $hook_dir/debian-upgrade-post-script.sh"
-                    return 1
+                    log_warning "Post-upgrade script reported warnings: $hook_dir/debian-upgrade-post-script.sh"
                 fi
             fi
         done
@@ -3172,6 +3218,9 @@ enable_boot_upgrade_conf() {
     fi
 
     log_info "Downloading packages (download-only)..."
+    local extra_install_pkgs
+    extra_install_pkgs="$(get_distro_upgrade_packages_to_install)"
+
     local dl_cmd=(apt-get dist-upgrade --download-only -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages)
     log_info "Executing: ${dl_cmd[*]}"
 
@@ -3227,11 +3276,19 @@ enable_boot_upgrade_conf() {
     local dl_success=false
     if "${dl_cmd[@]}"; then
         dl_success=true
+        if [[ -n "$extra_install_pkgs" ]]; then
+            log_info "Pre-downloading supporting post-upgrade packages: $extra_install_pkgs"
+            apt-get install --download-only -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages $extra_install_pkgs || true
+        fi
     else
         NOREPORTS=1 log_warning "Predownload failed. Cleaning safe temporary files and retrying..."
         free_emergency_disk_space
         if "${dl_cmd[@]}"; then
             dl_success=true
+            if [[ -n "$extra_install_pkgs" ]]; then
+                log_info "Pre-downloading supporting post-upgrade packages: $extra_install_pkgs"
+                apt-get install --download-only -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages $extra_install_pkgs || true
+            fi
         fi
     fi
 
