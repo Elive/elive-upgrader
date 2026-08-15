@@ -2802,6 +2802,54 @@ reconfigure_setcap_packages() {
     done
 }
 
+# Helper to extract packages from debian-upgrade-packages-to-install-if-before.txt
+# that were installed in the system before the upgrade
+get_packages_if_before() {
+    local hook_file="$1"
+    local pkgs_before_file="${2:-/var/log/elive-upgrader/debian-upgrade-packages-before-${TARGET_CODENAME}.txt}"
+    if [[ ! -f "$pkgs_before_file" ]]; then
+        pkgs_before_file="$(ls -t /var/log/elive-upgrader/debian-upgrade-packages-before-*.txt 2>/dev/null | head -n 1 || true)"
+    fi
+
+    if [[ ! -f "$hook_file" ]] || [[ ! -f "$pkgs_before_file" ]]; then
+        return 0
+    fi
+
+    local pkgs_to_install=""
+    local line entry pattern_regex matched_pkgs pkg_base p
+
+    while read -r line || [[ -n "$line" ]]; do
+        [[ -z "$line" ]] && continue
+        case "$line" in
+            \#*) continue ;;
+        esac
+
+        for entry in $line; do
+            [[ -z "$entry" ]] && continue
+            case "$entry" in
+                \#*) break ;;
+            esac
+
+            if [[ "$entry" == *"*"* ]]; then
+                pattern_regex="^$(echo "$entry" | sed 's/\./\\./g; s/\*/.*/g')$"
+                matched_pkgs="$(grep -E "$pattern_regex" "$pkgs_before_file" 2>/dev/null || true)"
+                if [[ -n "$matched_pkgs" ]]; then
+                    for p in $matched_pkgs; do
+                        pkgs_to_install="${pkgs_to_install} ${p}"
+                    done
+                fi
+            else
+                pkg_base="$(echo "$entry" | cut -d':' -f1)"
+                if grep -qxF "$entry" "$pkgs_before_file" 2>/dev/null || grep -qxF "$pkg_base" "$pkgs_before_file" 2>/dev/null; then
+                    pkgs_to_install="${pkgs_to_install} ${entry}"
+                fi
+            fi
+        done
+    done < "$hook_file"
+
+    echo "$pkgs_to_install" | tr ' ' '\n' | sort -u | tr '\n' ' ' | xargs
+}
+
 # Collect all packages specified in debian-upgrade-packages-to-install.txt
 # strictly from the distro-upgrade hook directory and active cache
 get_distro_upgrade_packages_to_install() {
@@ -2817,14 +2865,39 @@ get_distro_upgrade_packages_to_install() {
         "/var/cache/elive-upgrader/active-distro-upgrade-hook/root/debian-upgrade-packages-to-install.txt"
     )
 
+    local candidate_if_before_files=(
+        "${hooks_base}/distro-upgrade/debian-upgrade-packages-to-install-if-before.txt"
+        "${hooks_base}/distro-upgrade/root/debian-upgrade-packages-to-install-if-before.txt"
+        "/var/cache/elive-upgrader/active-distro-upgrade-hook/debian-upgrade-packages-to-install-if-before.txt"
+        "/var/cache/elive-upgrader/active-distro-upgrade-hook/root/debian-upgrade-packages-to-install-if-before.txt"
+    )
+
+    local processed_files=()
     local pkgs=""
     local f=""
     for f in "${candidate_files[@]}"; do
         if [[ -f "$f" ]]; then
-            local content
-            content=$(grep -v '^\s*#' "$f" 2>/dev/null | grep -v '^\s*$' || true)
-            if [[ -n "$content" ]]; then
-                pkgs="${pkgs} ${content}"
+            if [[ ! " ${processed_files[*]:-} " =~ " ${f} " ]]; then
+                processed_files+=("$f")
+                local content
+                content=$(grep -v '^\s*#' "$f" 2>/dev/null | grep -v '^\s*$' || true)
+                if [[ -n "$content" ]]; then
+                    pkgs="${pkgs} ${content}"
+                fi
+            fi
+        fi
+    done
+
+    local processed_if_before=()
+    for f in "${candidate_if_before_files[@]}"; do
+        if [[ -f "$f" ]]; then
+            if [[ ! " ${processed_if_before[*]:-} " =~ " ${f} " ]]; then
+                processed_if_before+=("$f")
+                local if_before_pkgs
+                if_before_pkgs="$(get_packages_if_before "$f")"
+                if [[ -n "$if_before_pkgs" ]]; then
+                    pkgs="${pkgs} ${if_before_pkgs}"
+                fi
             fi
         fi
     done
@@ -2847,7 +2920,7 @@ get_distro_upgrade_packages_to_install() {
             ;;
     esac
 
-    echo "${pkgs}" | tr '\n' ' ' | xargs
+    echo "${pkgs}" | tr ' ' '\n' | sort -u | tr '\n' ' ' | xargs
 }
 
 # Expand wildcard patterns and filter to only installed packages
@@ -3029,8 +3102,36 @@ run_post_hooks() {
             fi
         done
 
+        local processed_install_if_before=()
+        local all_pkgs_if_before=""
+
+        for hook_dir in "${all_dirs[@]}"; do
+            # 2. Collect packages specified in debian-upgrade-packages-to-install-if-before.txt if they were installed before
+            if [[ -f "$hook_dir/debian-upgrade-packages-to-install-if-before.txt" ]]; then
+                local install_if_file="$hook_dir/debian-upgrade-packages-to-install-if-before.txt"
+                if [[ ! " ${processed_install_if_before[*]:-} " =~ " ${install_if_file} " ]]; then
+                    processed_install_if_before+=("$install_if_file")
+                    local pkgs_if_before
+                    pkgs_if_before="$(get_packages_if_before "$install_if_file")"
+                    if [[ -n "$pkgs_if_before" ]]; then
+                        all_pkgs_if_before="${all_pkgs_if_before} ${pkgs_if_before}"
+                    fi
+                fi
+            fi
+        done
+
+        all_pkgs_if_before="$(echo "$all_pkgs_if_before" | tr ' ' '\n' | sort -u | tr '\n' ' ' | xargs)"
+        if [[ -n "$all_pkgs_if_before" ]]; then
+            log_info "Installing packages present before upgrade (debian-upgrade-packages-to-install-if-before in one shot): $all_pkgs_if_before"
+            if ! safe_apt_run apt-get install -y --no-remove -o APT::Get::Remove=0 --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-change-held-packages $all_pkgs_if_before; then
+                log_warning "Failed to install some if-before post-upgrade packages ($all_pkgs_if_before) without removing other packages. Continuing with post-hooks..."
+            fi
+        else
+            log_info "No packages from debian-upgrade-packages-to-install-if-before need to be installed (none were present before upgrade)."
+        fi
+
         for hook_dir in "${hook_dirs[@]}"; do
-            # 2. Install packages specified in debian-upgrade-packages-to-install.txt
+            # 3. Install packages specified in debian-upgrade-packages-to-install.txt
             if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
                 local pkgs
                 pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
@@ -3041,7 +3142,7 @@ run_post_hooks() {
                     fi
                 fi
             fi
-            # 3. Run post-upgrade script
+            # 4. Run post-upgrade script
             if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
                 log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
                 if ! "$hook_dir/debian-upgrade-post-script.sh"; then
@@ -3127,6 +3228,15 @@ enable_boot_upgrade_conf() {
 
     # Backup system configuration before changing sources
     backup_system
+
+    # Save list of installed packages before upgrade for reference and if-before checks
+    mkdir -p /var/log/elive-upgrader 2>/dev/null || true
+    local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${TARGET_CODENAME}.txt"
+    if [[ ! -f "$pkgs_before_file" ]]; then
+        log_info "Saving list of installed packages before upgrade..."
+        dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | cut -d':' -f1 | sort -u > "$pkgs_before_file"
+        chmod 644 "$pkgs_before_file" 2>/dev/null || true
+    fi
 
     # Disable automatic clean so downloaded packages are not deleted
     disable_automatic_clean
@@ -3300,6 +3410,10 @@ enable_boot_upgrade_conf() {
             log_info "Retrying package predownload after user freed space..."
             if "${dl_cmd[@]}"; then
                 dl_success=true
+                if [[ -n "$extra_install_pkgs" ]]; then
+                    log_info "Pre-downloading supporting post-upgrade packages: $extra_install_pkgs"
+                    apt-get install --download-only -y --no-install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" --allow-downgrades --allow-remove-essential --allow-change-held-packages $extra_install_pkgs || true
+                fi
             fi
         else
             # User chose "Delete predownloaded packages and Exit"

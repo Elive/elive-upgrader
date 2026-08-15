@@ -53,15 +53,23 @@
 #      - List of supporting packages to install AFTER the full upgrade step completes, BEFORE rebooting.
 #      - Runs after full-upgrade, kernel install, update-initramfs, and update-grub.
 #
-#   12. debian-upgrade-packages-to-remove-post.txt
+#   12. debian-upgrade-packages-to-install-if-before.txt
+#      - List of packages to install in one single shot AFTER the full upgrade step completes,
+#        but ONLY if they were present on the system BEFORE the upgrade.
+#      - Supports wildcards (e.g., gimp*) and package names with architecture specifications.
+#      - Uses the saved pre-upgrade package list (/var/log/elive-upgrader/debian-upgrade-packages-before-*.txt).
+#      - Packages are precached (downloaded) during the predownload phase before reboot.
+#      - Installation is executed with --no-remove so apt will fail rather than remove conflicting packages.
+#
+#   13. debian-upgrade-packages-to-remove-post.txt
 #      - List of packages to remove AFTER completing the full upgrade step, BEFORE rebooting.
 #      - Runs during post-hooks before installing debian-upgrade-packages-to-install.txt.
 #
-#   13. debian-upgrade-post-script.sh
+#   14. debian-upgrade-post-script.sh
 #      - Script executed AFTER completing the full upgrade step, BEFORE rebooting.
 #      - Runs during post-hooks right after debian-upgrade-packages-to-install.txt.
 #
-#   14. debian-upgrade-packages-to-remove-if-not-before.txt
+#   15. debian-upgrade-packages-to-remove-if-not-before.txt
 #      - List of packages to remove near the end of the upgrade process (BEFORE reboot),
 #        or on first boot as a fallback, if they were NOT present on the system before the upgrade.
 #      - Supports wildcards (e.g., exim4*).

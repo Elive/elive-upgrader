@@ -1,0 +1,6 @@
+network-manager-gnome
+openfortivpn
+p7zip-full
+strongswan
+vapoursynth-ffms2
+fonts-liberation2
