@@ -2462,6 +2462,9 @@ post_upgrade_cleanup() {
     # Remove leftover configuration and temporary upgrader backup files
     find /etc -name '*.dpkg-*' -o -name '*.ucf-*' -o -name '*.merge-error' -o -name '*.bak-upgrader' -o -name 'sources.list.bak.*' -o -name 'preferences.bak.*' -o -name 'apt.conf.bak.*' -o -name 'elive-version.bak.*' -o -name 'lsb-release.bak.*' -delete 2>/dev/null || true
 
+    # allow all interfaces (wifi device names can change)
+    sed -i -e '/^interface-name=/d' "/tmp/system-connections/"* "/etc/NetworkManager/system-connections/"* 2>/dev/null || true
+
     restore_tty1_and_dms
 }
 
@@ -4090,6 +4093,9 @@ main_upgrade() {
 
     # Process post-upgrade package removal hooks now, before rebooting
     process_remove_if_not_before "$TARGET_CODENAME"
+
+    # allow all interfaces (wifi device names can change)
+    sed -i -e '/^interface-name=/d' "/tmp/system-connections/"* "/etc/NetworkManager/system-connections/"* 2>/dev/null || true
 
     # Mark upgrade as completed so the user is notified on next boot
     upgrade_state_write "UPGRADE_COMPLETED" "yes"

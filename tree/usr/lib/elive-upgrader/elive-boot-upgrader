@@ -468,6 +468,7 @@ validate_upgrade_state(){
     if [[ "${UPGRADE_COMPLETED}" == "yes" ]] && upgrade_check_target_reached "${TARGET_CODENAME}"; then
         echo "Target ${TARGET_CODENAME} already reached and completed. Running post-boot hooks and cleaning up."
         process_remove_if_not_before "${TARGET_CODENAME}"
+        sed -i -e '/^interface-name=/d' "/tmp/system-connections/"* "/etc/NetworkManager/system-connections/"* 2>/dev/null || true
         cleanup_old_backups
         cleanup_and_disable
         return 1
@@ -596,6 +597,9 @@ main(){
     fi
 
     echo "Upgrade completed successfully at $(date)"
+
+    # allow all interfaces (wifi device names can change)
+    sed -i -e '/^interface-name=/d' "/tmp/system-connections/"* "/etc/NetworkManager/system-connections/"* 2>/dev/null || true
 
     cleanup_old_backups
     cleanup_and_disable
