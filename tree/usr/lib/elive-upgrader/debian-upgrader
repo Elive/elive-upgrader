@@ -3509,15 +3509,6 @@ EOF
     done
 
     log_info "User agreed. Rebooting system using elive-pm..."
-    if ((is_openrc)); then
-        log_info "Stopping anacron service before reboot..."
-        rc-service anacron stop 2>/dev/null || service anacron stop 2>/dev/null || /etc/init.d/anacron stop 2>/dev/null || true
-        pkill -f anacron 2>/dev/null || true
-    elif ((is_systemd)); then
-        log_info "Stopping anacron service before reboot..."
-        systemctl stop anacron.service 2>/dev/null || true
-        pkill -f anacron 2>/dev/null || true
-    fi
     elive-pm reboot || trigger_reboot
 }
 
