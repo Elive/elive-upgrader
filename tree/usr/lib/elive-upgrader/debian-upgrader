@@ -2567,7 +2567,7 @@ send_upgrade_report() {
     log_info "Sending upgrade report to Elive server..."
 
     local eliveversion id architecture exit_status logs_tmp is_reports_sent=0
-    local prepare_log="" boot_log="" report_copy_f="" timestamp_v=""
+    local prepare_log="" boot_log="" report_copy_f="" timestamp_v="" removed_pkgs_file=""
 
     source /etc/elive/settings 2>/dev/null || true
     [[ -z "$conf_send_debug_reports_email" ]] && conf_send_debug_reports_email="anonymous"
@@ -2585,8 +2585,29 @@ send_upgrade_report() {
     if [[ -z "$boot_log" ]] || [[ ! -s "$boot_log" ]]; then
         boot_log="$(ls -t /var/log/elive-upgrader/debian-upgrade-*-boot-console-upgrade-*.log 2>/dev/null | head -n 1 || true)"
     fi
+    removed_pkgs_file="$(ls -t /var/log/elive-upgrader/debian-upgrade-packages-removed-*.txt 2>/dev/null | head -n 1 || true)"
 
-    if { [[ -n "$prepare_log" && -s "$prepare_log" ]] || [[ -n "$boot_log" && -s "$boot_log" ]]; } ; then
+    local build_report_content() {
+        if [[ -n "$removed_pkgs_file" && -s "$removed_pkgs_file" ]]; then
+            echo "======================================================================"
+            echo "REMOVED PACKAGES (Present before upgrade, removed / missing after):"
+            echo "======================================================================"
+            cat "$removed_pkgs_file"
+            echo "======================================================================"
+            echo ""
+        fi
+        if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
+            cat "$prepare_log"
+            echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
+            cat "$boot_log"
+        elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
+            cat "$boot_log"
+        elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
+            cat "$prepare_log"
+        fi
+    }
+
+    if { [[ -n "$prepare_log" && -s "$prepare_log" ]] || [[ -n "$boot_log" && -s "$boot_log" ]] || [[ -n "$removed_pkgs_file" && -s "$removed_pkgs_file" ]]; } ; then
         report_copy_f="/var/log/elive-upgrader/debian-upgrade-report-sent-${timestamp_v}.txt"
         {
             echo "======================================================================"
@@ -2599,15 +2620,7 @@ send_upgrade_report() {
             echo "Date: $(date)"
             echo "======================================================================"
             echo ""
-            if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
-                cat "$prepare_log"
-                echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
-                cat "$boot_log"
-            elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
-                cat "$boot_log"
-            elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
-                cat "$prepare_log"
-            fi
+            build_report_content
         } > "$report_copy_f" 2>/dev/null || true
         chmod 644 "$report_copy_f" 2>/dev/null || true
 
@@ -2617,17 +2630,7 @@ send_upgrade_report() {
             if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
                 {
                     echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::"
-                    {
-                        if [[ -n "$prepare_log" && -s "$prepare_log" && -n "$boot_log" && -s "$boot_log" && "$prepare_log" != "$boot_log" ]]; then
-                            cat "$prepare_log"
-                            echo -e "\n\n======================================================================\n=================== BOOT CONSOLE UPGRADE LOG =========================\n======================================================================\n\n"
-                            cat "$boot_log"
-                        elif [[ -n "$boot_log" && -s "$boot_log" ]]; then
-                            cat "$boot_log"
-                        elif [[ -n "$prepare_log" && -s "$prepare_log" ]]; then
-                            cat "$prepare_log"
-                        fi
-                    } | gzip -9 -f
+                    build_report_content | gzip -9 -f
                 } > "$logs_tmp"
 
                 if nc -N www.elivecd.org 60001 -w 20 < "$logs_tmp" 2>/dev/null ; then
@@ -2658,7 +2661,7 @@ send_upgrade_report() {
     for f in /var/log/elive-upgrader/*; do
         if [[ -f "$f" ]]; then
             case "$(basename "$f")" in
-                debian-upgrade-report-sent-*.txt)
+                debian-upgrade-report-sent-*.txt|debian-upgrade-packages-*.txt)
                     ;;
                 *)
                     mv -f "$f" "$partials_dir/" 2>/dev/null || true
@@ -3942,10 +3945,33 @@ main_upgrade() {
     # Generate package comparison report
     local pkgs_before_file="/var/log/elive-upgrader/debian-upgrade-packages-before-${TARGET_CODENAME}.txt"
     if [[ -f "$pkgs_before_file" ]]; then
-        log_info "Generating package comparison report..."
+        log_info "Generating package comparison reports..."
         local pkgs_after_file="/var/log/elive-upgrader/debian-upgrade-packages-after-${TARGET_CODENAME}.txt"
+        local pkgs_removed_file="/var/log/elive-upgrader/debian-upgrade-packages-removed-${TARGET_CODENAME}.txt"
+        local pkgs_new_file="/var/log/elive-upgrader/debian-upgrade-packages-new-${TARGET_CODENAME}.txt"
+
         dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null | grep ' install ok installed' | awk '{print $1}' | cut -d':' -f1 | sort -u > "$pkgs_after_file"
         chmod 644 "$pkgs_after_file" 2>/dev/null || true
+
+        # Generate removed packages list (installed before, not after)
+        : > "$pkgs_removed_file"
+        while read -r pkg; do
+            [[ -z "$pkg" ]] && continue
+            if ! grep -qxF "$pkg" "$pkgs_after_file"; then
+                echo "$pkg" >> "$pkgs_removed_file"
+            fi
+        done < "$pkgs_before_file"
+        chmod 644 "$pkgs_removed_file" 2>/dev/null || true
+
+        # Generate new packages list (installed after, not before)
+        : > "$pkgs_new_file"
+        while read -r pkg; do
+            [[ -z "$pkg" ]] && continue
+            if ! grep -qxF "$pkg" "$pkgs_before_file"; then
+                echo "$pkg" >> "$pkgs_new_file"
+            fi
+        done < "$pkgs_after_file"
+        chmod 644 "$pkgs_new_file" 2>/dev/null || true
 
         # Append the comparison report to the end of the main log file ($LOG_FILE)
         {
@@ -3958,18 +3984,12 @@ main_upgrade() {
             echo "This report compares installed packages before and after the upgrade."
             echo ""
             echo "----------------------------------------------------------------------"
-            echo "MISSING PACKAGES (Installed before, but not after):"
+            echo "MISSING / REMOVED PACKAGES (Installed before, but not after):"
             echo "----------------------------------------------------------------------"
 
-            local missing_found=0
-            while read -r pkg; do
-                if ! grep -qxF "$pkg" "$pkgs_after_file"; then
-                    echo " - $pkg"
-                    missing_found=1
-                fi
-            done < "$pkgs_before_file"
-
-            if [[ "$missing_found" -eq 0 ]]; then
+            if [[ -s "$pkgs_removed_file" ]]; then
+                sed 's/^/ - /' "$pkgs_removed_file"
+            else
                 echo " No missing packages detected!"
             fi
 
@@ -3977,15 +3997,10 @@ main_upgrade() {
             echo "----------------------------------------------------------------------"
             echo "NEWLY INSTALLED PACKAGES (Installed after, but not before):"
             echo "----------------------------------------------------------------------"
-            local new_found=0
-            while read -r pkg; do
-                if ! grep -qxF "$pkg" "$pkgs_before_file"; then
-                    echo " + $pkg"
-                    new_found=1
-                fi
-            done < "$pkgs_after_file"
 
-            if [[ "$new_found" -eq 0 ]]; then
+            if [[ -s "$pkgs_new_file" ]]; then
+                sed 's/^/ + /' "$pkgs_new_file"
+            else
                 echo " No new packages detected!"
             fi
 
