@@ -238,7 +238,7 @@ main(){
     # Check for pending upgrade notifications / recovery state immediately BEFORE any delayed sleep
     if [[ -s "/var/log/elive-upgrader/last-boot-upgrade-failure" ]]; then
         local fail_msg
-        fail_msg=$(cat /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null)
+        fail_msg="$(cat /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null | colors-remove )"
         rm -f /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         true > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         local user_msg
