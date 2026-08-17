@@ -464,13 +464,14 @@ console_recovery_prompt(){
             1)
                 echo "Starting system restoration from backup..."
                 if [[ -x "${SCRIPT_PATH}" ]]; then
-                    "${SCRIPT_PATH}" --restore-from-backup
+                    if "${SCRIPT_PATH}" --restore-from-backup; then
+                        exit 0
+                    else
+                        echo "Restoration failed. Returning to recovery prompt..."
+                    fi
+                else
+                    echo "Error: Recovery script not found at ${SCRIPT_PATH}"
                 fi
-                echo "Restoration finished. Rebooting system in 5 seconds..."
-                sleep 5
-                sync
-                reboot || /sbin/reboot || reboot -f || true
-                exit 0
                 ;;
             2|"")
                 echo "Continuing with regular boot..."
