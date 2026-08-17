@@ -703,15 +703,14 @@ restore_from_backup() {
         return 1
     fi
 
+    if ! command -v rsync &>/dev/null; then
+        log_error "rsync is not available. Cannot restore system cleanly from backup."
+        return 1
+    fi
+
     draw_banner "RESTORING SYSTEM FROM BACKUP" "$RED"
 
     log_info "Restoring system from backup at $FULL_OS_BACKUP_DIR..."
-
-    # Determine copy strategy
-    local cp_opts="-a"
-    if is_btrfs; then
-        cp_opts="-a --reflink=auto"
-    fi
 
     local rsync_restore_opts=(
         -aAXHvx
@@ -741,26 +740,12 @@ restore_from_backup() {
         --exclude='/var/cache/thumbnails/*'
     )
 
-    if command -v rsync &>/dev/null; then
-        rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || {
-            log_warning "rsync restore encountered errors, retrying with fallback..."
-            rsync -aAXHvx --ignore-errors --exclude='/boot/efi' --exclude='/boot/efi/*' --exclude='/var/cache/elive-upgrader' "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || true
-        }
-    else
-        log_warning "rsync not available, falling back to cp..."
-        local item
-        for item in "$FULL_OS_BACKUP_DIR"/*; do
-            local base_item
-            base_item="$(basename "$item")"
-            case "$base_item" in
-                home|proc|sys|dev|run|tmp|mnt|media|lost+found|swapfile|efi|backup-info.txt|dpkg-selections.txt)
-                    continue
-                    ;;
-                *)
-                    cp $cp_opts "$item" / 2>/dev/null || true
-                    ;;
-            esac
-        done
+    if ! rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null; then
+        log_warning "rsync restore encountered errors, retrying with verbose output..."
+        if ! rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" /; then
+            log_error "rsync restore failed."
+            return 1
+        fi
     fi
 
     # Regenerate initramfs and update GRUB bootloader
