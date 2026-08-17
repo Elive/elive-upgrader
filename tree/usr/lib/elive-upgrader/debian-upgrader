@@ -762,6 +762,17 @@ restore_from_backup() {
         fi
     done
 
+    # Regenerate initramfs and update GRUB bootloader
+    if command -v update-initramfs &>/dev/null; then
+        log_info "Regenerating initramfs for all kernels..."
+        update-initramfs -u -k all 2>/dev/null || update-initramfs -c -k all 2>/dev/null || true
+    fi
+
+    if command -v update-grub &>/dev/null; then
+        log_info "Updating GRUB bootloader configuration..."
+        update-grub 2>/dev/null || true
+    fi
+
     log_info "System restore from backup completed."
 }
 
