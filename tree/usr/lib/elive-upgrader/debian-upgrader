@@ -4435,9 +4435,20 @@ main() {
             check_root
             init_logging
             log_info "Restoring system from full OS backup..."
-            restore_from_backup
-            clear_recovery_notification
-            log_info "System restored from backup. A reboot is recommended."
+            if restore_from_backup; then
+                clear_recovery_notification
+                log_info "System restored from backup. Rebooting now to bring the machine back up cleanly in the restored state..."
+                if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
+                    $yad --info --title="$(eval_gettext "System Restored")" --text="$(eval_gettext "System restoration is complete. The system will now reboot.")" --timeout=5 --button="$(eval_gettext "Reboot Now"):0" 2>/dev/null || true
+                elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
+                    zenity --info --title="$(eval_gettext "System Restored")" --text="$(eval_gettext "System restoration is complete. The system will now reboot.")" --timeout=5 2>/dev/null || true
+                fi
+                sync
+                elive-pm reboot || trigger_reboot || reboot || /sbin/reboot || reboot -f || true
+            else
+                log_error "System restore failed!"
+                exit 1
+            fi
             exit 0
             ;;
         --clear-recovery)
