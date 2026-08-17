@@ -526,7 +526,6 @@ get_os_dirs_size_kb(){
         --exclude='/var/cache/elive-upgrader'
         --exclude='/var/cache/apt/archives/*'
         --exclude='/var/tmp/*'
-        --exclude='/var/lib/apt/lists/*'
         --exclude='/var/log/journal/*'
         --exclude='/var/cache/thumbnails/*'
     )
@@ -668,7 +667,6 @@ full_os_backup() {
         --exclude='/var/cache/elive-upgrader/*' \
         --exclude='/var/cache/apt/archives/*' \
         --exclude='/var/tmp/*' \
-        --exclude='/var/lib/apt/lists/*' \
         --exclude='/var/log/journal/*' \
         --exclude='/var/cache/thumbnails/*' \
         / "$FULL_OS_BACKUP_DIR/" 2>/dev/null || true
@@ -737,9 +735,11 @@ restore_from_backup() {
         --exclude='/var/cache/elive-upgrader/*'
         --exclude='/var/cache/apt/archives/*'
         --exclude='/var/tmp/*'
-        --exclude='/var/lib/apt/lists/*'
         --exclude='/var/log/journal/*'
         --exclude='/var/cache/thumbnails/*'
+        --exclude='/backup-info.txt'
+        --exclude='/dpkg-selections.txt'
+        --exclude='/.backup-complete'
     )
 
     if ! rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null; then
@@ -750,9 +750,8 @@ restore_from_backup() {
         fi
     fi
 
-    # Clean stale package manager locks and outdated package lists from the restored system
+    # Clean stale package manager locks from the restored system
     rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock "$UPGRADE_LOCK_FILE" /tmp/.debian-upgrader.lock 2>/dev/null || true
-    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
     # Clean orphaned kernel images and initramfs in /boot without corresponding /lib/modules directories
     log_info "Cleaning orphaned kernel and initramfs files in /boot..."

@@ -486,6 +486,7 @@ console_recovery_prompt(){
                 ;;
             2|"")
                 echo "Continuing with regular boot..."
+                cleanup_and_disable
                 ;;
             3)
                 echo "Launching emergency shell. Type 'exit' when finished."
@@ -500,6 +501,7 @@ console_recovery_prompt(){
                 ;;
             *)
                 echo "Invalid choice. Continuing with regular boot..."
+                cleanup_and_disable
                 ;;
         esac
     else
@@ -520,6 +522,7 @@ console_recovery_prompt(){
         case "${choice}" in
             1|"")
                 echo "Continuing with regular boot..."
+                cleanup_and_disable
                 ;;
             2)
                 echo "Launching emergency shell. Type 'exit' when finished."
@@ -534,6 +537,7 @@ console_recovery_prompt(){
                 ;;
             *)
                 echo "Invalid choice. Continuing with regular boot..."
+                cleanup_and_disable
                 ;;
         esac
     fi
