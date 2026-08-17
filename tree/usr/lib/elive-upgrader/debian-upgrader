@@ -711,11 +711,23 @@ restore_from_backup() {
 
     local rsync_restore_opts=(
         -aAXHv
+        --delete
         --omit-dir-times
-        -u
         --numeric-ids
         --info=progress2
         --ignore-errors
+        --exclude='/proc/*'
+        --exclude='/sys/*'
+        --exclude='/dev/*'
+        --exclude='/run/*'
+        --exclude='/tmp/*'
+        --exclude='/var/cache/elive-upgrader'
+        --exclude='/var/cache/elive-upgrader/*'
+        --exclude='/cache/elive-upgrader'
+        --exclude='/cache/elive-upgrader/*'
+        --exclude='/cache/apt/archives/*'
+        --exclude='/lib/apt/lists/*'
+        --exclude='/log/journal/*'
     )
 
     # Restore each backed-up directory
