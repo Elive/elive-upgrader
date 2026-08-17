@@ -1456,7 +1456,7 @@ free_emergency_disk_space() {
         rm -rf /root/debian-upgrade-backup-* 2>/dev/null || true
     fi
 
-    # 5. Clean downloaded package archives if space is still critically low
+    # 4. Clean downloaded package archives if space is still critically low
     local free_kb
     free_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$free_kb" ]] && (( free_kb < 1048576 )); then
