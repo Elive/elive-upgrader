@@ -1105,10 +1105,14 @@ case "$CHOICE" in
         ;;
     retry)
         # User wants to retry - launch the upgrader
-        if command -v pkexec &>/dev/null; then
-            pkexec /usr/lib/elive-upgrader/debian-upgrader
-        elif command -v gksu &>/dev/null; then
-            gksu /usr/lib/elive-upgrader/debian-upgrader
+        if command -v elive-upgrader &>/dev/null; then
+            elive-upgrader &
+        elif command -v x-terminal-emulator &>/dev/null; then
+            x-terminal-emulator -e elive-upgrader &
+        elif command -v urxvt &>/dev/null; then
+            urxvt -e elive-upgrader &
+        elif command -v xterm &>/dev/null; then
+            xterm -e elive-upgrader &
         else
             show_notification "$(eval_gettext "Retry")" "$(eval_gettext "Please run the Elive Upgrader from the application menu or terminal to retry the upgrade.")"
         fi
