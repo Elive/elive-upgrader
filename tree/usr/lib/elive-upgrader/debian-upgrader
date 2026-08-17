@@ -1134,10 +1134,10 @@ CHOICE=$(ask_user)
 case "$CHOICE" in
     restore)
         # User wants to restore - needs root
-        if command -v pkexec &>/dev/null; then
-            pkexec env DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
-        elif command -v gksu &>/dev/null; then
+        if command -v gksu &>/dev/null; then
             gksu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
+        elif command -v pkexec &>/dev/null; then
+            pkexec /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
         elif command -v kdesu &>/dev/null; then
             kdesu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
         else
