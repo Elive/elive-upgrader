@@ -663,6 +663,7 @@ full_os_backup() {
         --exclude='/media/*' \
         --exclude='/lost+found' \
         --exclude='/swapfile' \
+        --exclude='/etc/default/elive-distro-upgrade*' \
         --exclude='/var/cache/elive-upgrader' \
         --exclude='/var/cache/elive-upgrader/*' \
         --exclude='/var/cache/apt/archives/*' \
@@ -731,6 +732,7 @@ restore_from_backup() {
         --exclude='/media/*'
         --exclude='/lost+found'
         --exclude='/swapfile'
+        --exclude='/etc/default/elive-distro-upgrade*'
         --exclude='/var/cache/elive-upgrader'
         --exclude='/var/cache/elive-upgrader/*'
         --exclude='/var/cache/apt/archives/*'
@@ -751,6 +753,27 @@ restore_from_backup() {
     # Clean stale package manager locks and outdated package lists from the restored system
     rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock "$UPGRADE_LOCK_FILE" /tmp/.debian-upgrader.lock 2>/dev/null || true
     rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
+    # Clean orphaned kernel images and initramfs in /boot without corresponding /lib/modules directories
+    log_info "Cleaning orphaned kernel and initramfs files in /boot..."
+    local vmlinuz_f initrd_f kver
+    for vmlinuz_f in /boot/vmlinuz-*; do
+        if [[ -f "$vmlinuz_f" ]]; then
+            kver="${vmlinuz_f#/boot/vmlinuz-}"
+            if [[ -n "$kver" && "$kver" != "*" && ! -d "/lib/modules/$kver" ]]; then
+                log_info "Removing orphaned kernel $kver (no /lib/modules/$kver found)..."
+                rm -f "/boot/vmlinuz-${kver}" "/boot/initrd.img-${kver}"* "/boot/System.map-${kver}"* "/boot/config-${kver}"* 2>/dev/null || true
+            fi
+        fi
+    done
+    for initrd_f in /boot/initrd.img-*; do
+        if [[ -f "$initrd_f" ]]; then
+            kver="${initrd_f#/boot/initrd.img-}"
+            if [[ -n "$kver" && "$kver" != "*" && ! -d "/lib/modules/$kver" ]]; then
+                rm -f "$initrd_f" 2>/dev/null || true
+            fi
+        fi
+    done
 
     log_info "Updating package lists for restored system..."
     apt-get update 2>/dev/null || true
