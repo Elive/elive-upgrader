@@ -428,6 +428,15 @@ console_recovery_prompt(){
     local choice=""
     local timeout_sec=60
 
+    # Ensure stdin/stdout/stderr are redirected to active TTY/console for interactive keyboard input
+    if [[ -e /dev/tty1 ]] && [[ -r /dev/tty1 && -w /dev/tty1 ]]; then
+        exec < /dev/tty1 > /dev/tty1 2>&1
+    elif [[ -e /dev/console ]] && [[ -r /dev/console && -w /dev/console ]]; then
+        exec < /dev/console > /dev/console 2>&1
+    elif [[ -e /dev/tty ]] && [[ -r /dev/tty && -w /dev/tty ]]; then
+        exec < /dev/tty > /dev/tty 2>&1
+    fi
+
     if [[ -f "${backup_complete_f}" ]]; then
         has_backup=1
     fi
