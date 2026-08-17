@@ -748,8 +748,12 @@ restore_from_backup() {
         fi
     fi
 
-    # Clean stale package manager locks from the restored system
+    # Clean stale package manager locks and outdated package lists from the restored system
     rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock "$UPGRADE_LOCK_FILE" /tmp/.debian-upgrader.lock 2>/dev/null || true
+    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+
+    log_info "Updating package lists for restored system..."
+    apt-get update 2>/dev/null || true
 
     # Regenerate initramfs and update GRUB bootloader for all restored kernels
     if command -v update-initramfs &>/dev/null; then
@@ -1104,7 +1108,7 @@ case "$CHOICE" in
     restore)
         # User wants to restore - needs root
         if command -v pkexec &>/dev/null; then
-            pkexec /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
+            pkexec env DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
         elif command -v gksu &>/dev/null; then
             gksu /usr/lib/elive-upgrader/debian-upgrader --restore-from-backup
         elif command -v kdesu &>/dev/null; then

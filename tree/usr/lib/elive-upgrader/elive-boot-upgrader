@@ -465,6 +465,8 @@ console_recovery_prompt(){
                 echo "Starting system restoration from backup..."
                 if [[ -x "${SCRIPT_PATH}" ]]; then
                     if "${SCRIPT_PATH}" --restore-from-backup; then
+                        sync
+                        reboot -f || /sbin/reboot || reboot || true
                         exit 0
                     else
                         echo "Restoration failed. Returning to recovery prompt..."
