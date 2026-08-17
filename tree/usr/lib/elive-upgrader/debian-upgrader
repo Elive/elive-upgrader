@@ -650,7 +650,7 @@ full_os_backup() {
     # Perform a single, clean rsync run from / to the backup directory
     # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
     # from traversing or copying its own destination directory.
-    rsync -aAXx --delete --info=progress2 \
+    rsync -aAX --delete --info=progress2 \
         --exclude='/boot/efi' \
         --exclude='/boot/efi/*' \
         --exclude='/home/*' \
@@ -713,7 +713,7 @@ restore_from_backup() {
     log_info "Restoring system from backup at $FULL_OS_BACKUP_DIR..."
 
     local rsync_restore_opts=(
-        -aAXHvx
+        -aAXHv
         --delete
         --omit-dir-times
         --numeric-ids
@@ -748,10 +748,21 @@ restore_from_backup() {
         fi
     fi
 
-    # Regenerate initramfs and update GRUB bootloader
+    # Clean stale package manager locks from the restored system
+    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock "$UPGRADE_LOCK_FILE" /tmp/.debian-upgrader.lock 2>/dev/null || true
+
+    # Regenerate initramfs and update GRUB bootloader for all restored kernels
     if command -v update-initramfs &>/dev/null; then
-        log_info "Regenerating initramfs for all kernels..."
-        update-initramfs -u -k all 2>/dev/null || update-initramfs -c -k all 2>/dev/null || true
+        log_info "Regenerating initramfs for all restored kernels..."
+        local kdir kver
+        for kdir in /lib/modules/*; do
+            if [[ -d "$kdir" ]]; then
+                kver="$(basename "$kdir")"
+                log_info "Creating initramfs for kernel $kver..."
+                update-initramfs -c -k "$kver" 2>/dev/null || update-initramfs -u -k "$kver" 2>/dev/null || true
+            fi
+        done
+        update-initramfs -u -k all 2>/dev/null || true
     fi
 
     if command -v update-grub &>/dev/null; then
