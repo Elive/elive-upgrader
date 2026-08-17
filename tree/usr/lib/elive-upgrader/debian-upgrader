@@ -1448,13 +1448,7 @@ free_emergency_disk_space() {
     log_info "Executing: apt-get autoremove --purge -y"
     apt-get autoremove --purge -y 2>/dev/null || true
 
-    # 3. If full OS backup exists, remove it to free up large amount of disk space
-    if [[ -d "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" ]]; then
-        NOREPORTS=1 log_warning "Removing full OS backup at ${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup} to free up disk space for the upgrade..."
-        rm -rf "${FULL_OS_BACKUP_DIR:-/var/cache/elive-upgrader/full-os-backup}" 2>/dev/null || true
-    fi
-
-    # 4. Remove older system backup directories if present
+    # 3. Remove older system backup directories if present
     local old_backups
     old_backups=$(ls -d /root/debian-upgrade-backup-* 2>/dev/null || true)
     if [[ -n "$old_backups" ]]; then
