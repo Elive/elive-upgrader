@@ -716,51 +716,46 @@ restore_from_backup() {
         --numeric-ids
         --info=progress2
         --ignore-errors
+        --exclude='/home/*'
         --exclude='/proc/*'
         --exclude='/sys/*'
         --exclude='/dev/*'
         --exclude='/run/*'
         --exclude='/tmp/*'
+        --exclude='/mnt/*'
+        --exclude='/media/*'
+        --exclude='/lost+found'
+        --exclude='/swapfile'
         --exclude='/var/cache/elive-upgrader'
         --exclude='/var/cache/elive-upgrader/*'
-        --exclude='/cache/elive-upgrader'
-        --exclude='/cache/elive-upgrader/*'
-        --exclude='/cache/apt/archives/*'
-        --exclude='/lib/apt/lists/*'
-        --exclude='/log/journal/*'
+        --exclude='/var/cache/apt/archives/*'
+        --exclude='/var/tmp/*'
+        --exclude='/var/lib/apt/lists/*'
+        --exclude='/var/log/journal/*'
+        --exclude='/var/cache/thumbnails/*'
     )
 
-    # Restore each backed-up directory
-    local backup_dirs=(
-        "/usr"
-        "/boot"
-        "/etc"
-        "/var"
-        "/opt"
-        "/srv"
-        "/root"
-        "/lib"
-        "/lib32"
-        "/lib64"
-        "/libx32"
-        "/bin"
-        "/sbin"
-    )
-
-    for src_dir in "${backup_dirs[@]}"; do
-        local backup_src="${FULL_OS_BACKUP_DIR}${src_dir}"
-        if [[ -d "$backup_src" ]]; then
-            log_info "Restoring $src_dir..."
-            if command -v rsync &>/dev/null; then
-                rsync "${rsync_restore_opts[@]}" "$backup_src/" "$src_dir/" 2>/dev/null || {
-                    log_warning "rsync restore failed for $src_dir, falling back to cp..."
-                    cp $cp_opts "$backup_src/." "$src_dir/" 2>/dev/null || true
-                }
-            else
-                cp $cp_opts "$backup_src/." "$src_dir/" 2>/dev/null || true
-            fi
-        fi
-    done
+    if command -v rsync &>/dev/null; then
+        rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || {
+            log_warning "rsync restore encountered errors, retrying with fallback..."
+            rsync -aAXHv --ignore-errors --exclude='/var/cache/elive-upgrader' "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || true
+        }
+    else
+        log_warning "rsync not available, falling back to cp..."
+        local item
+        for item in "$FULL_OS_BACKUP_DIR"/*; do
+            local base_item
+            base_item="$(basename "$item")"
+            case "$base_item" in
+                home|proc|sys|dev|run|tmp|mnt|media|lost+found|swapfile|backup-info.txt|dpkg-selections.txt)
+                    continue
+                    ;;
+                *)
+                    cp $cp_opts "$item" / 2>/dev/null || true
+                    ;;
+            esac
+        done
+    fi
 
     # Regenerate initramfs and update GRUB bootloader
     if command -v update-initramfs &>/dev/null; then
