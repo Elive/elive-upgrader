@@ -707,7 +707,7 @@ main(){
 
         console_recovery_prompt
 
-        restore_tty1_and_dms
+        cleanup_and_disable
 
         exit "${exit_code_v}"
     fi

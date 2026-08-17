@@ -785,8 +785,12 @@ restore_from_backup() {
         for kdir in /lib/modules/*; do
             if [[ -d "$kdir" ]]; then
                 kver="$(basename "$kdir")"
-                log_info "Creating initramfs for kernel $kver..."
-                update-initramfs -c -k "$kver" 2>/dev/null || update-initramfs -u -k "$kver" 2>/dev/null || true
+                log_info "Updating initramfs for kernel $kver..."
+                if [[ -f "/boot/initrd.img-${kver}" ]]; then
+                    update-initramfs -u -k "$kver" 2>/dev/null || true
+                else
+                    update-initramfs -c -k "$kver" 2>/dev/null || true
+                fi
             fi
         done
         update-initramfs -u -k all 2>/dev/null || true
