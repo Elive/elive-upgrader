@@ -740,16 +740,6 @@ restore_from_backup() {
         --exclude='/var/cache/thumbnails/*'
     )
 
-    if is_btrfs; then
-        local rsync_ver=""
-        rsync_ver="$(rsync --version 2>/dev/null | awk '/^rsync\s+version/ {print $3}' | head -n 1)"
-        if [[ -n "${rsync_ver}" ]] && dpkg --compare-versions "${rsync_ver}" ge "3.2.0" 2>/dev/null; then
-            if rsync --help 2>&1 | grep -q -- '--reflink'; then
-                rsync_restore_opts+=(--reflink=auto)
-            fi
-        fi
-    fi
-
     if ! rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null; then
         log_warning "rsync restore encountered errors, retrying with verbose output..."
         if ! rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" /; then
