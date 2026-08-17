@@ -521,6 +521,8 @@ get_os_dirs_size_kb(){
     )
 
     local du_excludes=(
+        --exclude='/boot/efi'
+        --exclude='/boot/efi/*'
         --exclude='/var/cache/elive-upgrader'
         --exclude='/var/cache/apt/archives/*'
         --exclude='/var/tmp/*'
@@ -648,7 +650,9 @@ full_os_backup() {
     # Perform a single, clean rsync run from / to the backup directory
     # We exclude '/var/cache/elive-upgrader' and its contents to prevent rsync
     # from traversing or copying its own destination directory.
-    rsync -aAX --delete --info=progress2 \
+    rsync -aAXx --delete --info=progress2 \
+        --exclude='/boot/efi' \
+        --exclude='/boot/efi/*' \
         --exclude='/home/*' \
         --exclude='/proc/*' \
         --exclude='/sys/*' \
@@ -710,12 +714,14 @@ restore_from_backup() {
     fi
 
     local rsync_restore_opts=(
-        -aAXHv
+        -aAXHvx
         --delete
         --omit-dir-times
         --numeric-ids
         --info=progress2
         --ignore-errors
+        --exclude='/boot/efi'
+        --exclude='/boot/efi/*'
         --exclude='/home/*'
         --exclude='/proc/*'
         --exclude='/sys/*'
@@ -738,7 +744,7 @@ restore_from_backup() {
     if command -v rsync &>/dev/null; then
         rsync "${rsync_restore_opts[@]}" "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || {
             log_warning "rsync restore encountered errors, retrying with fallback..."
-            rsync -aAXHv --ignore-errors --exclude='/var/cache/elive-upgrader' "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || true
+            rsync -aAXHvx --ignore-errors --exclude='/boot/efi' --exclude='/boot/efi/*' --exclude='/var/cache/elive-upgrader' "$FULL_OS_BACKUP_DIR/" / 2>/dev/null || true
         }
     else
         log_warning "rsync not available, falling back to cp..."
@@ -747,7 +753,7 @@ restore_from_backup() {
             local base_item
             base_item="$(basename "$item")"
             case "$base_item" in
-                home|proc|sys|dev|run|tmp|mnt|media|lost+found|swapfile|backup-info.txt|dpkg-selections.txt)
+                home|proc|sys|dev|run|tmp|mnt|media|lost+found|swapfile|efi|backup-info.txt|dpkg-selections.txt)
                     continue
                     ;;
                 *)
