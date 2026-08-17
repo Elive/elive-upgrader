@@ -741,8 +741,12 @@ restore_from_backup() {
     )
 
     if is_btrfs; then
-        if rsync --help 2>&1 | grep -q -- '--reflink'; then
-            rsync_restore_opts+=(--reflink=auto)
+        local rsync_ver=""
+        rsync_ver="$(rsync --version 2>/dev/null | awk '/^rsync\s+version/ {print $3}' | head -n 1)"
+        if [[ -n "${rsync_ver}" ]] && dpkg --compare-versions "${rsync_ver}" ge "3.2.0" 2>/dev/null; then
+            if rsync --help 2>&1 | grep -q -- '--reflink'; then
+                rsync_restore_opts+=(--reflink=auto)
+            fi
         fi
     fi
 
