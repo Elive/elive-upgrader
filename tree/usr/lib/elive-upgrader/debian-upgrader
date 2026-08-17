@@ -773,6 +773,11 @@ restore_from_backup() {
         update-grub 2>/dev/null || true
     fi
 
+    disable_boot_upgrade
+    restore_tty1_and_dms
+    upgrade_state_clear
+    clear_recovery_notification
+
     log_info "System restore from backup completed."
 }
 
