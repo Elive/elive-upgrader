@@ -9,6 +9,7 @@ mate-polkit
 mate-polkit-common
 bind9-dnsutils
 libusbmuxd-tools
+ntpsec
 
 #libsbig4t64
 #libcurl3t64-gnutls

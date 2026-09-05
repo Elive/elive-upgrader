@@ -4166,6 +4166,12 @@ main_upgrade() {
     # Process post-upgrade package removal hooks now, before rebooting
     process_remove_if_not_before "$TARGET_CODENAME"
 
+    # Run autoremove and cleanup after all upgrades and post-removals to clean leftover packages
+    log_info "Running final autoremove and cleanup after post-upgrade removals..."
+    safe_apt_run apt-get autoremove --purge -y || true
+    safe_apt_run apt-get purge '?config-files' -y || true
+    safe_apt_run apt-get clean || true
+
     # allow all interfaces (wifi device names can change)
     sed -i -e '/^interface-name=/d' "/tmp/system-connections/"* "/etc/NetworkManager/system-connections/"* 2>/dev/null || true
 
