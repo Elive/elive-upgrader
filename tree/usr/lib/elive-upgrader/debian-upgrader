@@ -2651,6 +2651,8 @@ send_upgrade_report() {
         boot_log="$(ls -t /var/log/elive-upgrader/debian-upgrade-*-boot-console-upgrade-*.log 2>/dev/null | head -n 1 || true)"
     fi
     removed_pkgs_file="$(ls -t /var/log/elive-upgrader/debian-upgrade-packages-removed-*.txt 2>/dev/null | head -n 1 || true)"
+    local obsolete_pkgs_file
+    obsolete_pkgs_file="$(ls -t /var/log/elive-upgrader/debian-upgrade-packages-obsolete-*.txt 2>/dev/null | head -n 1 || true)"
 
     function build_report_content() {
         if [[ -n "$removed_pkgs_file" && -s "$removed_pkgs_file" ]]; then
@@ -2658,6 +2660,14 @@ send_upgrade_report() {
             echo "REMOVED PACKAGES (Present before upgrade, removed / missing after):"
             echo "======================================================================"
             cat "$removed_pkgs_file"
+            echo "======================================================================"
+            echo ""
+        fi
+        if [[ -n "$obsolete_pkgs_file" && -s "$obsolete_pkgs_file" ]]; then
+            echo "======================================================================"
+            echo "OBSOLETE / UNMAINTAINED PACKAGES (Not present in target release):"
+            echo "======================================================================"
+            cat "$obsolete_pkgs_file"
             echo "======================================================================"
             echo ""
         fi
@@ -3134,35 +3144,11 @@ run_post_hooks() {
             fi
         done
 
-        local processed_remove_post=()
-
-        for hook_dir in "${all_dirs[@]}"; do
-            # 1. Remove packages specified in debian-upgrade-packages-to-remove-post.txt
-            if [[ -f "$hook_dir/debian-upgrade-packages-to-remove-post.txt" ]]; then
-                local remove_file="$hook_dir/debian-upgrade-packages-to-remove-post.txt"
-                if [[ ! " ${processed_remove_post[*]:-} " =~ " ${remove_file} " ]]; then
-                    processed_remove_post+=("$remove_file")
-                    local pkgs
-                    local raw_pkgs
-                    raw_pkgs=$(cat "$remove_file" | grep -v "^#" | tr '\n' ' ')
-                    pkgs=$(filter_installed_packages "$raw_pkgs")
-                    if [[ -n "$pkgs" ]]; then
-                        log_info "Removing post-upgrade packages: $pkgs"
-                        if ! safe_apt_run apt-get remove --purge -y $pkgs; then
-                            log_error "Failed to remove post-upgrade packages: $pkgs"
-                        fi
-                    else
-                        log_info "No post-upgrade packages need to be removed (none are installed)."
-                    fi
-                fi
-            fi
-        done
-
         local processed_install_if_before=()
         local all_pkgs_if_before=""
 
         for hook_dir in "${all_dirs[@]}"; do
-            # 2. Collect packages specified in debian-upgrade-packages-to-install-if-before.txt if they were installed before
+            # 1. Collect packages specified in debian-upgrade-packages-to-install-if-before.txt if they were installed before
             if [[ -f "$hook_dir/debian-upgrade-packages-to-install-if-before.txt" ]]; then
                 local install_if_file="$hook_dir/debian-upgrade-packages-to-install-if-before.txt"
                 if [[ ! " ${processed_install_if_before[*]:-} " =~ " ${install_if_file} " ]]; then
@@ -3187,7 +3173,7 @@ run_post_hooks() {
         fi
 
         for hook_dir in "${hook_dirs[@]}"; do
-            # 3. Install packages specified in debian-upgrade-packages-to-install.txt
+            # 2. Install packages specified in debian-upgrade-packages-to-install.txt
             if [[ -f "$hook_dir/debian-upgrade-packages-to-install.txt" ]]; then
                 local pkgs
                 pkgs=$(cat "$hook_dir/debian-upgrade-packages-to-install.txt" | grep -v "^#" | tr '\n' ' ')
@@ -3198,6 +3184,33 @@ run_post_hooks() {
                     fi
                 fi
             fi
+        done
+
+        local processed_remove_post=()
+
+        for hook_dir in "${all_dirs[@]}"; do
+            # 3. Remove packages specified in debian-upgrade-packages-to-remove-post.txt
+            if [[ -f "$hook_dir/debian-upgrade-packages-to-remove-post.txt" ]]; then
+                local remove_file="$hook_dir/debian-upgrade-packages-to-remove-post.txt"
+                if [[ ! " ${processed_remove_post[*]:-} " =~ " ${remove_file} " ]]; then
+                    processed_remove_post+=("$remove_file")
+                    local pkgs
+                    local raw_pkgs
+                    raw_pkgs=$(cat "$remove_file" | grep -v "^#" | tr '\n' ' ')
+                    pkgs=$(filter_installed_packages "$raw_pkgs")
+                    if [[ -n "$pkgs" ]]; then
+                        log_info "Removing post-upgrade packages: $pkgs"
+                        if ! safe_apt_run apt-get remove --purge -y $pkgs; then
+                            log_error "Failed to remove post-upgrade packages: $pkgs"
+                        fi
+                    else
+                        log_info "No post-upgrade packages need to be removed (none are installed)."
+                    fi
+                fi
+            fi
+        done
+
+        for hook_dir in "${hook_dirs[@]}"; do
             # 4. Run post-upgrade script
             if [[ -x "$hook_dir/debian-upgrade-post-script.sh" ]]; then
                 log_info "Running post-upgrade script: $hook_dir/debian-upgrade-post-script.sh"
@@ -3206,6 +3219,12 @@ run_post_hooks() {
                 fi
             fi
         done
+
+        # 5. Run another full upgrade pass to ensure no packages remain held back
+        log_info "Running full-upgrade pass after post-hooks to ensure no held packages remain..."
+        safe_apt_run apt-get full-upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-overwrite" \
+            --allow-downgrades --allow-remove-essential --allow-change-held-packages \
+            -o APT::Immediate-Configure=0 -o APT::Force-LoopBreak=1 || true
     fi
 
     case "$codename" in
@@ -4208,6 +4227,16 @@ main_upgrade() {
         done < "$pkgs_after_file"
         chmod 644 "$pkgs_new_file" 2>/dev/null || true
 
+        # Generate obsolete / unmaintained packages list (skipping kernel packages)
+        local pkgs_obsolete_file="/var/log/elive-upgrader/debian-upgrade-packages-obsolete-${TARGET_CODENAME}.txt"
+        : > "$pkgs_obsolete_file"
+        local raw_obsolete
+        raw_obsolete=$(apt list '?obsolete' 2>/dev/null | grep -v '^Listing' | cut -d'/' -f1 | grep -vE '^linux-' | sort -u || true)
+        if [[ -n "$raw_obsolete" ]]; then
+            echo "$raw_obsolete" > "$pkgs_obsolete_file"
+        fi
+        chmod 644 "$pkgs_obsolete_file" 2>/dev/null || true
+
         # Append the comparison report to the end of the main log file ($LOG_FILE)
         {
             echo ""
@@ -4237,6 +4266,14 @@ main_upgrade() {
                 sed 's/^/ + /' "$pkgs_new_file"
             else
                 echo " No new packages detected!"
+            fi
+
+            if [[ -s "$pkgs_obsolete_file" ]]; then
+                echo ""
+                echo "----------------------------------------------------------------------"
+                echo "OBSOLETE / UNMAINTAINED PACKAGES (Not present in target release):"
+                echo "----------------------------------------------------------------------"
+                sed 's/^/ ? /' "$pkgs_obsolete_file"
             fi
 
             echo ""
