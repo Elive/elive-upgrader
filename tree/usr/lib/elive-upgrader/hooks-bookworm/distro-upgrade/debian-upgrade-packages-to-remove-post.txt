@@ -27,3 +27,4 @@ libunistring2
 libblockdev-crypto2
 libblockdev-utils2
 policykit-1-gnome
+mime-support
