@@ -1,2 +1,15 @@
 linux-sysctl-defaults
 alsa-ucm-conf
+imagemagick
+media-types
+hfsprogs
+gtkam
+icoextract-thumbnailer
+mate-polkit
+mate-polkit-common
+bind9-dnsutils
+libusbmuxd-tools
+
+#libsbig4t64
+#libcurl3t64-gnutls
+#libcurl4-gnutls
