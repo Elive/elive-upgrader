@@ -574,8 +574,8 @@ warn_no_full_backup_dialog(){
     req_gb=$(awk -v k="$req_space_kb" 'BEGIN {printf "%.1f", k/1048576}')
     avail_gb=$(awk -v k="$free_space_kb" 'BEGIN {printf "%.1f", k/1048576}')
 
-    local title="$(eval_gettext "Full OS Backup Space Warning")"
-    local msg="$(printf "$(eval_gettext "There is not enough free disk space to create a full OS backup before upgrading.\n\n- Current OS Size: %s GB\n- Required Free Space for Full Backup: %s GB\n- Available Free Space: %s GB\n\nCritical configuration files will still be backed up, but a complete OS image backup will be skipped.\n\nDo you want to continue with the upgrade without a full OS backup?")" "${os_gb}" "${req_gb}" "${avail_gb}")"
+    local title="$(eval_gettext "Skip Full OS Backup")"
+    local msg="$(printf "$(eval_gettext "Skipping full OS backup before upgrade due to limited free disk space.\n\n- Current OS Size: %s GB\n- Required Free Space for Full Backup: %s GB\n- Available Free Space: %s GB\n\nCritical configuration files will still be backed up, but a complete image backup of the OS will be skipped.\n\nDo you want to continue with the upgrade without a full OS backup?")" "${os_gb}" "${req_gb}" "${avail_gb}")"
 
     if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
         $yad --question --title="$title" --text="$msg" --width=500 \
@@ -588,7 +588,7 @@ warn_no_full_backup_dialog(){
             --cancel-label="$(eval_gettext "Cancel")" 2>/dev/null
         return $?
     else
-        echo -e "\n*** ${YELLOW}WARNING: INSUFFICIENT SPACE FOR FULL OS BACKUP${NC} ***"
+        echo -e "\n*** ${YELLOW}NOTICE: SKIPPING FULL OS BACKUP${NC} ***"
         echo -e "$msg\n"
         read -p "$(eval_gettext "Type 'yes' to continue without full OS backup, or any other key to cancel: ")" choice
         if [[ "$choice" == "yes" ]]; then
@@ -3283,7 +3283,7 @@ enable_boot_upgrade_conf() {
     free_root_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
 
     if (( free_root_kb < req_backup_space_kb )); then
-        NOREPORTS=1 log_warning "Insufficient disk space for full OS backup (Required: $(( req_backup_space_kb / 1024 )) MB, Available: $(( free_root_kb / 1024 )) MB)."
+        NOREPORTS=1 log_warning "Skipping full OS backup before upgrade due to limited free disk space (Required: $(( req_backup_space_kb / 1024 )) MB, Available: $(( free_root_kb / 1024 )) MB)."
         if ! warn_no_full_backup_dialog "$os_size_kb" "$req_backup_space_kb" "$free_root_kb"; then
             log_info "Upgrade cancelled by user due to insufficient space for full OS backup."
             exit 0
