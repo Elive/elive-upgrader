@@ -1988,7 +1988,90 @@ update_sources() {
         sed -i "s|$current_codename|$codename|g" /etc/lsb-release
     fi
 
+    ensure_security_repositories "$codename"
+
     log_info "APT sources, preferences, and configurations updated from $current_codename to $codename"
+}
+
+#===  FUNCTION  ================================================================
+#          NAME:  ensure_security_repositories
+#   DESCRIPTION:  Ensures debian-security repository is enabled for the target codename
+#    PARAMETERS:  $1 = codename_v
+#       RETURNS:  0
+#===============================================================================
+ensure_security_repositories(){
+    local codename_v="${1}"
+    [[ -z "${codename_v}" ]] && return 0
+
+    log_info "Checking Debian security repositories for ${codename_v}..."
+
+    local sec_suite_v="${codename_v}-security"
+    local has_active_sec=0
+    local f=""
+
+    # Check for deb822 style or classic deb lines
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+        [[ ! -f "$f" ]] && continue
+        if grep -E "^\s*deb\s+.*(security\.debian\.org|deb\.debian\.org/debian-security).*${sec_suite_v}" "$f" &>/dev/null || \
+           grep -E "^\s*Suites:.*${sec_suite_v}" "$f" &>/dev/null; then
+            has_active_sec=1
+            break
+        fi
+    done
+
+    if (( has_active_sec )); then
+        log_info "Security repository for ${codename_v} (${sec_suite_v}) is already enabled."
+        return 0
+    fi
+
+    # Check if security line exists but is commented out, and uncomment it
+    local uncommented=0
+    for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+        [[ ! -f "$f" ]] && continue
+        if grep -E "^\s*#\s*deb\s+.*(security\.debian\.org|deb\.debian\.org/debian-security).*${sec_suite_v}" "$f" &>/dev/null; then
+            log_info "Uncommenting security repository in $f..."
+            sed -i -E "s|^\s*#\s*(deb\s+.*(security\.debian\.org\|deb\.debian\.org/debian-security).*${sec_suite_v}.*$)|\1|" "$f" 2>/dev/null || true
+            uncommented=1
+        fi
+    done
+
+    if (( uncommented )); then
+        log_info "Security repository for ${codename_v} successfully enabled by uncommenting."
+        return 0
+    fi
+
+    # Determine components to include (non-free-firmware used in Debian 12+)
+    local components="main contrib non-free non-free-firmware"
+    local target_num=${DEBIAN_CODENAMES[${codename_v}]:-0}
+    if (( target_num > 0 && target_num < 12 )); then
+        components="main contrib non-free"
+    fi
+
+    # Determine preferred file and protocol to place the security line
+    local target_file="/etc/apt/sources.list.d/debian.list"
+    local proto="https"
+
+    if [[ -f "$target_file" ]]; then
+        if grep -q "http://" "$target_file" && ! grep -q "https://" "$target_file"; then
+            proto="http"
+        fi
+    elif [[ -f /etc/apt/sources.list ]]; then
+        target_file="/etc/apt/sources.list"
+        if grep -q "https://" "$target_file"; then
+            proto="https"
+        else
+            proto="http"
+        fi
+    else
+        target_file="/etc/apt/sources.list.d/debian.list"
+    fi
+
+    local sec_line="deb ${proto}://deb.debian.org/debian-security ${sec_suite_v} ${components}"
+
+    log_info "Adding Debian security repository for ${codename_v} to ${target_file}..."
+    echo -e "\n# Debian security updates for ${codename_v}\n${sec_line}" >> "${target_file}"
+
+    return 0
 }
 
 cleanup_packages() {
