@@ -430,19 +430,186 @@ upgrade_system(){
     rm -f "/tmp/.elive-upgrading" 1>/dev/null 2>&1 || true
 }
 
+# Query fwupdmgr for genuinely pending firmware updates and pending-reboot states.
+# Populates files in $1: sig.txt, details.txt, reboot.txt
+_fwupdmgr_query_updates(){
+    local out_dir="$1"
+    local json_out="" json_rc=0 text_out="" text_rc=0
+
+    : > "${out_dir}/sig.txt"
+    : > "${out_dir}/details.txt"
+    : > "${out_dir}/reboot.txt"
+
+    if command -v python3 >/dev/null 2>&1 ; then
+        json_out="$(LC_ALL=C LANGUAGE=C fwupdmgr get-updates --json </dev/null 2>/dev/null)" || json_rc=$?
+        el_debug "fwupdmgr get-updates --json rc=${json_rc}"
+        if [[ "$json_rc" -eq 2 ]] ; then
+            return 2
+        fi
+        if [[ "$json_rc" -eq 0 ]] && [[ -n "$json_out" ]] ; then
+            if printf '%s' "$json_out" | python3 - "$out_dir" <<'PYEOF'
+import json
+import os
+import re
+import sys
+
+out_dir = sys.argv[1]
+try:
+    data = json.loads(sys.stdin.read())
+except Exception:
+    sys.exit(2)
+
+devices = data.get("Devices") or []
+sigs = []
+details = []
+reboots = []
+
+for dev in devices:
+    if not isinstance(dev, dict):
+        continue
+    name = (dev.get("Name") or dev.get("DeviceId") or "Unknown Device").strip()
+    dev_id = (dev.get("DeviceId") or name).strip()
+    cur_ver = str(dev.get("Version") or "").strip()
+    flags = [str(f).lower() for f in (dev.get("Flags") or [])]
+    state = str(dev.get("UpdateState") or "").strip().lower()
+    releases = dev.get("Releases") or []
+
+    # Skip devices whose update is already staged for reboot or already succeeded
+    if "needs-reboot" in flags or "needs-shutdown" in flags or state in ("4", "needs-reboot", "needs-shutdown"):
+        target_ver = ""
+        if releases and isinstance(releases[0], dict):
+            target_ver = str(releases[0].get("Version") or "").strip()
+        reboots.append(f"{dev_id}:{cur_ver}->{target_ver} ({name})")
+        continue
+    if state in ("2", "success"):
+        continue
+    if flags and "updatable-hidden" in flags and "updatable" not in flags:
+        continue
+    if not releases or not isinstance(releases[0], dict):
+        continue
+
+    rel = releases[0]
+    target_ver = str(rel.get("Version") or "").strip()
+    if not target_ver or (cur_ver and cur_ver == target_ver):
+        continue
+
+    sigs.append(f"{dev_id}:{cur_ver}->{target_ver}")
+    summary = str(rel.get("Summary") or "").strip()
+    desc = str(rel.get("Description") or "").strip()
+    desc = re.sub(r"<[^>]+>", " ", desc)
+    desc = re.sub(r"\s+", " ", desc).strip()
+
+    block = [
+        f"Device: {name}",
+        f"  Current version: {cur_ver or 'unknown'}",
+        f"  Update version:  {target_ver}",
+    ]
+    if summary:
+        block.append(f"  Summary:         {summary}")
+    if desc:
+        block.append(f"  Description:     {desc}")
+    details.append("\n".join(block))
+
+sigs = sorted(set(sigs))
+reboots = sorted(set(reboots))
+
+with open(os.path.join(out_dir, "sig.txt"), "w", encoding="utf-8") as f:
+    if sigs:
+        f.write(";".join(sigs))
+with open(os.path.join(out_dir, "details.txt"), "w", encoding="utf-8") as f:
+    if details:
+        f.write("\n\n".join(details) + "\n")
+with open(os.path.join(out_dir, "reboot.txt"), "w", encoding="utf-8") as f:
+    if reboots:
+        f.write("\n".join(reboots) + "\n")
+PYEOF
+            then
+                if [[ -s "${out_dir}/sig.txt" ]] ; then
+                    return 0
+                fi
+                return 2
+            fi
+        fi
+    fi
+
+    # Fallback for older fwupd versions without --json support
+    text_out="$(LC_ALL=C LANGUAGE=C fwupdmgr get-updates </dev/null 2>/dev/null)" || text_rc=$?
+    el_debug "fwupdmgr get-updates text fallback rc=${text_rc}"
+    if [[ "$text_rc" -eq 2 ]] ; then
+        return 2
+    fi
+    if [[ "$text_rc" -ne 0 ]] || [[ -z "$text_out" ]] ; then
+        return 1
+    fi
+
+    printf '%s\n' "$text_out" | awk -v out_dir="$out_dir" '
+        function flush_dev() {
+            if (dev != "" && new_ver != "" && new_ver != cur_ver) {
+                if (tolower(state) ~ /(needs reboot|needs-reboot|needs shutdown)/) {
+                    reb = reb sprintf("%s:%s->%s (%s)\n", dev, cur_ver, new_ver, dev)
+                } else if (tolower(state) !~ /^success$/) {
+                    sig_arr[++n_sig] = dev ":" cur_ver "->" new_ver
+                    det = det sprintf("Device: %s\n  Current version: %s\n  Update version:  %s\n", dev, (cur_ver != "" ? cur_ver : "unknown"), new_ver)
+                    if (desc != "") det = det sprintf("  Description:     %s\n", desc)
+                    det = det "\n"
+                }
+            }
+            dev=""; cur_ver=""; new_ver=""; state=""; desc=""
+        }
+        {
+            line = $0
+            gsub(/^[│├└─•[:space:]]+/, "", line)
+            gsub(/[[:space:]]+$/, "", line)
+            if (line == "" || line ~ /^(Devices with |Upgrade |╔|║|╚)/) next
+            if (line ~ /^Current version:/) {
+                sub(/^Current version:[[:space:]]*/, "", line); cur_ver = line; next
+            }
+            if (line ~ /^(Update Version|New version):/) {
+                sub(/^(Update Version|New version):[[:space:]]*/, "", line); new_ver = line; next
+            }
+            if (line ~ /^Update State:/) {
+                sub(/^Update State:[[:space:]]*/, "", line); state = line; next
+            }
+            if (line ~ /^(Update Description|Description|Summary):/) {
+                sub(/^(Update Description|Description|Summary):[[:space:]]*/, "", line)
+                desc = (desc == "" ? line : desc " " line); next
+            }
+            if (line ~ /^Update Name:/) {
+                sub(/^Update Name:[[:space:]]*/, "", line)
+                if (dev == "") dev = line
+                next
+            }
+            if (line ~ /:$/) {
+                flush_dev()
+                sub(/:$/, "", line)
+                dev = line
+            }
+        }
+        END {
+            flush_dev()
+            if (n_sig > 0) {
+                sig_str = sig_arr[1]
+                for (i=2; i<=n_sig; i++) sig_str = sig_str ";" sig_arr[i]
+                printf "%s", sig_str > (out_dir "/sig.txt")
+            }
+            if (det != "") printf "%s", det > (out_dir "/details.txt")
+            if (reb != "") printf "%s", reb > (out_dir "/reboot.txt")
+        }
+    '
+
+    if [[ -s "${out_dir}/sig.txt" ]] ; then
+        return 0
+    fi
+    return 2
+}
+
 # upgrade bios firmwares
 upgrade_firmwares(){
     # pre {{{
+    local is_efi_booted=0
+
     if [[ "${ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) ; then
         el_info "Firmware upgrades disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED=no)"
-        return 0
-    fi
-
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_info "Test mode: simulating firmware upgrade check (fwupdmgr)"
-        if command -v fwupdmgr >/dev/null 2>&1 ; then
-            LC_ALL="$EL_LC_EN" fwupdmgr get-updates 2>&1 || true
-        fi
         return 0
     fi
 
@@ -450,12 +617,17 @@ upgrade_firmwares(){
         if el_check_dir_has_files "/sys/firmware/efi/efivars" 1>/dev/null 2>&1 ; then
             is_efi_booted=1
 
-            if [[ -x "$( which efivar )" ]] ; then
+            if command -v efivar >/dev/null 2>&1 ; then
                 if ! [[ "$( efivar -l 2>/dev/null | wc -l )" -ge 1 ]] ; then
-                    unset is_efi_booted
+                    is_efi_booted=0
                 fi
             fi
         fi
+    fi
+
+    if ! ((is_efi_booted)) ; then
+        el_info "Firmware upgrades requires UEFI, ignoring..."
+        return 0
     fi
 
     if ! el_dependencies_check "fwupdmgr" ; then
@@ -465,129 +637,195 @@ upgrade_firmwares(){
 
     # - pre }}}
 
-    if ((is_efi_booted)) ; then
-        # refresh packages lists:
-        fwupdmgr refresh -y --force # 1>/dev/null  # requires 300 KB of internet
+    if [[ "$conf_firmwares_updates_available" = "never" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "You selected to never ask for firmware updates again, ignoring..."
+        el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
+        return 0
+    fi
 
-        # show updates:
-        #fwupdmgr get-updates # 1>/dev/null
-
-        # see if we have already answered to not update firmwares
-        if [[ -n "$conf_firmwares_updates_available" ]] && ! ((is_force)) ; then
-            if [[ "$conf_firmwares_updates_available" = "never" ]] ; then
-                el_info "You selected to never ask for firmware updates again, ignoring..."
-                el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
-                return 0
+    # Refresh LVFS metadata (only force refresh when --force is explicitly requested)
+    if ! ((ELIVE_UPGRADER_TEST)) ; then
+        if el_verify_internet fast 1>/dev/null 2>&1 ; then
+            el_debug "Refreshing fwupdmgr metadata (force=${is_force:-0})"
+            if ((is_force)) ; then
+                LC_ALL=C LANGUAGE=C fwupdmgr refresh -y --force </dev/null >/dev/null 2>&1 || \
+                    el_debug "fwupdmgr refresh --force returned non-zero, continuing with cached metadata"
+            else
+                LC_ALL=C LANGUAGE=C fwupdmgr refresh -y </dev/null >/dev/null 2>&1 || \
+                    el_debug "fwupdmgr refresh returned non-zero, continuing with cached metadata"
             fi
-
-            updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
-
-            # our updates available is the same as the one found when we answered to not update firmwares
-            if [[ "${updates_list}" = "$conf_firmwares_updates_available" ]] ; then
-                el_info "You selected to not upgrade firmwares the last time we asked you for this, for this number of updates, ignoring..."
-                el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
-                return 0
-            fi
+        else
+            el_debug "Skipping fwupdmgr refresh: no internet connectivity"
         fi
+    fi
 
+    local fw_tmpdir
+    fw_tmpdir="$(mktemp -d /tmp/.elive-fwupd.XXXXXX)"
 
-        if LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force | grep -qsE "(^Update Name:|New version:)" ; then
+    local query_rc=0
+    _fwupdmgr_query_updates "$fw_tmpdir" || query_rc=$?
 
-            el_info "Firmware updates found:\n$( fwupdmgr get-updates | grep "^Update Version:" | sed -e 's|^Update Version:||g' )"
+    local updates_sig="" updates_details="" reboot_list=""
+    [[ -s "${fw_tmpdir}/sig.txt" ]] && updates_sig="$(cat "${fw_tmpdir}/sig.txt")"
+    [[ -s "${fw_tmpdir}/details.txt" ]] && updates_details="$(cat "${fw_tmpdir}/details.txt")"
+    [[ -s "${fw_tmpdir}/reboot.txt" ]] && reboot_list="$(cat "${fw_tmpdir}/reboot.txt")"
 
-            # notify
-            $guitool --info --text="$( eval_gettext "Firmware updates are available for your computer." )" 1>/dev/null 2>&1
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "Test mode: fwupdmgr query rc=${query_rc}, signature='${updates_sig:-none}'"
+        if [[ -n "$updates_details" ]] ; then
+            printf '%s\n' "$updates_details"
+        fi
+        if [[ -n "$reboot_list" ]] ; then
+            el_info "Test mode: firmware updates pending reboot:\n${reboot_list}"
+        fi
+        rm -rf "$fw_tmpdir"
+        return 0
+    fi
 
-            # display updates
-            while read -ru 3 line
-            do
-                [[ -z "$line" ]] && continue
-                case "$line" in
-                    "Update Version:"*)
-                        echo -e "\n\n${line}"
-                        continue
-                        ;;
-                        "Update Name:"*)
-                        echo "$line"
-                        continue
-                        ;;
-                    "Update Description"*)
-                        line="${line#Update Description:}"
-                        read -r line <<< "$line"
+    if [[ -z "$updates_sig" ]] || [[ "$query_rc" -ne 0 ]] ; then
+        if [[ -n "$reboot_list" ]] ; then
+            local reboot_sig
+            reboot_sig="$(printf '%s\n' "$reboot_list" | paste -sd ';' -)"
+            el_info "Firmware update(s) already staged and waiting for reboot:\n${reboot_list}"
+            if [[ "$conf_firmwares_updates_reboot_notified" != "$reboot_sig" ]] ; then
+                conf_firmwares_updates_reboot_notified="$reboot_sig"
+                el_config_save "conf_firmwares_updates_reboot_notified"
+                el_notify normal "system-reboot" "$( eval_gettext "Firmware Update Pending Reboot" )" "$( eval_gettext "A firmware update has already been staged and will finish installing when you reboot your computer." )"
+            fi
+        else
+            el_debug "No actionable firmware updates found (query_rc=${query_rc})"
+        fi
+        rm -rf "$fw_tmpdir"
+        return 0
+    fi
 
-                        echo -e "\n        ${line}"
-                        ;;
-                    "Update"*|"GUID:"*|"ID:"*)
-                        continue
-                        ;;
-                    *)
-                        echo "        $line"
-                        ;;
-                esac
-            done 3<<< "$( LC_ALL="$EL_LC_EN" fwupdmgr get-updates -y --force )" | $guitool --height=400 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1
+    if ! ((is_force)) ; then
+        if [[ -n "$conf_firmwares_updates_available" ]] && [[ "$updates_sig" = "$conf_firmwares_updates_available" ]] ; then
+            el_info "You selected to skip this firmware update (${updates_sig}), ignoring..."
+            el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
+            rm -rf "$fw_tmpdir"
+            return 0
+        fi
+        if [[ -n "$conf_firmwares_updates_applied" ]] && [[ "$updates_sig" = "$conf_firmwares_updates_applied" ]] ; then
+            el_info "Firmware update (${updates_sig}) was already applied; skipping repeated prompt. Use --force to run again."
+            rm -rf "$fw_tmpdir"
+            return 0
+        fi
+    fi
 
+    el_info "Firmware updates found (${updates_sig})"
 
-            local fw_warning_text choice
-            fw_warning_text="$( eval_gettext "Firmware and BIOS updates are available for your computer.
+    if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+        printf '%s\n' "$updates_details" | $guitool --width=560 --height=380 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1 || true
+    else
+        printf '%s\n' "$updates_details"
+    fi
+
+    local fw_warning_text choice
+    fw_warning_text="$( eval_gettext "Firmware and BIOS updates are available for your computer.
 
 WARNING: Updating your BIOS/firmware is not always recommended unless you are resolving specific hardware problems. While firmware updates can fix bugs, they can also introduce new regressions or issues (for example, webcams, Wi-Fi, or audio devices may stop functioning).
 
 Select how you would like to proceed:" )"
 
-            if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
-                $yad --title="$( eval_gettext "Firmware & BIOS Updates" )" \
-                    --text="$fw_warning_text" --width=520 --text-align=left \
-                    --button="$( eval_gettext "Install Updates" ):0" \
-                    --button="$( eval_gettext "Ignore for Now" ):1" \
-                    --button="$( eval_gettext "Skip this Update" ):2" \
-                    --button="$( eval_gettext "Never Ask Again" ):3"
-                choice=$?
-            else
-                echo -e "\n*** $( eval_gettext "Firmware & BIOS Updates" ) ***"
-                echo -e "$fw_warning_text\n"
-                echo "1) $( eval_gettext "Install Updates" )"
-                echo "2) $( eval_gettext "Ignore for Now" )"
-                echo "3) $( eval_gettext "Skip this Update" )"
-                echo "4) $( eval_gettext "Never Ask Again" )"
-                read -p "$( eval_gettext "Enter choice [1-4]: " )" opt
-                case "$opt" in
-                    1) choice=0 ;;
-                    2) choice=1 ;;
-                    3) choice=2 ;;
-                    4) choice=3 ;;
-                    *) choice=1 ;;
-                esac
-            fi
-
-            case "$choice" in
-                0) # Install Updates
-                    if ! LC_ALL=C acpi -a 2>/dev/null | grep -qs "on-line" && laptop-detect ; then
-                        $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
-                    fi
-
-                    urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
-                    ;;
-                1) # Ignore for Now
-                    el_info "Skipping firmware updates for now."
-                    ;;
-                2) # Skip this Update (until next new firmware release)
-                    updates_list="$( fwupdmgr get-updates -y --force | grep "^Update Version:" | sort -u | tr '\n' ' ' | sort -u )"
-                    conf_firmwares_updates_available="$updates_list"
-                    el_config_save "conf_firmwares_updates_available"
-                    el_info "Saved choice to skip this specific firmware update."
-                    ;;
-                3) # Never Ask Again
-                    conf_firmwares_updates_available="never"
-                    el_config_save "conf_firmwares_updates_available"
-                    el_info "Saved choice to never check or ask for firmware updates again."
-                    ;;
-            esac
-
-        fi
+    if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
+        choice=0
+        $yad --title="$( eval_gettext "Firmware & BIOS Updates" )" \
+            --text="$fw_warning_text" --width=520 --text-align=left \
+            --button="$( eval_gettext "Install Updates" ):0" \
+            --button="$( eval_gettext "Ignore for Now" ):1" \
+            --button="$( eval_gettext "Skip this Update" ):2" \
+            --button="$( eval_gettext "Never Ask Again" ):3" || choice=$?
     else
-        el_info "Firmware upgrades requires UEFI, ignoring..."
+        echo -e "\n*** $( eval_gettext "Firmware & BIOS Updates" ) ***"
+        echo -e "$fw_warning_text\n"
+        echo "1) $( eval_gettext "Install Updates" )"
+        echo "2) $( eval_gettext "Ignore for Now" )"
+        echo "3) $( eval_gettext "Skip this Update" )"
+        echo "4) $( eval_gettext "Never Ask Again" )"
+        opt=""
+        read -p "$( eval_gettext "Enter choice [1-4]: " )" opt || true
+        case "$opt" in
+            1) choice=0 ;;
+            2) choice=1 ;;
+            3) choice=2 ;;
+            4) choice=3 ;;
+            *) choice=1 ;;
+        esac
     fi
 
+    case "$choice" in
+        0) # Install Updates
+            local is_on_ac=1 ps_online
+            for ps_online in /sys/class/power_supply/*/online ; do
+                [[ -r "$ps_online" ]] || continue
+                if [[ "$(cat "$ps_online" 2>/dev/null)" = "0" ]] ; then
+                    is_on_ac=0
+                elif [[ "$(cat "$ps_online" 2>/dev/null)" = "1" ]] ; then
+                    is_on_ac=1
+                    break
+                fi
+            done
+            if ((is_on_ac)) && command -v acpi >/dev/null 2>&1 ; then
+                if acpi -a 2>/dev/null | grep -qs "off-line" ; then
+                    is_on_ac=0
+                fi
+            fi
+            if ! ((is_on_ac)) && command -v laptop-detect >/dev/null 2>&1 && laptop-detect ; then
+                if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+                    $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
+                else
+                    el_warning "$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )"
+                fi
+            fi
+
+            local rc_file="${fw_tmpdir}/update.rc"
+            local update_rc=1
+            if [[ -n "$DISPLAY" ]] && command -v urxvt >/dev/null 2>&1 ; then
+                urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo \$? > '${rc_file}' ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 15 " 1>/dev/null || true
+            else
+                update_rc=0
+                fwupdmgr -y --no-reboot-check update || update_rc=$?
+                echo "$update_rc" > "$rc_file"
+            fi
+            [[ -s "$rc_file" ]] && update_rc="$(cat "$rc_file" 2>/dev/null)"
+
+            if [[ "$update_rc" -eq 0 ]] || [[ "$update_rc" -eq 2 ]] ; then
+                conf_firmwares_updates_applied="$updates_sig"
+                el_config_save "conf_firmwares_updates_applied"
+                el_info "Firmware update step finished (rc=${update_rc}, recorded=${updates_sig})."
+
+                # Check if a reboot is now required to finalize the staged capsule update
+                _fwupdmgr_query_updates "$fw_tmpdir" || true
+                if [[ -s "${fw_tmpdir}/reboot.txt" ]] ; then
+                    conf_firmwares_updates_reboot_notified="$(paste -sd ';' "${fw_tmpdir}/reboot.txt")"
+                    el_config_save "conf_firmwares_updates_reboot_notified"
+                    if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+                        $guitool --info --text="$( eval_gettext "Firmware update staged. Please reboot your computer to complete the installation." )" 1>/dev/null 2>&1 || true
+                    else
+                        el_info "$( eval_gettext "Firmware update staged. Please reboot your computer to complete the installation." )"
+                    fi
+                fi
+            else
+                el_warning "fwupdmgr update exited with status ${update_rc}; will allow retrying on next check."
+            fi
+            ;;
+        1) # Ignore for Now
+            el_info "Skipping firmware updates for now."
+            ;;
+        2) # Skip this Update (until next new firmware release)
+            conf_firmwares_updates_available="$updates_sig"
+            el_config_save "conf_firmwares_updates_available"
+            el_info "Saved choice to skip this specific firmware update (${updates_sig})."
+            ;;
+        3) # Never Ask Again
+            conf_firmwares_updates_available="never"
+            el_config_save "conf_firmwares_updates_available"
+            el_info "Saved choice to never check or ask for firmware updates again."
+            ;;
+    esac
+
+    rm -rf "$fw_tmpdir"
 }
 
 
