@@ -1,0 +1,76 @@
+# Unified configuration for elive-upgrader and elive-security (cron & manual).
+# Edit these settings to customize or disable automatic upgrader behaviors.
+
+# ==============================================================================
+# General elive-upgrader settings
+# ==============================================================================
+
+# Master switch for elive-upgrader ("yes" or "no").
+# If set to "no", automatic/normal runs exit prematurely without performing actions
+# (unless --force or --test is passed on the command line).
+ELIVE_UPGRADER_ENABLED="yes"
+
+# Automatically update the elive-upgrader package itself before running hooks ("yes" or "no").
+ELIVE_UPGRADER_AUTO_UPDATE_TOOL="yes"
+
+# Enable or disable elive-upgrader hooks ("yes" or "no").
+# STRONGLY RECOMMENDED: Do NOT disable this option!
+# Hooks allow Elive to self-repair and apply critical system or desktop fixes when needed,
+# resolving issues that simple package installations or upgrades cannot handle on their own.
+# You can inspect existing hook examples in /usr/lib/elive-upgrader/ (for example under
+# /usr/lib/elive-upgrader/hooks-bookworm/ or /usr/lib/elive-upgrader/hooks-trixie/) to see
+# how they are structured and what they do.
+ELIVE_UPGRADER_HOOKS_ENABLED="yes"
+
+# Enable or disable delayed system-wide package upgrade checks/prompts ("yes" or "no").
+ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED="yes"
+
+# Enable or disable UEFI/BIOS firmware update checks via fwupdmgr ("yes" or "no").
+ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED="yes"
+
+# Enable or disable checks/prompts for new major Debian/Elive distribution upgrades ("yes" or "no").
+ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK="yes"
+
+# Skip running elive-upgrader on metered network connections ("yes" or "no").
+ELIVE_UPGRADER_SKIP_METERED="yes"
+
+# Startup delay in seconds when invoked with --delayed (default: 30).
+ELIVE_UPGRADER_DELAY_SECONDS="30"
+
+# Minimum interval in seconds between delayed full system upgrade prompts (default: 1209600 = 14 days).
+ELIVE_UPGRADER_UPGRADE_INTERVAL="1209600"
+
+# Play completion sound and show desktop notification after updates ("yes" or "no").
+ELIVE_UPGRADER_NOTIFICATIONS_ENABLED="yes"
+
+# ==============================================================================
+# Hourly Debian-Security cron & elive-security settings
+# ==============================================================================
+# Coexistence with unattended-upgrades:
+# elive-security-worker acquires /run/lock/elive-security.lock and waits on
+# apt/dpkg locks via el_aptget. If unattended-upgrades is also installed,
+# set APT::Periodic::Unattended-Upgrade "0"; in /etc/apt/apt.conf.d/20auto-upgrades
+# when ELIVE_SECURITY_ENABLED="yes" to avoid duplicate downloads.
+
+# Enable or disable automatic hourly Debian-Security updates ("yes" or "no").
+# Installed enabled by default; set to "no" to disable the scheduled cron runs.
+# You can still run "elive-security" manually (e.g. "elive-security --test --debug").
+ELIVE_SECURITY_ENABLED="yes"
+
+# Minimum interval in seconds between scheduled cron probes (default: 3600 = 1 hour).
+ELIVE_SECURITY_PROBE_INTERVAL="3600"
+
+# Enable or disable checking the unpatched CVE feed ("yes" or "no").
+ELIVE_SECURITY_CVE_CHECK_ENABLED="yes"
+
+# Skip downloading/installing security updates on metered connections ("yes" or "no").
+# Note: the lightweight conditional InRelease probe still runs.
+ELIVE_SECURITY_SKIP_METERED="yes"
+
+# Allow last-resort full upgrade (dist-upgrade) if security packages cannot
+# be upgraded without touching or removing other packages ("yes" or "no").
+ELIVE_SECURITY_ALLOW_FULL_UPGRADE="no"
+
+# Optional override URL for unpatched CVE feed (gzipped JSON).
+# Defaults to https://repo.<codename>.elive.elivecd.org/elive-security-cves.json.gz
+ELIVE_SECURITY_CVE_FEED_URL=""

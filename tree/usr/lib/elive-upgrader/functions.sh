@@ -52,10 +52,23 @@ export DEBCONF_NOWARNINGS=true
 export UCF_FORCE_CONFFOLD=1
 export APT_LISTCHANGES_FRONTEND=none
 
-# get patreon status
+# get patreon status and upgrader configuration
 if [[ -s /etc/elive/settings ]] ; then
     source /etc/elive/settings
 fi
+if [[ -r /etc/default/elive-upgrader ]] ; then
+    source /etc/default/elive-upgrader
+fi
+ELIVE_UPGRADER_ENABLED="${ELIVE_UPGRADER_ENABLED:-yes}"
+ELIVE_UPGRADER_AUTO_UPDATE_TOOL="${ELIVE_UPGRADER_AUTO_UPDATE_TOOL:-yes}"
+ELIVE_UPGRADER_HOOKS_ENABLED="${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}"
+ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED="${ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED:-yes}"
+ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED="${ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED:-yes}"
+ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK="${ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK:-yes}"
+ELIVE_UPGRADER_SKIP_METERED="${ELIVE_UPGRADER_SKIP_METERED:-yes}"
+ELIVE_UPGRADER_DELAY_SECONDS="${ELIVE_UPGRADER_DELAY_SECONDS:-30}"
+ELIVE_UPGRADER_UPGRADE_INTERVAL="${ELIVE_UPGRADER_UPGRADE_INTERVAL:-1209600}"
+ELIVE_UPGRADER_NOTIFICATIONS_ENABLED="${ELIVE_UPGRADER_NOTIFICATIONS_ENABLED:-yes}"
 
 # distro version
 case "$( cat /etc/debian_version 2>/dev/null )" in
@@ -122,6 +135,10 @@ if [[ ! -d "$hooks_d" ]]; then
 fi
 
 has_pending_distro_upgrade_hook() {
+    if [[ "${ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK:-yes}" != "yes" ]] ; then
+        el_debug "Distro upgrade check disabled via ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK"
+        return 1
+    fi
     local file upgrade_type
     file="${hooks_d}/distro-upgrade/debian-upgrade"
     [[ -f "$file" ]] || return 1
@@ -160,6 +177,13 @@ sudo elive-upgrader-root --upgrade              full upgrade of the system
 sudo elive-upgrader-root --updates-available    show amount of available package updates
 sudo elive-upgrader-root --upgrade-firmware     updates your BIOS firmware (if any found)
 sudo elive-upgrader-root --fix                  fix a possible broken state of your packages
+sudo elive-upgrader-root --security [ARGS]      run elive-security cron/worker manually
+
+Options:
+  --test, --dry-run                             simulate actions without applying changes
+  --debug, -d                                   enable verbose debug output (EL_DEBUG=4)
+  --force                                       ignore disabled checks in /etc/default/elive-upgrader
+  --betatest                                    enable beta testing features
 "
 }
 
@@ -178,6 +202,14 @@ displaytime(){
 
 
 notify_user_system_updated(){
+    if [[ "${ELIVE_UPGRADER_NOTIFICATIONS_ENABLED:-yes}" != "yes" ]] ; then
+        el_debug "System updated notification disabled via ELIVE_UPGRADER_NOTIFICATIONS_ENABLED"
+        return 0
+    fi
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_debug "Test mode: would play 1up sound and send 'Elive Updated' notification"
+        return 0
+    fi
     # If a distro upgrade is scheduled/in progress but not yet completed, do not notify yet
     if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
         local upgrade_enabled upgrade_completed
@@ -208,29 +240,37 @@ notify_user_system_updated(){
 }
 
 upgrade_system_delayed(){
+    if [[ "${ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED:-yes}" != "yes" ]] ; then
+        el_debug "Delayed system upgrade disabled via ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED"
+        return 1
+    fi
+
     local timestamp limit_time_seconds num_updates time_passed
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
-    if ! [[ -d "$( dirname "$timestamp" )" ]] ; then
+    if ! ((ELIVE_UPGRADER_TEST)) && ! [[ -d "$( dirname "$timestamp" )" ]] ; then
         mkdir -p "$( dirname "$timestamp" )"
         touch "$timestamp"
     fi
 
-    # TODO: change it to monthly
-    #limit_time_seconds="2419200" # 27 days (4 weeks - 1 day)  # monthly is the best option for now, to not annoy much the user with popups and updates are not so important, so will have from time to time some yummy improvements (also not much suggestions of desktop upgrades, etc)
-    limit_time_seconds="1209600" # 14 days
-    #limit_time_seconds="604800" # one week
-    #limit_time_seconds="518400" # 6 days
-    #limit_time_seconds="6" # tests only!
+    limit_time_seconds="${ELIVE_UPGRADER_UPGRADE_INTERVAL:-1209600}" # 14 days default
     if [[ -e "$timestamp" ]] ; then
         time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
     else
-        touch "$timestamp"
+        ((ELIVE_UPGRADER_TEST)) || touch "$timestamp"
         time_passed="999999999999999999999999999"
     fi
 
-    if [[ "$time_passed" -gt "$limit_time_seconds" ]] ; then
+    el_debug "Delayed upgrade check: time_passed=${time_passed}s, limit=${limit_time_seconds}s"
+    if [[ "$time_passed" -gt "$limit_time_seconds" ]] || ((ELIVE_UPGRADER_TEST)) ; then
         if has_pending_distro_upgrade_hook ; then
             el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
+            return 1
+        fi
+
+        if ((ELIVE_UPGRADER_TEST)) ; then
+            num_updates="$( sudo elive-upgrader-root --test --updates-available 2>/dev/null || true )"
+            el_debug "Test mode: simulated available updates count=${num_updates:-unknown}"
+            el_info "Test mode: would check/prompt for system upgrade (${num_updates:-0} updates) and firmware updates"
             return 1
         fi
 
@@ -247,7 +287,11 @@ upgrade_system_delayed(){
                 sudo elive-upgrader-root --upgrade --noaptupdate
 
                 # upgrade firmwares too if the user wanted to upgrade his system
-                sudo elive-upgrader-root --upgrade-firmwares
+                if [[ "${ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED:-yes}" = "yes" ]] ; then
+                    sudo elive-upgrader-root --upgrade-firmwares
+                else
+                    el_debug "Firmware upgrade skipped: ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED=${ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED}"
+                fi
                 return 0
             fi
         fi
@@ -413,6 +457,10 @@ show_changelog(){
 }
 
 check_for_new_elive_version() {
+    if [[ "${ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK:-yes}" != "yes" ]] ; then
+        el_debug "Distro upgrade check disabled via ELIVE_UPGRADER_DISTRO_UPGRADE_CHECK"
+        return 2
+    fi
     local upgrade_type="$1"
     local is_betatester="$2"
     local current_codename next_codename repo_url conf_var is_new_codename_available buf
@@ -577,6 +625,16 @@ run_hooks(){
         else
             is_betatester=0
         fi
+    fi
+
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" != "yes" ]] ; then
+        el_debug "Hooks skipped: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED} (mode=${mode}, phase=${prepost})"
+        return 1
+    fi
+
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "Test mode: simulating run_hooks mode=${mode} phase=${prepost} (hooks_d=${hooks_d})"
+        return 1
     fi
 
     el_debug "running hooks in mode $mode (is_betatester=$is_betatester)"

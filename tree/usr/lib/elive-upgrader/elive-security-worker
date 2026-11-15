@@ -1,0 +1,1120 @@
+#!/bin/bash
+# Unattended Debian-Security probe, selective updater, and unpatched CVE checker.
+
+SOURCE="$0"
+source /usr/lib/elive-tools/functions
+source /usr/lib/elive-upgrader/functions.sh
+el_make_environment
+. gettext.sh
+TEXTDOMAIN="elive-upgrader"
+export TEXTDOMAIN
+
+export DEBIAN_FRONTEND=noninteractive
+export DEBIAN_PRIORITY=critical
+export DEBCONF_NONINTERACTIVE_SEEN=true
+export DEBCONF_NOWARNINGS=true
+export UCF_FORCE_CONFFOLD=1
+export APT_LISTCHANGES_FRONTEND=none
+
+STATE_DIR="/var/lib/elive-security"
+LOG_DIR="/var/log/elive-security"
+LOG_FILE="${LOG_DIR}/worker.log"
+RUN_DIR="/var/run/elive-security"
+LOCK_FILE="/run/lock/elive-security.lock"
+UPDATED_MARKER="${RUN_DIR}/updated"
+UNPATCHED_MARKER="${RUN_DIR}/unpatched"
+ACTIVE_CVE_STATE="${STATE_DIR}/active-unpatched.state"
+LAST_RESULT_FILE="${STATE_DIR}/last-result"
+LAST_PROBE_TIME_FILE="${STATE_DIR}/last-probe-timestamp"
+
+# Default configuration (overridden by /etc/elive/settings, /etc/default/elive-upgrader, el_config_get)
+ELIVE_SECURITY_ENABLED="yes"
+ELIVE_SECURITY_PROBE_INTERVAL="3600"
+ELIVE_SECURITY_CVE_CHECK_ENABLED="yes"
+ELIVE_SECURITY_SKIP_METERED="yes"
+ELIVE_SECURITY_ALLOW_FULL_UPGRADE="no"
+ELIVE_SECURITY_CVE_FEED_URL=""
+
+WORK_DIR=""
+PROBE_CHANGED=0
+IS_TEST=0
+IS_DEBUG=0
+IS_CRON=0
+declare -a PENDING_VALIDATOR_UPDATES=()
+declare -a SECURITY_SOURCES=()
+
+sec_log() {
+    local level="$1"
+    shift
+    local ts msg
+    if [[ "$level" = "DEBUG" ]] && [[ "${EL_DEBUG:-2}" -lt 3 ]] ; then
+        return 0
+    fi
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    if ((IS_TEST)) ; then
+        msg="${ts} [TEST:${level}] $*"
+    else
+        msg="${ts} [${level}] $*"
+    fi
+    if ! ((IS_TEST)) ; then
+        mkdir -p "$LOG_DIR" 2>/dev/null || true
+        printf '%s\n' "$msg" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    if [[ -t 2 ]] || ((IS_TEST)) || ((IS_DEBUG)) ; then
+        printf '%s\n' "$msg" >&2
+    fi
+}
+
+cleanup() {
+    if [[ -n "$WORK_DIR" ]] && [[ -d "$WORK_DIR" ]] ; then
+        rm -rf "$WORK_DIR"
+    fi
+}
+trap cleanup EXIT
+
+show_help() {
+    cat <<EOF
+Usage: $(basename "$0") [MODE] [OPTIONS]
+
+Modes:
+  --auto         Run cycle: probe -> selective update -> CVE check (default)
+  --probe        Run conditional GET probe on Debian-Security InRelease only
+  --update       Run selective security update (without probe)
+  --check-cves   Run unpatched CVE feed check only
+  --status       Show current configuration, last result, and pending markers
+  -h, --help     Show this help message
+
+Options:
+  --test         Simulate all steps (dry-run) without modifying packages or state
+  --debug        Enable verbose el_debug and DEBUG logging
+  --force        Ignore ELIVE_SECURITY_ENABLED="no" and probe interval
+  --cron         Enforce ELIVE_SECURITY_PROBE_INTERVAL throttling (used by cron)
+EOF
+}
+
+load_config() {
+    [[ -r "/etc/elive/settings" ]] && source "/etc/elive/settings"
+    [[ -r "/etc/default/elive-upgrader" ]] && source "/etc/default/elive-upgrader"
+    el_config_get
+
+    # Allow el_config_save variables (conf_security_*) to override defaults when set
+    [[ -n "${conf_security_enabled:-}" ]] && ELIVE_SECURITY_ENABLED="$conf_security_enabled"
+    [[ -n "${conf_security_probe_interval:-}" ]] && ELIVE_SECURITY_PROBE_INTERVAL="$conf_security_probe_interval"
+    [[ -n "${conf_security_cve_check_enabled:-}" ]] && ELIVE_SECURITY_CVE_CHECK_ENABLED="$conf_security_cve_check_enabled"
+    [[ -n "${conf_security_skip_metered:-}" ]] && ELIVE_SECURITY_SKIP_METERED="$conf_security_skip_metered"
+    [[ -n "${conf_security_allow_full_upgrade:-}" ]] && ELIVE_SECURITY_ALLOW_FULL_UPGRADE="$conf_security_allow_full_upgrade"
+    [[ -n "${conf_security_cve_feed_url:-}" ]] && ELIVE_SECURITY_CVE_FEED_URL="$conf_security_cve_feed_url"
+
+    el_debug "Config loaded: enabled=${ELIVE_SECURITY_ENABLED}, interval=${ELIVE_SECURITY_PROBE_INTERVAL}s, cve_check=${ELIVE_SECURITY_CVE_CHECK_ENABLED}, skip_metered=${ELIVE_SECURITY_SKIP_METERED}, allow_full=${ELIVE_SECURITY_ALLOW_FULL_UPGRADE}"
+    sec_log "DEBUG" "Config: enabled=${ELIVE_SECURITY_ENABLED} interval=${ELIVE_SECURITY_PROBE_INTERVAL} cve_check=${ELIVE_SECURITY_CVE_CHECK_ENABLED} skip_metered=${ELIVE_SECURITY_SKIP_METERED} allow_full=${ELIVE_SECURITY_ALLOW_FULL_UPGRADE}"
+}
+
+check_guards() {
+    el_debug "Checking runtime guards (UID=${UID:-$(id -u)}, is_test=${IS_TEST})"
+    if [[ "${UID:-$(id -u)}" -ne 0 ]] && ! ((IS_TEST)) ; then
+        sec_log "ERROR" "Must be run as root (hint: use --test to simulate unprivileged)"
+        exit 1
+    fi
+
+    if grep -qsF "lockfs" /proc/cmdline ; then
+        el_debug "Guard triggered: lockfs mode active in /proc/cmdline"
+        sec_log "INFO" "Skipped: lockfs mode active"
+        ((IS_TEST)) || exit 0
+    fi
+
+    if grep -qsF "boot=live" /proc/cmdline ; then
+        el_debug "Guard triggered: boot=live active in /proc/cmdline"
+        sec_log "INFO" "Skipped: live mode active"
+        ((IS_TEST)) || exit 0
+    fi
+
+    if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
+        local upgrade_enabled upgrade_completed
+        upgrade_enabled="$(grep "^UPGRADE_ENABLED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+        upgrade_completed="$(grep "^UPGRADE_COMPLETED=" /etc/default/elive-distro-upgrade 2>/dev/null | cut -d'"' -f2)"
+        el_debug "Distro upgrade check: enabled=${upgrade_enabled:-no}, completed=${upgrade_completed:-no}"
+        if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_completed" != "yes" ]] ; then
+            sec_log "INFO" "Skipped: distro upgrade is scheduled or in progress"
+            ((IS_TEST)) || exit 0
+        fi
+    fi
+}
+
+ensure_dirs() {
+    if ((IS_TEST)) ; then
+        el_debug "Test mode: skipping creation of system state/log/run directories"
+        return 0
+    fi
+    mkdir -p "$STATE_DIR" "$LOG_DIR" "$RUN_DIR" "/run/lock"
+    chmod 0755 "$STATE_DIR" "$LOG_DIR" "$RUN_DIR"
+}
+
+acquire_flock() {
+    if ((IS_TEST)) ; then
+        el_debug "Test mode: skipping exclusive flock on $LOCK_FILE"
+        return 0
+    fi
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9 ; then
+        el_debug "flock failed: $LOCK_FILE is already locked"
+        sec_log "INFO" "Skipped: lock $LOCK_FILE held by another elive-security-worker instance"
+        exit 0
+    fi
+    el_debug "Acquired exclusive flock on $LOCK_FILE"
+}
+
+show_status() {
+    echo "=== Elive Security Worker Status ==="
+    echo "Config file:          /etc/default/elive-upgrader"
+    echo "Enabled:              ${ELIVE_SECURITY_ENABLED}"
+    echo "Probe interval:       ${ELIVE_SECURITY_PROBE_INTERVAL}s"
+    echo "CVE check enabled:    ${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+    echo "Skip on metered:      ${ELIVE_SECURITY_SKIP_METERED}"
+    echo "Allow full-upgrade:   ${ELIVE_SECURITY_ALLOW_FULL_UPGRADE}"
+    if [[ -s "$LAST_PROBE_TIME_FILE" ]] ; then
+        echo "Last probe epoch:     $(cat "$LAST_PROBE_TIME_FILE" 2>/dev/null)"
+    else
+        echo "Last probe epoch:     never"
+    fi
+    if [[ -s "$LAST_RESULT_FILE" ]] ; then
+        echo "--- Last Update Result ---"
+        cat "$LAST_RESULT_FILE"
+    fi
+    if [[ -s "$ACTIVE_CVE_STATE" ]] ; then
+        echo "--- Active Unpatched CVEs ($(wc -l < "$ACTIVE_CVE_STATE")) ---"
+        cat "$ACTIVE_CVE_STATE"
+    else
+        echo "Active unpatched CVEs: 0"
+    fi
+    echo "--- Pending Notification Markers ---"
+    if [[ -s "$UPDATED_MARKER" ]] ; then
+        echo "[updated marker present]"
+        cat "$UPDATED_MARKER"
+    else
+        echo "[updated marker: none]"
+    fi
+    if [[ -s "$UNPATCHED_MARKER" ]] ; then
+        echo "[unpatched marker present]"
+        cat "$UNPATCHED_MARKER"
+    else
+        echo "[unpatched marker: none]"
+    fi
+}
+
+discover_security_sources() {
+    SECURITY_SOURCES=()
+    local line
+    while IFS= read -r line ; do
+        [[ -z "$line" ]] && continue
+        SECURITY_SOURCES+=("$line")
+    done < <(/usr/bin/apt-get indextargets 2>/dev/null | awk '
+        BEGIN { RS=""; FS="\n" }
+        {
+            target_of=""; created_by=""; repo_uri=""; suite=""; comp=""; origin=""; label=""; signed_by="";
+            for (i=1; i<=NF; i++) {
+                line=$i
+                if (line ~ /^Target-Of: /)   { sub(/^Target-Of: /, "", line); target_of=line }
+                else if (line ~ /^Created-By: /)  { sub(/^Created-By: /, "", line); created_by=line }
+                else if (line ~ /^Repo-URI: /)    { sub(/^Repo-URI: /, "", line); repo_uri=line }
+                else if (line ~ /^Suite: /)       { sub(/^Suite: /, "", line); suite=line }
+                else if (line ~ /^Component: /)   { sub(/^Component: /, "", line); comp=line }
+                else if (line ~ /^Origin: /)      { sub(/^Origin: /, "", line); origin=line }
+                else if (line ~ /^Label: /)       { sub(/^Label: /, "", line); label=line }
+                else if (line ~ /^Signed-By: /)   { sub(/^Signed-By: /, "", line); signed_by=line }
+            }
+            if (target_of == "deb" && created_by == "Packages" && repo_uri != "" && suite != "") {
+                if (origin == "Debian-Security" || label == "Debian-Security" || repo_uri ~ /security\.debian\.org|\/debian-security/ || (repo_uri ~ /debian/ && suite ~ /(-security|\/updates)$/)) {
+                    key = repo_uri "|" suite "|" signed_by
+                    if (!(key in seen_keys)) {
+                        seen_keys[key] = 1
+                        order[++n] = key
+                    }
+                    if (comp != "" && !(key SUBSEP comp in seen_comp)) {
+                        seen_comp[key SUBSEP comp] = 1
+                        comps[key] = (comps[key] == "" ? comp : comps[key] " " comp)
+                    }
+                }
+            }
+        }
+        END {
+            for (i=1; i<=n; i++) {
+                k = order[i]
+                split(k, parts, "|")
+                printf "%s|%s|%s|%s\n", parts[1], parts[2], comps[k], parts[3]
+            }
+        }
+    ')
+}
+
+has_network_route() {
+    local iface has_carrier=0
+    for iface in /sys/class/net/* ; do
+        [[ "${iface##*/}" = "lo" ]] && continue
+        if [[ "$(cat "${iface}/carrier" 2>/dev/null)" = "1" ]] ; then
+            has_carrier=1
+            break
+        fi
+    done
+    if ! ((has_carrier)) ; then
+        return 1
+    fi
+    if command -v ip >/dev/null 2>&1 ; then
+        if ! ip -4 route show default 2>/dev/null | grep -q . && \
+           ! ip -6 route show default 2>/dev/null | grep -q . ; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
+check_connectivity_for_sources() {
+    local has_local=0 entry repo_uri
+    for entry in "${SECURITY_SOURCES[@]}" ; do
+        IFS='|' read -r repo_uri _ <<< "$entry"
+        case "$repo_uri" in
+            http://127.*|http://localhost*|file://*)
+                has_local=1
+                ;;
+        esac
+    done
+
+    if ((has_local)) ; then
+        return 0
+    fi
+
+    has_network_route
+}
+
+state_read_var() {
+    local file="$1" var="$2"
+    [[ -r "$file" ]] || return 0
+    awk -F'=' -v k="$var" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$file"
+}
+
+write_probe_state() {
+    local state_file="$1" url="$2" lm="$3" etag="$4" status="$5" bytes="$6" now="$7"
+    local tmp="${state_file}.tmp.$$"
+    {
+        printf 'URL=%s\n' "$url"
+        printf 'LAST_MODIFIED=%s\n' "$lm"
+        printf 'ETAG=%s\n' "$etag"
+        printf 'LAST_STATUS=%s\n' "$status"
+        printf 'LAST_BYTES=%s\n' "$bytes"
+        printf 'LAST_CHECK=%s\n' "$now"
+    } > "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$state_file"
+}
+
+commit_pending_validators() {
+    local item state_file url lm etag status bytes now
+    for item in "${PENDING_VALIDATOR_UPDATES[@]}" ; do
+        IFS='|' read -r state_file url lm etag status bytes now <<< "$item"
+        write_probe_state "$state_file" "$url" "$lm" "$etag" "$status" "$bytes" "$now"
+    done
+    PENDING_VALIDATOR_UPDATES=()
+}
+
+run_probe() {
+    local commit_immediately="$1"
+    local now entry repo_uri suite _comps _signed
+    local inrelease_url key state_file prev_lm prev_etag
+    local hdr_tmp body_tmp curl_out http_code size_dl size_hdr new_lm new_etag total_bytes
+    local any_changed=0 any_error=0
+
+    PROBE_CHANGED=0
+    PENDING_VALIDATOR_UPDATES=()
+    now="$(date +%s)"
+
+    discover_security_sources
+    el_debug "Discovered ${#SECURITY_SOURCES[@]} Debian-Security source(s)"
+    if [[ "${#SECURITY_SOURCES[@]}" -eq 0 ]] ; then
+        sec_log "INFO" "Probe: no enabled Debian-Security sources found"
+        ((IS_TEST)) || date +%s > "$LAST_PROBE_TIME_FILE"
+        return 0
+    fi
+
+    if ! check_connectivity_for_sources ; then
+        el_debug "Network check returned offline (no carrier or default route)"
+        sec_log "INFO" "Probe skipped: no internet connectivity"
+        return 0
+    fi
+
+    for entry in "${SECURITY_SOURCES[@]}" ; do
+        el_debug "Inspecting security source: $entry"
+        IFS='|' read -r repo_uri suite _comps _signed <<< "$entry"
+        suite="${suite#/}"
+        if [[ "$suite" = "./" ]] || [[ "$suite" = "." ]] ; then
+            inrelease_url="${repo_uri%/}/InRelease"
+        else
+            inrelease_url="${repo_uri%/}/dists/${suite%/}/InRelease"
+        fi
+
+        key="$(printf '%s' "$inrelease_url" | sha256sum | awk '{print $1}')"
+        state_file="${STATE_DIR}/probe-${key}.state"
+        prev_lm="$(state_read_var "$state_file" "LAST_MODIFIED")"
+        prev_etag="$(state_read_var "$state_file" "ETAG")"
+
+        hdr_tmp="${WORK_DIR}/hdr-${key}"
+        body_tmp="${WORK_DIR}/body-${key}"
+        : > "$hdr_tmp"
+        : > "$body_tmp"
+
+        local -a curl_args=(-sS -L --connect-timeout 15 --max-time 30 -D "$hdr_tmp" -o "$body_tmp" -w '%{http_code} %{size_download} %{size_header}')
+        [[ -n "$prev_lm" ]] && curl_args+=(-H "If-Modified-Since: ${prev_lm}")
+        [[ -n "$prev_etag" ]] && curl_args+=(-H "If-None-Match: ${prev_etag}")
+
+        curl_out="$(curl "${curl_args[@]}" "$inrelease_url" 2>"${WORK_DIR}/curl-${key}.err")" || true
+        http_code="${curl_out%% *}"
+        size_dl="$(echo "$curl_out" | awk '{print $2+0}')"
+        size_hdr="$(echo "$curl_out" | awk '{print $3+0}')"
+        total_bytes=$(( size_dl + size_hdr ))
+
+        case "$http_code" in
+            304)
+                sec_log "INFO" "Probe ${inrelease_url}: HTTP 304 Not Modified (body=${size_dl}B, header=${size_hdr}B, total=${total_bytes}B)"
+                ((IS_TEST)) || write_probe_state "$state_file" "$inrelease_url" "$prev_lm" "$prev_etag" "304" "$total_bytes" "$now"
+                ;;
+            200)
+                new_lm="$(grep -i '^last-modified:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
+                new_etag="$(grep -i '^etag:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
+                sec_log "INFO" "Probe ${inrelease_url}: HTTP 200 Changed (body=${size_dl}B, header=${size_hdr}B, total=${total_bytes}B, Last-Modified='${new_lm}')"
+                any_changed=1
+                if ! ((IS_TEST)) ; then
+                    if ((commit_immediately)) ; then
+                        write_probe_state "$state_file" "$inrelease_url" "$new_lm" "$new_etag" "200" "$total_bytes" "$now"
+                    else
+                        PENDING_VALIDATOR_UPDATES+=("${state_file}|${inrelease_url}|${new_lm}|${new_etag}|200|${total_bytes}|${now}")
+                    fi
+                fi
+                ;;
+            *)
+                local err_msg
+                err_msg="$(tr '\n' ' ' < "${WORK_DIR}/curl-${key}.err" 2>/dev/null)"
+                sec_log "WARN" "Probe ${inrelease_url}: HTTP ${http_code:-000} (total=${total_bytes}B) ${err_msg}"
+                any_error=1
+                ;;
+        esac
+    done
+
+    PROBE_CHANGED=$any_changed
+    el_debug "Probe finished: PROBE_CHANGED=${PROBE_CHANGED}, any_error=${any_error}"
+    if ((any_error)) && ! ((any_changed)) ; then
+        return 1
+    fi
+    ((IS_TEST)) || date +%s > "$LAST_PROBE_TIME_FILE"
+    return 0
+}
+
+build_security_apt_configs() {
+    local native_arch sec_list sec_conf arch_conf entry repo_uri suite comps signed_by opts
+    native_arch="$(dpkg --print-architecture)"
+    sec_list="${WORK_DIR}/security.list"
+    sec_conf="${WORK_DIR}/security-apt.conf"
+    arch_conf="${WORK_DIR}/arch-only.conf"
+
+    : > "$sec_list"
+    for entry in "${SECURITY_SOURCES[@]}" ; do
+        IFS='|' read -r repo_uri suite comps signed_by <<< "$entry"
+        opts="arch=${native_arch}"
+        if [[ -n "$signed_by" ]] && [[ "$signed_by" != *[[:space:]]* ]] && [[ -e "$signed_by" ]] ; then
+            opts="${opts} signed-by=${signed_by}"
+        fi
+        printf 'deb [%s] %s %s %s\n' "$opts" "$repo_uri" "$suite" "$comps" >> "$sec_list"
+    done
+
+    local pkgcache="${WORK_DIR}/pkgcache.bin"
+    local srcpkgcache="${WORK_DIR}/srcpkgcache.bin"
+
+    if ((IS_TEST)) ; then
+        local test_lists="${WORK_DIR}/apt-lists"
+        mkdir -p "${test_lists}/partial"
+        el_debug "Test mode: isolating APT list state to ${test_lists}"
+        cat > "$sec_conf" <<EOF
+Dir::Etc::sourcelist "${sec_list}";
+Dir::Etc::sourceparts "/dev/null";
+Dir::State::Lists "${test_lists}";
+Dir::Cache::pkgcache "${pkgcache}";
+Dir::Cache::srcpkgcache "${srcpkgcache}";
+APT::Get::List-Cleanup "0";
+APT::Architecture "${native_arch}";
+APT::Architectures { "${native_arch}"; };
+EOF
+        cat > "$arch_conf" <<EOF
+Dir::State::Lists "${test_lists}";
+Dir::Cache::pkgcache "${pkgcache}";
+Dir::Cache::srcpkgcache "${srcpkgcache}";
+APT::Architecture "${native_arch}";
+APT::Architectures { "${native_arch}"; };
+EOF
+    else
+        cat > "$sec_conf" <<EOF
+Dir::Etc::sourcelist "${sec_list}";
+Dir::Etc::sourceparts "/dev/null";
+Dir::Cache::pkgcache "${pkgcache}";
+Dir::Cache::srcpkgcache "${srcpkgcache}";
+APT::Get::List-Cleanup "0";
+APT::Architecture "${native_arch}";
+APT::Architectures { "${native_arch}"; };
+EOF
+        cat > "$arch_conf" <<EOF
+Dir::Cache::pkgcache "${pkgcache}";
+Dir::Cache::srcpkgcache "${srcpkgcache}";
+APT::Architecture "${native_arch}";
+APT::Architectures { "${native_arch}"; };
+EOF
+    fi
+}
+
+collect_security_candidates() {
+    local sec_conf="$1"
+    local native_arch
+    native_arch="$(dpkg --print-architecture)"
+
+    local -a installed_pkgs=()
+    while IFS= read -r pkg ; do
+        [[ -n "$pkg" ]] && installed_pkgs+=("$pkg")
+    done < <(dpkg-query -W -f='${Status}\t${binary:Package}\t${Architecture}\n' 2>/dev/null | \
+        awk -F'\t' -v arch="$native_arch" '$1 == "install ok installed" && ($3 == arch || $3 == "all") { print $2 }')
+
+    if [[ "${#installed_pkgs[@]}" -eq 0 ]] ; then
+        return 0
+    fi
+
+    local pkg inst cand
+    while IFS=$'\t' read -r pkg inst cand ; do
+        [[ -z "$pkg" ]] && continue
+        if LC_ALL=C dpkg --compare-versions "$cand" gt "$inst" 2>/dev/null ; then
+            printf '%s\n' "$pkg"
+        fi
+    done < <(printf '%s\n' "${installed_pkgs[@]}" | xargs -r env LC_ALL=C /usr/bin/apt-cache -c "$sec_conf" policy 2>/dev/null | awk '
+        /^[^[:space:]].*:$/ {
+            pkg = $0; sub(/:$/, "", pkg);
+            inst = ""; cand = ""; from_repo = 0; in_cand = 0;
+            next;
+        }
+        /^[[:space:]]+Installed:/ { inst = $2; next }
+        /^[[:space:]]+Candidate:/ { cand = $2; next }
+        /^[[:space:]]+Version table:/ { in_cand = 1; next }
+        in_cand && ($1 == "***" || $1 == cand) {
+            cur = ($1 == "***" ? $2 : $1)
+            if (cur == cand) {
+                getline nextline
+                if (nextline ~ /^[[:space:]]+[0-9]+[[:space:]]+/ && nextline !~ /\/var\/lib\/dpkg\/status/) {
+                    from_repo = 1
+                }
+                if (pkg != "" && inst != "" && inst != "(none)" && cand != "" && cand != "(none)" && cand != inst && from_repo) {
+                    printf "%s\t%s\t%s\n", pkg, inst, cand
+                }
+                in_cand = 0
+            }
+        }
+    ')
+}
+
+merge_updated_marker() {
+    local escalation_path="$1"
+    local new_changes_file="$2"
+    local merged_tmp="${WORK_DIR}/updated.merged"
+    local existing_tmp="${WORK_DIR}/updated.prev"
+
+    if [[ -s "$UPDATED_MARKER" ]] ; then
+        grep '^PKG|' "$UPDATED_MARKER" > "$existing_tmp" 2>/dev/null || : > "$existing_tmp"
+    else
+        : > "$existing_tmp"
+    fi
+
+    {
+        printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
+        printf 'PATH=%s\n' "$escalation_path"
+        awk -F'|' '
+            FILENAME == ARGV[1] && $1 == "PKG" {
+                p=$2; old[p]=$3; new[p]=$4;
+                if (!(p in seen)) { seen[p]=1; order[++n]=p }
+            }
+            FILENAME == ARGV[2] {
+                p=$1; o=$2; nw=$3;
+                if (p in seen) {
+                    new[p] = nw;
+                } else {
+                    seen[p]=1; order[++n]=p;
+                    old[p]=o; new[p]=nw;
+                }
+            }
+            END {
+                for (i=1; i<=n; i++) {
+                    p = order[i]
+                    if (old[p] != new[p]) {
+                        printf "PKG|%s|%s|%s\n", p, old[p], new[p]
+                    }
+                }
+            }
+        ' "$existing_tmp" "$new_changes_file"
+    } > "$merged_tmp"
+
+    if grep -q '^PKG|' "$merged_tmp" ; then
+        chmod 0644 "$merged_tmp"
+        mv -f "$merged_tmp" "$UPDATED_MARKER"
+    fi
+}
+
+run_update() {
+    if [[ "${#SECURITY_SOURCES[@]}" -eq 0 ]] ; then
+        discover_security_sources
+    fi
+    if [[ "${#SECURITY_SOURCES[@]}" -eq 0 ]] ; then
+        sec_log "INFO" "Update skipped: no Debian-Security sources found"
+        return 0
+    fi
+
+    if [[ "$ELIVE_SECURITY_SKIP_METERED" = "yes" ]] && el_verify_internet_metered ; then
+        el_debug "Metered connection detected via nmcli"
+        sec_log "INFO" "Update deferred: connection is metered (ELIVE_SECURITY_SKIP_METERED=yes)"
+        if ! ((IS_TEST)) ; then
+            return 2
+        fi
+        sec_log "INFO" "Test mode: continuing simulation despite metered connection"
+    fi
+
+    build_security_apt_configs
+    local sec_conf="${WORK_DIR}/security-apt.conf"
+    local arch_conf="${WORK_DIR}/arch-only.conf"
+
+    if ((IS_TEST)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+        sec_log "INFO" "Test mode (unprivileged): skipping apt-get update, using read-only system APT lists"
+        cat > "$sec_conf" <<EOF
+Dir::Etc::sourcelist "${WORK_DIR}/security.list";
+Dir::Etc::sourceparts "/dev/null";
+Dir::Cache::pkgcache "${WORK_DIR}/pkgcache.bin";
+Dir::Cache::srcpkgcache "${WORK_DIR}/srcpkgcache.bin";
+APT::Architecture "$(dpkg --print-architecture)";
+APT::Architectures { "$(dpkg --print-architecture)"; };
+EOF
+        cat > "$arch_conf" <<EOF
+Dir::Cache::pkgcache "${WORK_DIR}/pkgcache.bin";
+Dir::Cache::srcpkgcache "${WORK_DIR}/srcpkgcache.bin";
+APT::Architecture "$(dpkg --print-architecture)";
+APT::Architectures { "$(dpkg --print-architecture)"; };
+EOF
+    else
+        sec_log "INFO" "Refreshing Debian-Security APT indices (arch=$(dpkg --print-architecture))"
+        if ((IS_TEST)) ; then
+            if ! /usr/bin/apt-get -c "$sec_conf" update -q=2 2>&1 ; then
+                sec_log "WARN" "Test mode: failed to update isolated Debian-Security APT indices"
+                return 1
+            fi
+        elif ! el_aptget -c "$sec_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
+            sec_log "ERROR" "Failed to update Debian-Security APT indices"
+            return 1
+        fi
+    fi
+
+    local -a sec_pkgs=()
+    local pkg
+    while IFS= read -r pkg ; do
+        [[ -n "$pkg" ]] && sec_pkgs+=("$pkg")
+    done < <(collect_security_candidates "$sec_conf")
+
+    el_debug "Security candidates found: ${#sec_pkgs[@]} (${sec_pkgs[*]:-none})"
+    if [[ "${#sec_pkgs[@]}" -eq 0 ]] ; then
+        sec_log "INFO" "No installed packages have pending updates in Debian-Security"
+        ((IS_TEST)) || commit_pending_validators
+        return 0
+    fi
+
+    sec_log "INFO" "Security candidate packages (${#sec_pkgs[@]}): ${sec_pkgs[*]}"
+
+    local before_file="${WORK_DIR}/before.pkgs"
+    local after_file="${WORK_DIR}/after.pkgs"
+    local changes_file="${WORK_DIR}/changes.txt"
+    dpkg-query -W -f='${Status}\t${binary:Package}\t${Version}\n' 2>/dev/null | \
+        awk -F'\t' '$1 == "install ok installed" || $1 == "hold ok installed" { print $2 "\t" $3 }' > "$before_file"
+
+    local escalation_path="" sim_out="" sim_rc=0 upgrade_ok=0
+    local -a sec_apt_opts=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -y)
+
+    # Tier 1: security-only (isolated security sourcelist, no new packages, no removals)
+    sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$sec_conf" -s --no-remove --only-upgrade install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
+    if [[ "$sim_rc" -eq 0 ]] && \
+       ! echo "$sim_out" | grep -qE '^The following (NEW packages will be installed|packages will be REMOVED|packages have been kept back):' ; then
+        local all_present=1
+        for pkg in "${sec_pkgs[@]}" ; do
+            local base_pkg="${pkg%%:*}"
+            if ! printf '%s\n' "$sim_out" | awk -v p="$pkg" -v b="$base_pkg" '$1 == "Inst" && ($2 == p || $2 == b) { f=1; exit } END { exit !f }' ; then
+                all_present=0
+                break
+            fi
+        done
+        if ((all_present)) ; then
+            if ((IS_TEST)) ; then
+                sec_log "INFO" "Simulation passed for Tier 1 (security-only): would upgrade ${sec_pkgs[*]}"
+                el_debug "Tier 1 simulation output:\n${sim_out}"
+                return 0
+            fi
+            sec_log "INFO" "Applying Tier 1 (security-only): ${sec_pkgs[*]}"
+            if el_aptget -c "$sec_conf" "${sec_apt_opts[@]}" --no-remove --only-upgrade install "${sec_pkgs[@]}" >> "$LOG_FILE" 2>&1 ; then
+                escalation_path="security-only"
+                upgrade_ok=1
+            else
+                sec_log "WARN" "Tier 1 (security-only) execution failed, escalating"
+            fi
+        fi
+    else
+        el_debug "Tier 1 simulation rc=${sim_rc}:\n${sim_out}"
+        sec_log "INFO" "Tier 1 (security-only) cannot resolve cleanly without extra packages, escalating"
+    fi
+
+    # Tier 2: security packages + required dependencies (full sources, single native arch, no removals)
+    if ! ((upgrade_ok)) ; then
+        sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=$(dpkg --print-architecture))"
+        if ((IS_TEST)) ; then
+            if [[ "${UID:-$(id -u)}" -eq 0 ]] ; then
+                /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 || sec_log "WARN" "Test mode: full APT index refresh returned errors"
+            fi
+        elif ! el_aptget -c "$arch_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
+            sec_log "WARN" "Full APT index refresh returned errors; attempting Tier 2 resolution with available indices"
+        fi
+        sim_rc=0
+        sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s --no-remove install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
+        if [[ "$sim_rc" -eq 0 ]] && ! echo "$sim_out" | grep -qE '^The following packages will be REMOVED:' ; then
+            if ((IS_TEST)) ; then
+                sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
+                el_debug "Tier 2 simulation output:\n${sim_out}"
+                return 0
+            fi
+            sec_log "INFO" "Applying Tier 2 (security-with-deps): ${sec_pkgs[*]}"
+            if el_aptget -c "$arch_conf" "${sec_apt_opts[@]}" --no-remove install "${sec_pkgs[@]}" >> "$LOG_FILE" 2>&1 ; then
+                escalation_path="security-with-deps"
+                upgrade_ok=1
+            else
+                sec_log "WARN" "Tier 2 (security-with-deps) execution failed"
+            fi
+        else
+            el_debug "Tier 2 simulation rc=${sim_rc}:\n${sim_out}"
+            sec_log "WARN" "Tier 2 (security-with-deps) simulation failed or requires package removal"
+        fi
+    fi
+
+    # Tier 3: last-resort full upgrade (dist-upgrade) if explicitly allowed
+    if ! ((upgrade_ok)) ; then
+        if [[ "$ELIVE_SECURITY_ALLOW_FULL_UPGRADE" = "yes" ]] ; then
+            if ((IS_TEST)) ; then
+                sim_rc=0
+                sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s dist-upgrade 2>&1)" || sim_rc=$?
+                sec_log "INFO" "Simulation for Tier 3 (full-upgrade) rc=${sim_rc}"
+                el_debug "Tier 3 simulation output:\n${sim_out}"
+                return "$sim_rc"
+            fi
+            sec_log "WARN" "Escalating to Tier 3 (full-upgrade) as last resort"
+            if el_aptget -c "$arch_conf" "${sec_apt_opts[@]}" dist-upgrade >> "$LOG_FILE" 2>&1 ; then
+                escalation_path="full-upgrade"
+                upgrade_ok=1
+            else
+                sec_log "ERROR" "Tier 3 (full-upgrade) failed"
+            fi
+        else
+            sec_log "ERROR" "Security update blocked: requires full-upgrade/removals, forbidden by ELIVE_SECURITY_ALLOW_FULL_UPGRADE=no"
+            if ! ((IS_TEST)) ; then
+                printf 'STATUS=blocked\nTIMESTAMP=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
+                chmod 0644 "$LAST_RESULT_FILE"
+            fi
+            return 1
+        fi
+    fi
+
+    if ! ((upgrade_ok)) ; then
+        if ! ((IS_TEST)) ; then
+            printf 'STATUS=failed\nTIMESTAMP=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
+            chmod 0644 "$LAST_RESULT_FILE"
+        fi
+        return 1
+    fi
+
+    dpkg-query -W -f='${Status}\t${binary:Package}\t${Version}\n' 2>/dev/null | \
+        awk -F'\t' '$1 == "install ok installed" || $1 == "hold ok installed" { print $2 "\t" $3 }' > "$after_file"
+
+    awk -F'\t' '
+        FILENAME == ARGV[1] { before[$1] = $2; next }
+        {
+            p = $1; nw = $2;
+            old = (p in before ? before[p] : "new");
+            if (old != nw) {
+                printf "%s|%s|%s\n", p, old, nw
+            }
+        }
+    ' "$before_file" "$after_file" > "$changes_file"
+
+    local changed_count
+    changed_count="$(wc -l < "$changes_file")"
+    {
+        printf 'STATUS=success\n'
+        printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
+        printf 'PATH=%s\n' "$escalation_path"
+        printf 'CHANGED_COUNT=%s\n' "$changed_count"
+        sed 's/^/PKG|/' "$changes_file"
+    } > "$LAST_RESULT_FILE"
+    chmod 0644 "$LAST_RESULT_FILE"
+
+    if [[ "$changed_count" -gt 0 ]] ; then
+        sec_log "INFO" "Updated ${changed_count} package(s) via path=${escalation_path}"
+        merge_updated_marker "$escalation_path" "$changes_file"
+    else
+        sec_log "INFO" "Upgrade completed via path=${escalation_path} with 0 package version changes"
+    fi
+
+    commit_pending_validators
+    return 0
+}
+
+run_cve_check() {
+    local codename feed_url feed_state feed_gz feed_json prev_lm prev_etag
+    codename="$(debian_version_to_codename "$(cat /etc/debian_version 2>/dev/null)")"
+    if [[ -z "$codename" ]] ; then
+        sec_log "INFO" "CVE check skipped: unable to determine Debian codename"
+        return 0
+    fi
+
+    feed_url="${ELIVE_SECURITY_CVE_FEED_URL:-https://repo.${codename}.elive.elivecd.org/elive-security-cves.json.gz}"
+    el_debug "Checking unpatched CVE feed for codename=${codename}: ${feed_url}"
+    if ((IS_TEST)) ; then
+        feed_state="${WORK_DIR}/cve-feed.state"
+        feed_gz="${WORK_DIR}/cve-feed.json.gz"
+        feed_json="${WORK_DIR}/cve-feed.json"
+        [[ -s "${STATE_DIR}/cve-feed.json" ]] && cp -f "${STATE_DIR}/cve-feed.json" "$feed_json" 2>/dev/null || true
+        [[ -s "${STATE_DIR}/cve-feed.state" ]] && cp -f "${STATE_DIR}/cve-feed.state" "$feed_state" 2>/dev/null || true
+    else
+        feed_state="${STATE_DIR}/cve-feed.state"
+        feed_gz="${STATE_DIR}/cve-feed.json.gz"
+        feed_json="${STATE_DIR}/cve-feed.json"
+    fi
+
+    local is_local_feed=0
+    case "$feed_url" in
+        http://127.*|http://localhost*|file://*)
+            is_local_feed=1
+            ;;
+    esac
+
+    if ((is_local_feed)) || has_network_route ; then
+        prev_lm="$(state_read_var "$feed_state" "LAST_MODIFIED")"
+        prev_etag="$(state_read_var "$feed_state" "ETAG")"
+
+        local hdr_tmp="${WORK_DIR}/cve-hdr"
+        local body_tmp="${WORK_DIR}/cve-body.gz"
+        local -a curl_args=(-sS -L --connect-timeout 15 --max-time 30 -D "$hdr_tmp" -o "$body_tmp" -w '%{http_code} %{size_download} %{size_header}')
+        [[ -n "$prev_lm" ]] && [[ -s "$feed_json" ]] && curl_args+=(-H "If-Modified-Since: ${prev_lm}")
+        [[ -n "$prev_etag" ]] && [[ -s "$feed_json" ]] && curl_args+=(-H "If-None-Match: ${prev_etag}")
+
+        local curl_out http_code size_dl size_hdr total_bytes now
+        now="$(date +%s)"
+        curl_out="$(curl "${curl_args[@]}" "$feed_url" 2>"${WORK_DIR}/cve-curl.err")" || true
+        http_code="${curl_out%% *}"
+        size_dl="$(echo "$curl_out" | awk '{print $2+0}')"
+        size_hdr="$(echo "$curl_out" | awk '{print $3+0}')"
+        total_bytes=$(( size_dl + size_hdr ))
+
+        case "$http_code" in
+            304)
+                sec_log "INFO" "CVE feed ${feed_url}: HTTP 304 Not Modified (total=${total_bytes}B)"
+                ;;
+            200)
+                if ! gzip -dc "$body_tmp" > "${WORK_DIR}/cve-feed.json.new" 2>/dev/null ; then
+                    sec_log "WARN" "CVE feed ${feed_url}: downloaded payload is not valid gzip, ignoring"
+                    return 0
+                fi
+                mv -f "$body_tmp" "$feed_gz"
+                mv -f "${WORK_DIR}/cve-feed.json.new" "$feed_json"
+                local new_lm new_etag
+                new_lm="$(grep -i '^last-modified:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
+                new_etag="$(grep -i '^etag:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
+                write_probe_state "$feed_state" "$feed_url" "$new_lm" "$new_etag" "200" "$total_bytes" "$now"
+                sec_log "INFO" "CVE feed ${feed_url}: HTTP 200 Updated (body=${size_dl}B)"
+                ;;
+            404)
+                sec_log "INFO" "CVE feed ${feed_url}: HTTP 404 (not published yet)"
+                return 0
+                ;;
+            *)
+                sec_log "WARN" "CVE feed ${feed_url}: HTTP ${http_code:-000}"
+                if ! [[ -s "$feed_json" ]] ; then
+                    return 0
+                fi
+                ;;
+        esac
+    else
+        sec_log "INFO" "CVE feed fetch skipped: no internet connectivity"
+        if ! [[ -s "$feed_json" ]] ; then
+            return 0
+        fi
+    fi
+
+    [[ -s "$feed_json" ]] || return 0
+
+    local installed_src_file="${WORK_DIR}/installed-sources.tsv"
+    dpkg-query -W -f='${Status}\t${binary:Package}\t${source:Package}\t${source:Version}\t${Version}\n' 2>/dev/null | \
+        awk -F'\t' '$1 == "install ok installed" || $1 == "hold ok installed" {
+            bin=$2; src=$3; sver=$4; bver=$5;
+            if (src == "") src = bin;
+            if (sver == "") sver = bver;
+            printf "%s\t%s\t%s\n", src, bin, sver
+        }' > "$installed_src_file"
+
+    local current_file="${WORK_DIR}/current-unpatched.state"
+    : > "$current_file"
+
+    if command -v python3 >/dev/null 2>&1 ; then
+        python3 - "$feed_json" "$installed_src_file" "$current_file" <<'PYEOF'
+import json
+import subprocess
+import sys
+
+feed_path, installed_path, out_path = sys.argv[1:4]
+try:
+    with open(feed_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(2)
+
+installed = {}
+with open(installed_path, "r", encoding="utf-8") as f:
+    for line in f:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) < 3:
+            continue
+        src, bpkg, sver = parts[0], parts[1], parts[2]
+        installed.setdefault(src, []).append((bpkg, sver))
+
+entries = []
+if isinstance(data, list):
+    for item in data:
+        if isinstance(item, dict):
+            entries.append(item)
+elif isinstance(data, dict):
+    # Support {"pkg": {"CVE-...": {...}}} or {"issues": [...]}
+    if isinstance(data.get("issues"), list):
+        entries = [x for x in data["issues"] if isinstance(x, dict)]
+    else:
+        for pkg, cves in data.items():
+            if isinstance(cves, dict):
+                for cve_id, meta in cves.items():
+                    if isinstance(meta, dict):
+                        item = dict(meta)
+                        item.setdefault("package", pkg)
+                        item.setdefault("cve", cve_id)
+                        entries.append(item)
+
+def ver_lt(v1, v2):
+    rc = subprocess.run(["dpkg", "--compare-versions", v1, "lt", v2]).returncode
+    return rc == 0
+
+seen = set()
+with open(out_path, "w", encoding="utf-8") as out:
+    for item in entries:
+        status = (item.get("status") or item.get("state") or "").lower()
+        if status in ("resolved", "not-affected", "fixed"):
+            continue
+        src_pkg = item.get("package") or item.get("source_package") or ""
+        cve = item.get("cve") or item.get("id") or ""
+        if not src_pkg or not cve or src_pkg not in installed:
+            continue
+        fixed_ver = item.get("fixed_version")
+        if fixed_ver in (None, "", "none", "None"):
+            fixed_ver = None
+        urgency = (item.get("urgency") or "unknown").replace("|", " ")
+        desc = (item.get("description") or "").replace("|", " ").replace("\n", " ").strip()
+        if len(desc) > 160:
+            desc = desc[:157] + "..."
+        matched_bins = []
+        for bpkg, sver in installed[src_pkg]:
+            if fixed_ver is None or ver_lt(sver, fixed_ver):
+                matched_bins.append(bpkg)
+        if not matched_bins:
+            continue
+        key = (src_pkg, cve)
+        if key in seen:
+            continue
+        seen.add(key)
+        bins_str = ",".join(sorted(set(matched_bins)))
+        out.write(f"{src_pkg}|{bins_str}|{cve}|{urgency}|{desc}\n")
+PYEOF
+        if [[ $? -ne 0 ]] ; then
+            sec_log "WARN" "Failed to parse CVE feed JSON: $feed_json"
+            return 0
+        fi
+    else
+        sec_log "WARN" "CVE check skipped: python3 not available"
+        return 0
+    fi
+
+    local prev_file="${WORK_DIR}/prev-unpatched.state"
+    if [[ -f "$ACTIVE_CVE_STATE" ]] ; then
+        cp -f "$ACTIVE_CVE_STATE" "$prev_file"
+    else
+        : > "$prev_file"
+    fi
+
+    local delta_tmp="${WORK_DIR}/unpatched.delta"
+    : > "$delta_tmp"
+
+    # Newly opened unpatched CVEs
+    awk -F'|' '
+        FILENAME == ARGV[1] { prev[$1 "|" $3] = 1; next }
+        {
+            k = $1 "|" $3
+            if (!(k in prev)) {
+                printf "OPEN|%s\n", $0
+            }
+        }
+    ' "$prev_file" "$current_file" >> "$delta_tmp"
+
+    # Resolved CVEs (were active before, no longer in current unpatched list)
+    awk -F'|' '
+        FILENAME == ARGV[1] { curr[$1 "|" $3] = 1; next }
+        {
+            k = $1 "|" $3
+            if (!(k in curr)) {
+                printf "RESOLVED|%s\n", $0
+            }
+        }
+    ' "$current_file" "$prev_file" >> "$delta_tmp"
+
+    if ((IS_TEST)) ; then
+        sec_log "INFO" "CVE simulation complete: $(wc -l < "$current_file") active unpatched CVE(s), $(wc -l < "$delta_tmp") delta(s)"
+        el_debug "CVE deltas:\n$(cat "$delta_tmp")"
+        return 0
+    fi
+
+    cp -f "$current_file" "$ACTIVE_CVE_STATE"
+    chmod 0644 "$ACTIVE_CVE_STATE"
+
+    if [[ -s "$delta_tmp" ]] ; then
+        local merged_cve="${WORK_DIR}/unpatched.merged"
+        if [[ -s "$UNPATCHED_MARKER" ]] ; then
+            grep -E '^(OPEN|RESOLVED)\|' "$UNPATCHED_MARKER" > "${WORK_DIR}/unpatched.prev" 2>/dev/null || : > "${WORK_DIR}/unpatched.prev"
+        else
+            : > "${WORK_DIR}/unpatched.prev"
+        fi
+        {
+            printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
+            awk -F'|' '{
+                k = $2 "|" $4
+                rec[k] = $0
+                if (!(k in seen)) { seen[k]=1; order[++n]=k }
+            } END {
+                for (i=1; i<=n; i++) print rec[order[i]]
+            }' "${WORK_DIR}/unpatched.prev" "$delta_tmp"
+        } > "$merged_cve"
+        chmod 0644 "$merged_cve"
+        mv -f "$merged_cve" "$UNPATCHED_MARKER"
+        sec_log "INFO" "CVE marker updated ($(grep -cE '^(OPEN|RESOLVED)\|' "$UNPATCHED_MARKER") notice(s))"
+    else
+        sec_log "INFO" "CVE check complete: $(wc -l < "$current_file") active unpatched CVE(s), no new changes"
+    fi
+}
+
+main() {
+    local mode="" is_force=0 arg
+    for arg in "$@" ; do
+        case "$arg" in
+            --auto|--probe|--update|--check-cves|--status)
+                mode="$arg"
+                ;;
+            --test|--dry-run)
+                IS_TEST=1
+                ;;
+            --debug|-d)
+                IS_DEBUG=1
+                export EL_DEBUG=4
+                is_print_fancy=1
+                ;;
+            --cron)
+                IS_CRON=1
+                ;;
+            --force)
+                is_force=1
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                sec_log "ERROR" "Unknown argument: $arg"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+
+    [[ -z "$mode" ]] && mode="--auto"
+
+    if [[ "$mode" = "--status" ]] ; then
+        load_config
+        show_status
+        exit 0
+    fi
+
+    check_guards
+    ensure_dirs
+    load_config
+    acquire_flock
+
+    WORK_DIR="$(mktemp -d /tmp/.elive-security-worker.XXXXXX)"
+    el_debug "Worker starting: mode=${mode}, test=${IS_TEST}, cron=${IS_CRON}, force=${is_force}, workdir=${WORK_DIR}"
+
+    case "$mode" in
+        --probe)
+            run_probe 1
+            ;;
+        --update)
+            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+                sec_log "INFO" "Update skipped: ELIVE_SECURITY_ENABLED=${ELIVE_SECURITY_ENABLED}"
+                exit 0
+            fi
+            run_update
+            ;;
+        --check-cves)
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+                sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+                exit 0
+            fi
+            run_cve_check
+            ;;
+        --auto)
+            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+                sec_log "INFO" "Run skipped: ELIVE_SECURITY_ENABLED=${ELIVE_SECURITY_ENABLED}"
+                exit 0
+            fi
+
+            if ((IS_CRON)) && ! ((is_force)) && ! ((IS_TEST)) && [[ -s "$LAST_PROBE_TIME_FILE" ]] ; then
+                local now last_ts elapsed
+                now="$(date +%s)"
+                last_ts="$(cat "$LAST_PROBE_TIME_FILE" 2>/dev/null)"
+                if [[ "$last_ts" =~ ^[0-9]+$ ]] && [[ "$ELIVE_SECURITY_PROBE_INTERVAL" =~ ^[0-9]+$ ]] ; then
+                    elapsed=$(( now - last_ts ))
+                    # Allow a 60s grace window so hourly cron jitter doesn't skip every other hour
+                    if [[ $(( elapsed + 60 )) -lt "$ELIVE_SECURITY_PROBE_INTERVAL" ]] ; then
+                        el_debug "Probe interval throttle active: elapsed=${elapsed}s, interval=${ELIVE_SECURITY_PROBE_INTERVAL}s"
+                        sec_log "INFO" "Run skipped: probe interval not reached (${elapsed}s < ${ELIVE_SECURITY_PROBE_INTERVAL}s)"
+                        exit 0
+                    fi
+                fi
+            fi
+
+            if run_probe 0 ; then
+                if ((PROBE_CHANGED)) ; then
+                    run_update || true
+                elif ((IS_TEST)) ; then
+                    sec_log "INFO" "Test mode: InRelease unchanged (304), simulating update candidate check anyway"
+                    run_update || true
+                fi
+            fi
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((is_force)) || ((IS_TEST)) ; then
+                run_cve_check || true
+            else
+                el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+            fi
+            ;;
+    esac
+}
+
+main "$@"

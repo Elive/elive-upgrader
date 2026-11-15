@@ -1,0 +1,4 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+17 * * * * root [ -x /usr/sbin/elive-security ] && /usr/sbin/elive-security --auto --cron >/dev/null 2>&1

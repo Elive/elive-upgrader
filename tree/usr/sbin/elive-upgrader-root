@@ -114,7 +114,7 @@ TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
 
 # Lock system (good one) {{{
-if [[ "$1" = "--enable-distro-upgrade" ]] || [[ "$1" = "--cancel-distro-upgrade" ]] || [[ "$1" = "--distro-upgrade-status" ]] || [[ "$1" = "--ping" ]] ; then
+if [[ "$1" = "--enable-distro-upgrade" ]] || [[ "$1" = "--cancel-distro-upgrade" ]] || [[ "$1" = "--distro-upgrade-status" ]] || [[ "$1" = "--ping" ]] || [[ "$1" = "--clear-security-markers" ]] || [[ "$1" = "--security" ]] ; then
     # Bypass lock for quick/non-disruptive commands
     :
 else
@@ -219,10 +219,16 @@ apt_fixes(){
 }
 hooks_root_pre(){
     # always update before to run (if the package has been updated we want to fetch new code too)
+    source /etc/default/elive-upgrader 2>/dev/null || true
     source /usr/lib/elive-upgrader/functions.sh
 
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" != "yes" ]] ; then
+        el_debug "hooks_root_pre skipped: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED}"
+        return 1
+    fi
+
     # set the user as an active member or not
-    patreon_members_update
+    ((ELIVE_UPGRADER_TEST)) || patreon_members_update
 
     # hooks: root
     run_hooks "root" "pre"
@@ -230,7 +236,13 @@ hooks_root_pre(){
 
 hooks_root_post(){
     # always update before to run (if the package has been updated we want to fetch new code too)
+    source /etc/default/elive-upgrader 2>/dev/null || true
     source /usr/lib/elive-upgrader/functions.sh
+
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" != "yes" ]] ; then
+        el_debug "hooks_root_post skipped: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED}"
+        return 1
+    fi
 
     # hooks: root
     run_hooks "root" "post"
@@ -240,6 +252,13 @@ hooks_root_post(){
 
 updates_available_show(){
     local number
+
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_debug "Test mode: counting available upgrades without modifying apt lists"
+        number="$( LC_ALL="$EL_LC_EN" apt-get -u upgrade --assume-no --show-upgraded 2>/dev/null | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
+        echo "${number:-0}"
+        return 0
+    fi
 
     # wait unlock
     apt_get moo 1>/dev/null 2>&1
@@ -265,6 +284,17 @@ updates_available_show(){
 
 upgrade_system(){
     local is_upgraded
+
+    if [[ "${ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) ; then
+        el_info "System upgrade disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED=no)"
+        return 0
+    fi
+
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "Test mode: simulating apt-get dist-upgrade..."
+        LC_ALL="$EL_LC_EN" apt-get -s dist-upgrade
+        return $?
+    fi
 
     # wait unlock
     el_info "Updating APT lists..."
@@ -403,6 +433,18 @@ upgrade_system(){
 # upgrade bios firmwares
 upgrade_firmwares(){
     # pre {{{
+    if [[ "${ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) ; then
+        el_info "Firmware upgrades disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_FIRMWARE_UPGRADE_ENABLED=no)"
+        return 0
+    fi
+
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "Test mode: simulating firmware upgrade check (fwupdmgr)"
+        if command -v fwupdmgr >/dev/null 2>&1 ; then
+            LC_ALL="$EL_LC_EN" fwupdmgr get-updates 2>&1 || true
+        fi
+        return 0
+    fi
 
     if el_check_dir_has_files "/sys/firmware/efi/" 1>/dev/null 2>&1 ; then
         if el_check_dir_has_files "/sys/firmware/efi/efivars" 1>/dev/null 2>&1 ; then
@@ -551,6 +593,15 @@ Select how you would like to proceed:" )"
 
 # improved and much more reliable updater (will still works even if apt is broken or repos changed etc)
 update_upgrader_fast(){
+    if [[ "${ELIVE_UPGRADER_AUTO_UPDATE_TOOL:-yes}" != "yes" ]] && ! ((is_force)) ; then
+        el_debug "Self-update skipped: ELIVE_UPGRADER_AUTO_UPDATE_TOOL=${ELIVE_UPGRADER_AUTO_UPDATE_TOOL}"
+        return 0
+    fi
+    if ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "Test mode: checking if newer elive-upgrader is available (no install)"
+        el_package_newer_check "elive-upgrader" && el_info "Test mode: elive-upgrader update available" || el_info "Test mode: elive-upgrader is up to date"
+        return 0
+    fi
     if el_package_upgrade_fast 480 normal "elive-upgrader" ; then
         el_debug "TOOL UPDATED"
     fi
@@ -620,6 +671,18 @@ main(){
         exit $?
     fi
 
+    if [[ "$1" = "--clear-security-markers" ]] ; then
+        el_debug "Clearing /var/run/elive-security markers"
+        rm -f /var/run/elive-security/updated /var/run/elive-security/unpatched
+        exit 0
+    fi
+
+    if [[ "$1" = "--security" ]] ; then
+        shift
+        el_debug "Delegating --security to /usr/sbin/elive-security $*"
+        exec /usr/sbin/elive-security "$@"
+    fi
+
     # pre {{{
     version_elive="$( cat "/etc/elive-version" | grep "elive-version:" | awk '{print $2}' )"
     read -r version_elive <<< "$version_elive"
@@ -655,41 +718,57 @@ main(){
                 is_betatester=1
                 touch /tmp/.elive-upgrader-betatest
                 ;;
+            --debug|-d)
+                export EL_DEBUG=4
+                is_print_fancy=1
+                ;;
+            --test|--dry-run)
+                export ELIVE_UPGRADER_TEST=1
+                export EL_DEBUG="${EL_DEBUG:-3}"
+                is_print_fancy=1
+                ;;
             -h|--help)
                 show_help
-                exit 1
+                exit 0
                 ;;
         esac
     done
 
+    el_debug "elive-upgrader-root starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, force=${is_force:-0}, test=${ELIVE_UPGRADER_TEST:-0}, args='$*'"
+    if [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_TEST)) ; then
+        el_info "elive-upgrader is disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_ENABLED=no). Exiting."
+        exit 0
+    fi
+
     for arg in "$@"
     do
         case "$arg" in
-            #--delayed)
-                #is_delayed=1
-                #shift
-                #;;
             --update|--update-tool)
-                # TODO: delete the deprecated first paramter "--update" in the future
-                #update_upgrader
+                el_debug "Dispatching action: $arg"
                 update_upgrader_fast
                 ;;
             --hooks-root-pre)
+                el_debug "Dispatching action: $arg"
                 hooks_root_pre
                 ;;
             --hooks-root-post)
+                el_debug "Dispatching action: $arg"
                 hooks_root_post
                 ;;
             --upgrade)
+                el_debug "Dispatching action: $arg"
                 upgrade_system
                 ;;
             --updates-available)
+                el_debug "Dispatching action: $arg"
                 updates_available_show
                 ;;
             --upgrade-firmwares|--upgrade-firmware)
+                el_debug "Dispatching action: $arg"
                 upgrade_firmwares
                 ;;
             --fix)
+                el_debug "Dispatching action: $arg"
                 apt_fixes
                 ;;
         esac

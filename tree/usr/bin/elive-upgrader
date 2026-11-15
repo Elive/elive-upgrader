@@ -6,6 +6,9 @@ el_make_environment
 if [[ -r "/etc/elive/settings" ]] ; then
     . "/etc/elive/settings"
 fi
+if [[ -r "/etc/default/elive-upgrader" ]] ; then
+    . "/etc/default/elive-upgrader"
+fi
 . gettext.sh
 TEXTDOMAIN="elive-upgrader"
 export TEXTDOMAIN
@@ -49,16 +52,70 @@ show_help(){
     echo "Usage: $(basename "$0") [OPTIONS]"
     echo
     echo "Options:"
-    echo "  -u, --upgrade    Force an immediate system upgrade"
-    echo "  --delayed        Delay execution (used for background/autostart)"
-    echo "  --betatest       Enable beta testing features"
-    echo "  -h, --help       Show this help message"
-    echo "  -f, --force      Force action"
+    echo "  -u, --upgrade        Force an immediate system upgrade"
+    echo "  --delayed            Delay execution (used for background/autostart)"
+    echo "  --betatest           Enable beta testing features"
+    echo "  --security           Run the automatic security update check manually"
+    echo "  -t, --test           Simulate execution (dry-run) without applying changes"
+    echo "  -d, --debug          Enable verbose debug output (EL_DEBUG=4)"
+    echo "  -f, --force          Force action (ignore disabled/metered guards)"
+    echo "  -h, --help           Show this help message"
 }
 
 main(){
     # pre {{{
-    local pong was_anything_updated=0
+    local pong was_anything_updated=0 arg
+    local is_test_mode=0 is_debug_mode=0 is_security_mode=0
+
+    for arg in "$@" ; do
+        case "$arg" in
+            --delayed)
+                is_delayed=1
+                ;;
+            --betatest)
+                is_betatester=1
+                is_force_upgrade=1
+                touch /tmp/.elive-upgrader-betatest
+                ;;
+            -f|--force)
+                is_force_mode=1
+                ;;
+            -t|--test|--dry-run)
+                is_test_mode=1
+                export ELIVE_UPGRADER_TEST=1
+                export EL_DEBUG="${EL_DEBUG:-3}"
+                is_print_fancy=1
+                ;;
+            -d|--debug)
+                is_debug_mode=1
+                export EL_DEBUG=4
+                is_print_fancy=1
+                ;;
+            --security)
+                is_security_mode=1
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+        esac
+    done
+
+    el_debug "elive-upgrader starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, delayed=${is_delayed:-0}, force=${is_force_mode:-0}, test=${is_test_mode}, debug=${is_debug_mode}, security=${is_security_mode}"
+
+    if ! ((is_security_mode)) && [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force_mode)) && ! ((is_test_mode)) ; then
+        el_info "elive-upgrader is disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_ENABLED=no). Exiting."
+        exit 0
+    fi
+
+    if ((is_security_mode)) && ((is_test_mode)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+        local sec_args=("--auto" "--test")
+        ((is_debug_mode)) && sec_args+=("--debug")
+        ((is_force_mode)) && sec_args+=("--force")
+        el_debug "Running unprivileged security simulation: /usr/sbin/elive-security ${sec_args[*]}"
+        /usr/sbin/elive-security "${sec_args[@]}"
+        exit $?
+    fi
 
     # allow root to access the user's display
     xhost +si:localuser:root >/dev/null 2>&1
@@ -185,42 +242,33 @@ main(){
     # XXX sometimes we want to simply upgrade the system, how we should deal with this? running apug in a cron or something? searching for packages from the elive repo in order to update them from a list (because the elive repo is the important one to update), hum...
 
 
-    for arg in "$@"
-    do
-        case "$arg" in
-            --delayed)
-                is_delayed=1
-                shift
-                ;;
-            --betatest)
-                is_betatester=1
-                is_force_upgrade=1
-                touch /tmp/.elive-upgrader-betatest
-                shift
-                ;;
-            -u|--upgrade)
-                # Temporary placeholder, will be executed below with correct root_args
-                ;;
-            -f|--force)
-                is_force_mode=1
-                ;;
-            #-s|--simulate)
-                ## simulates the normal run / start from the daemon mode
-                #export EL_DEBUG=3
-                #export is_simulate=1
-                #true
-                #;;
-            -h|--help)
-                show_help
-                exit 1
-                ;;
-        esac
-    done
-
     # Arguments to pass to elive-upgrader-root (constructed after parsing arguments)
     local root_args=()
     if ((is_betatester)) ; then
         root_args+=("--betatest")
+    fi
+    if ((is_force_mode)) ; then
+        root_args+=("--force")
+    fi
+    if ((is_debug_mode)) ; then
+        root_args+=("--debug")
+    fi
+    if ((is_test_mode)) ; then
+        root_args+=("--test")
+    fi
+
+    if ((is_security_mode)) ; then
+        local sec_args=("--auto")
+        ((is_test_mode)) && sec_args+=("--test")
+        ((is_debug_mode)) && sec_args+=("--debug")
+        ((is_force_mode)) && sec_args+=("--force")
+        el_debug "Running manual security check: elive-security ${sec_args[*]}"
+        if ((is_test_mode)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+            /usr/sbin/elive-security "${sec_args[@]}"
+        else
+            sudo "${sudo_args[@]}" elive-upgrader-root --security "${sec_args[@]}"
+        fi
+        exit $?
     fi
 
     # Handle immediate upgrade action if requested
@@ -228,6 +276,7 @@ main(){
     do
         case "$arg" in
             -u|--upgrade)
+                el_debug "Immediate upgrade requested via $arg"
                 sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade
                 ;;
         esac
@@ -258,11 +307,14 @@ main(){
         fi
     fi
 
-    # wait 30 seconds that the entire internet is set up and the timezones are correctly updated, we are not hurry
+    # wait that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
-        el_debug "delayed $(basename $0) 30 seconds"
+        local delay_sec="${ELIVE_UPGRADER_DELAY_SECONDS:-30}"
+        el_debug "delayed $(basename $0) ${delay_sec} seconds (test=${is_test_mode})"
 
-        sleep 30
+        if ! ((is_test_mode)) ; then
+            sleep "$delay_sec"
+        fi
 
         # in the case we are shutding down computer just exit from the tool inmediately
         if pidof -cxq elive-pm ; then
@@ -287,34 +339,43 @@ main(){
     fi
 
     # first, verify if we have internet
+    el_debug "Verifying internet connectivity..."
     if ! el_verify_internet ; then
         NOREPORTS=1 el_warning "no internet found, ignoring"
         exit 1
     fi
 
     # verify if we are metered
-    if ! ((is_force_mode)) && el_verify_internet_metered ; then
-        el_error "Your internet connection is metered. The Elive Upgrader will not run on metered connections to avoid unexpected data charges. Please connect to a non-metered network and try again. Or use the --force option if you really want to."
-        exit
+    if [[ "${ELIVE_UPGRADER_SKIP_METERED:-yes}" = "yes" ]] && ! ((is_force_mode)) && el_verify_internet_metered ; then
+        el_debug "Metered internet detected and ELIVE_UPGRADER_SKIP_METERED=yes"
+        if ((is_test_mode)) ; then
+            el_info "Test mode: metered connection detected (would normally abort unless --force)"
+        else
+            el_error "Your internet connection is metered. The Elive Upgrader will not run on metered connections to avoid unexpected data charges. Please connect to a non-metered network and try again. Or use the --force option if you really want to."
+            exit
+        fi
     fi
 
     # source functions
     source /usr/lib/elive-upgrader/functions.sh
 
-    # fixes first (if)
-    #el_debug "going to: previous fixes"
-    #sudo $sudo_opts elive-upgrader-root --fix
-
     # update tool first (if)
-    el_debug "going to: update-tool"
-    sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --update-tool
-    source /usr/lib/elive-upgrader/functions.sh
+    if [[ "${ELIVE_UPGRADER_AUTO_UPDATE_TOOL:-yes}" = "yes" ]] ; then
+        el_debug "going to: update-tool"
+        sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --update-tool
+        source /usr/lib/elive-upgrader/functions.sh
+    else
+        el_debug "skipping update-tool: ELIVE_UPGRADER_AUTO_UPDATE_TOOL=${ELIVE_UPGRADER_AUTO_UPDATE_TOOL}"
+    fi
 
     # hooks: root
-    el_debug "going to: hooks root pre"
-    # XXX this is ugly, includes also the upgrading of packages
-    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-pre ; then
-        was_anything_updated=1
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" = "yes" ]] ; then
+        el_debug "going to: hooks root pre"
+        if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-pre ; then
+            was_anything_updated=1
+        fi
+    else
+        el_debug "skipping hooks root pre: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED}"
     fi
 
     # Check if a distro upgrade was scheduled during the pre-hooks
@@ -328,32 +389,41 @@ main(){
     fi
 
     # hooks: user
-    el_debug "going to: hooks user pre"
-    if run_hooks "user" "pre" ; then
-        was_anything_updated=1
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" = "yes" ]] ; then
+        el_debug "going to: hooks user pre"
+        if run_hooks "user" "pre" ; then
+            was_anything_updated=1
+        fi
+    else
+        el_debug "skipping hooks user pre: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED}"
     fi
 
 
     # verify if enough time passed to check for upgrades and ask the user if upgrade the system
     el_debug "going to: upgrade full system (delayed, if enough time passed)"
-    if ((is_force_upgrade)) ; then
-        el_debug "beta test mode: checking for upgrades"
-        if has_pending_distro_upgrade_hook ; then
-            el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
-        else
-            num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --updates-available )"
-            if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
-                if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
-                    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade --noaptupdate ; then
-                        was_anything_updated=1
+    if [[ "${ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED:-yes}" = "yes" ]] || ((is_force_mode)) ; then
+        if ((is_force_upgrade)) ; then
+            el_debug "beta test mode: checking for upgrades"
+            if has_pending_distro_upgrade_hook ; then
+                el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
+            else
+                num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --updates-available )"
+                el_debug "betatest updates available: ${num_updates:-0}"
+                if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] && ! ((is_test_mode)) ; then
+                    if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
+                        if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade --noaptupdate ; then
+                            was_anything_updated=1
+                        fi
                     fi
                 fi
             fi
+        else
+            if upgrade_system_delayed ; then
+                was_anything_updated=1
+            fi
         fi
     else
-        if upgrade_system_delayed ; then
-            was_anything_updated=1
-        fi
+        el_debug "skipping system upgrade check: ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED=${ELIVE_UPGRADER_SYSTEM_UPGRADE_ENABLED}"
     fi
 
 
@@ -361,15 +431,19 @@ main(){
     source /usr/lib/elive-upgrader/functions.sh
 
     # hooks: root
-    el_debug "going to: hooks root post"
-    if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-post ; then
-        was_anything_updated=1
-    fi
+    if [[ "${ELIVE_UPGRADER_HOOKS_ENABLED:-yes}" = "yes" ]] ; then
+        el_debug "going to: hooks root post"
+        if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --hooks-root-post ; then
+            was_anything_updated=1
+        fi
 
-    # hooks: user
-    el_debug "going to: hooks user post"
-    if run_hooks "user" "post" ; then
-        was_anything_updated=1
+        # hooks: user
+        el_debug "going to: hooks user post"
+        if run_hooks "user" "post" ; then
+            was_anything_updated=1
+        fi
+    else
+        el_debug "skipping hooks post: ELIVE_UPGRADER_HOOKS_ENABLED=${ELIVE_UPGRADER_HOOKS_ENABLED}"
     fi
 
     if ((was_anything_updated)) ; then
