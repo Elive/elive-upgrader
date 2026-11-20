@@ -7,7 +7,7 @@
 
 # Master switch for elive-upgrader ("yes" or "no").
 # If set to "no", automatic/normal runs exit prematurely without performing actions
-# (unless --force or --test is passed on the command line).
+# (unless --force or --dry-run is passed on the command line).
 ELIVE_UPGRADER_ENABLED="yes"
 
 # Automatically update the elive-upgrader package itself before running hooks ("yes" or "no").
@@ -54,7 +54,7 @@ ELIVE_UPGRADER_NOTIFICATIONS_ENABLED="yes"
 
 # Enable or disable automatic hourly Debian-Security updates ("yes" or "no").
 # Installed enabled by default; set to "no" to disable the scheduled cron runs.
-# You can still run "elive-security" manually (e.g. "elive-security --test --debug").
+# You can still run "elive-security" manually (e.g. "elive-security --dry-run --debug").
 ELIVE_SECURITY_ENABLED="yes"
 
 # Minimum interval in seconds between scheduled cron probes (default: 3600 = 1 hour).

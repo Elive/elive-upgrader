@@ -1,5 +1,5 @@
 #!/bin/bash
 # Manual/cron entry point for the Elive automatic security updater.
-# Supports --auto, --probe, --update, --check-cves, --status, --test, --debug, --force, --help.
+# Supports --auto, --probe, --update, --check-cves, --status, -n/--dry-run, --debug, --force, --help.
 
 exec /usr/lib/elive-upgrader/elive-security-worker "$@"

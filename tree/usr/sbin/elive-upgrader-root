@@ -228,7 +228,7 @@ hooks_root_pre(){
     fi
 
     # set the user as an active member or not
-    ((ELIVE_UPGRADER_TEST)) || patreon_members_update
+    ((ELIVE_UPGRADER_DRY_RUN)) || patreon_members_update
 
     # hooks: root
     run_hooks "root" "pre"
@@ -253,8 +253,8 @@ hooks_root_post(){
 updates_available_show(){
     local number
 
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_debug "Test mode: counting available upgrades without modifying apt lists"
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_debug "Dry-run: counting available upgrades without modifying apt lists"
         number="$( LC_ALL="$EL_LC_EN" apt-get -u upgrade --assume-no --show-upgraded 2>/dev/null | grep -E "^[[:digit:]]+ upgraded," | tail -1 | awk '{print $1}' )"
         echo "${number:-0}"
         return 0
@@ -290,8 +290,8 @@ upgrade_system(){
         return 0
     fi
 
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_info "Test mode: simulating apt-get dist-upgrade..."
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_info "Dry-run: simulating apt-get dist-upgrade..."
         LC_ALL="$EL_LC_EN" apt-get -s dist-upgrade
         return $?
     fi
@@ -637,14 +637,14 @@ upgrade_firmwares(){
 
     # - pre }}}
 
-    if [[ "$conf_firmwares_updates_available" = "never" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_TEST)) ; then
+    if [[ "$conf_firmwares_updates_available" = "never" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_DRY_RUN)) ; then
         el_info "You selected to never ask for firmware updates again, ignoring..."
         el_info "If you want to update firmwares, run the command: sudo $(basename $0) --upgrade-firmwares --force"
         return 0
     fi
 
     # Refresh LVFS metadata (only force refresh when --force is explicitly requested)
-    if ! ((ELIVE_UPGRADER_TEST)) ; then
+    if ! ((ELIVE_UPGRADER_DRY_RUN)) ; then
         if el_verify_internet fast 1>/dev/null 2>&1 ; then
             el_debug "Refreshing fwupdmgr metadata (force=${is_force:-0})"
             if ((is_force)) ; then
@@ -670,13 +670,13 @@ upgrade_firmwares(){
     [[ -s "${fw_tmpdir}/details.txt" ]] && updates_details="$(cat "${fw_tmpdir}/details.txt")"
     [[ -s "${fw_tmpdir}/reboot.txt" ]] && reboot_list="$(cat "${fw_tmpdir}/reboot.txt")"
 
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_info "Test mode: fwupdmgr query rc=${query_rc}, signature='${updates_sig:-none}'"
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_info "Dry-run: fwupdmgr query rc=${query_rc}, signature='${updates_sig:-none}'"
         if [[ -n "$updates_details" ]] ; then
             printf '%s\n' "$updates_details"
         fi
         if [[ -n "$reboot_list" ]] ; then
-            el_info "Test mode: firmware updates pending reboot:\n${reboot_list}"
+            el_info "Dry-run: firmware updates pending reboot:\n${reboot_list}"
         fi
         rm -rf "$fw_tmpdir"
         return 0
@@ -835,9 +835,9 @@ update_upgrader_fast(){
         el_debug "Self-update skipped: ELIVE_UPGRADER_AUTO_UPDATE_TOOL=${ELIVE_UPGRADER_AUTO_UPDATE_TOOL}"
         return 0
     fi
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_info "Test mode: checking if newer elive-upgrader is available (no install)"
-        el_package_newer_check "elive-upgrader" && el_info "Test mode: elive-upgrader update available" || el_info "Test mode: elive-upgrader is up to date"
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_info "Dry-run: checking if newer elive-upgrader is available (no install)"
+        el_package_newer_check "elive-upgrader" && el_info "Dry-run: elive-upgrader update available" || el_info "Dry-run: elive-upgrader is up to date"
         return 0
     fi
     if el_package_upgrade_fast 480 normal "elive-upgrader" ; then
@@ -960,20 +960,27 @@ main(){
                 export EL_DEBUG=4
                 is_print_fancy=1
                 ;;
-            --test|--dry-run)
-                export ELIVE_UPGRADER_TEST=1
+            -n|--dry-run)
+                export ELIVE_UPGRADER_DRY_RUN=1
                 export EL_DEBUG="${EL_DEBUG:-3}"
                 is_print_fancy=1
+                ;;
+            --update|--update-tool|--hooks-root-pre|--hooks-root-post|--upgrade|--updates-available|--upgrade-firmwares|--upgrade-firmware|--fix)
                 ;;
             -h|--help)
                 show_help
                 exit 0
                 ;;
+            *)
+                echo "Unknown argument: $arg" >&2
+                show_help >&2
+                exit 1
+                ;;
         esac
     done
 
-    el_debug "elive-upgrader-root starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, force=${is_force:-0}, test=${ELIVE_UPGRADER_TEST:-0}, args='$*'"
-    if [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_TEST)) ; then
+    el_debug "elive-upgrader-root starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, force=${is_force:-0}, dry_run=${ELIVE_UPGRADER_DRY_RUN:-0}, args='$*'"
+    if [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force)) && ! ((ELIVE_UPGRADER_DRY_RUN)) ; then
         el_info "elive-upgrader is disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_ENABLED=no). Exiting."
         exit 0
     fi

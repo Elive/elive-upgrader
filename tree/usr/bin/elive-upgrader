@@ -56,7 +56,7 @@ show_help(){
     echo "  --delayed            Delay execution (used for background/autostart)"
     echo "  --betatest           Enable beta testing features"
     echo "  --security           Run the automatic security update check manually"
-    echo "  -t, --test           Simulate execution (dry-run) without applying changes"
+    echo "  -n, --dry-run        Simulate execution without applying changes"
     echo "  -d, --debug          Enable verbose debug output (EL_DEBUG=4)"
     echo "  -f, --force          Force action (ignore disabled/metered guards)"
     echo "  -h, --help           Show this help message"
@@ -65,10 +65,12 @@ show_help(){
 main(){
     # pre {{{
     local pong was_anything_updated=0 arg
-    local is_test_mode=0 is_debug_mode=0 is_security_mode=0
+    local is_dry_run=0 is_debug_mode=0 is_security_mode=0
 
     for arg in "$@" ; do
         case "$arg" in
+            -u|--upgrade)
+                ;;
             --delayed)
                 is_delayed=1
                 ;;
@@ -80,9 +82,9 @@ main(){
             -f|--force)
                 is_force_mode=1
                 ;;
-            -t|--test|--dry-run)
-                is_test_mode=1
-                export ELIVE_UPGRADER_TEST=1
+            -n|--dry-run)
+                is_dry_run=1
+                export ELIVE_UPGRADER_DRY_RUN=1
                 export EL_DEBUG="${EL_DEBUG:-3}"
                 is_print_fancy=1
                 ;;
@@ -98,18 +100,23 @@ main(){
                 show_help
                 exit 0
                 ;;
+            *)
+                echo "Unknown argument: $arg" >&2
+                show_help >&2
+                exit 1
+                ;;
         esac
     done
 
-    el_debug "elive-upgrader starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, delayed=${is_delayed:-0}, force=${is_force_mode:-0}, test=${is_test_mode}, debug=${is_debug_mode}, security=${is_security_mode}"
+    el_debug "elive-upgrader starting: enabled=${ELIVE_UPGRADER_ENABLED:-yes}, delayed=${is_delayed:-0}, force=${is_force_mode:-0}, dry_run=${is_dry_run}, debug=${is_debug_mode}, security=${is_security_mode}"
 
-    if ! ((is_security_mode)) && [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force_mode)) && ! ((is_test_mode)) ; then
+    if ! ((is_security_mode)) && [[ "${ELIVE_UPGRADER_ENABLED:-yes}" != "yes" ]] && ! ((is_force_mode)) && ! ((is_dry_run)) ; then
         el_info "elive-upgrader is disabled in /etc/default/elive-upgrader (ELIVE_UPGRADER_ENABLED=no). Exiting."
         exit 0
     fi
 
-    if ((is_security_mode)) && ((is_test_mode)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
-        local sec_args=("--auto" "--test")
+    if ((is_security_mode)) && ((is_dry_run)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+        local sec_args=("--auto" "--dry-run")
         ((is_debug_mode)) && sec_args+=("--debug")
         ((is_force_mode)) && sec_args+=("--force")
         el_debug "Running unprivileged security simulation: /usr/sbin/elive-security ${sec_args[*]}"
@@ -253,17 +260,17 @@ main(){
     if ((is_debug_mode)) ; then
         root_args+=("--debug")
     fi
-    if ((is_test_mode)) ; then
-        root_args+=("--test")
+    if ((is_dry_run)) ; then
+        root_args+=("--dry-run")
     fi
 
     if ((is_security_mode)) ; then
         local sec_args=("--auto")
-        ((is_test_mode)) && sec_args+=("--test")
+        ((is_dry_run)) && sec_args+=("--dry-run")
         ((is_debug_mode)) && sec_args+=("--debug")
         ((is_force_mode)) && sec_args+=("--force")
         el_debug "Running manual security check: elive-security ${sec_args[*]}"
-        if ((is_test_mode)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+        if ((is_dry_run)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
             /usr/sbin/elive-security "${sec_args[@]}"
         else
             sudo "${sudo_args[@]}" elive-upgrader-root --security "${sec_args[@]}"
@@ -310,9 +317,9 @@ main(){
     # wait that the entire internet is set up and the timezones are correctly updated, we are not hurry
     if ((is_delayed)) ; then
         local delay_sec="${ELIVE_UPGRADER_DELAY_SECONDS:-30}"
-        el_debug "delayed $(basename $0) ${delay_sec} seconds (test=${is_test_mode})"
+        el_debug "delayed $(basename $0) ${delay_sec} seconds (dry_run=${is_dry_run})"
 
-        if ! ((is_test_mode)) ; then
+        if ! ((is_dry_run)) ; then
             sleep "$delay_sec"
         fi
 
@@ -348,8 +355,8 @@ main(){
     # verify if we are metered
     if [[ "${ELIVE_UPGRADER_SKIP_METERED:-yes}" = "yes" ]] && ! ((is_force_mode)) && el_verify_internet_metered ; then
         el_debug "Metered internet detected and ELIVE_UPGRADER_SKIP_METERED=yes"
-        if ((is_test_mode)) ; then
-            el_info "Test mode: metered connection detected (would normally abort unless --force)"
+        if ((is_dry_run)) ; then
+            el_info "Dry-run: metered connection detected (would normally abort unless --force)"
         else
             el_error "Your internet connection is metered. The Elive Upgrader will not run on metered connections to avoid unexpected data charges. Please connect to a non-metered network and try again. Or use the --force option if you really want to."
             exit
@@ -409,7 +416,7 @@ main(){
             else
                 num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --updates-available )"
                 el_debug "betatest updates available: ${num_updates:-0}"
-                if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] && ! ((is_test_mode)) ; then
+                if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] && ! ((is_dry_run)) ; then
                     if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
                         if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade --noaptupdate ; then
                             was_anything_updated=1

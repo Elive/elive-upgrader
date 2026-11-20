@@ -180,7 +180,7 @@ sudo elive-upgrader-root --fix                  fix a possible broken state of y
 sudo elive-upgrader-root --security [ARGS]      run elive-security cron/worker manually
 
 Options:
-  --test, --dry-run                             simulate actions without applying changes
+  -n, --dry-run                                 simulate actions without applying changes
   --debug, -d                                   enable verbose debug output (EL_DEBUG=4)
   --force                                       ignore disabled checks in /etc/default/elive-upgrader
   --betatest                                    enable beta testing features
@@ -206,8 +206,8 @@ notify_user_system_updated(){
         el_debug "System updated notification disabled via ELIVE_UPGRADER_NOTIFICATIONS_ENABLED"
         return 0
     fi
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_debug "Test mode: would play 1up sound and send 'Elive Updated' notification"
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_debug "Dry-run: would play 1up sound and send 'Elive Updated' notification"
         return 0
     fi
     # If a distro upgrade is scheduled/in progress but not yet completed, do not notify yet
@@ -247,7 +247,7 @@ upgrade_system_delayed(){
 
     local timestamp limit_time_seconds num_updates time_passed
     timestamp="$HOME/.config/elive-upgrader/timestamp-last-upgrade"
-    if ! ((ELIVE_UPGRADER_TEST)) && ! [[ -d "$( dirname "$timestamp" )" ]] ; then
+    if ! ((ELIVE_UPGRADER_DRY_RUN)) && ! [[ -d "$( dirname "$timestamp" )" ]] ; then
         mkdir -p "$( dirname "$timestamp" )"
         touch "$timestamp"
     fi
@@ -256,21 +256,21 @@ upgrade_system_delayed(){
     if [[ -e "$timestamp" ]] ; then
         time_passed="$( echo "$(date +%s) - $( stat -c %Y "$timestamp" )" | LC_ALL="$EL_LC_EN" bc -l | sed -e 's|\..*$||g' )"
     else
-        ((ELIVE_UPGRADER_TEST)) || touch "$timestamp"
+        ((ELIVE_UPGRADER_DRY_RUN)) || touch "$timestamp"
         time_passed="999999999999999999999999999"
     fi
 
     el_debug "Delayed upgrade check: time_passed=${time_passed}s, limit=${limit_time_seconds}s"
-    if [[ "$time_passed" -gt "$limit_time_seconds" ]] || ((ELIVE_UPGRADER_TEST)) ; then
+    if [[ "$time_passed" -gt "$limit_time_seconds" ]] || ((ELIVE_UPGRADER_DRY_RUN)) ; then
         if has_pending_distro_upgrade_hook ; then
             el_info "A new distro upgrade hook is available. Skipping regular system upgrade suggestion."
             return 1
         fi
 
-        if ((ELIVE_UPGRADER_TEST)) ; then
-            num_updates="$( sudo elive-upgrader-root --test --updates-available 2>/dev/null || true )"
-            el_debug "Test mode: simulated available updates count=${num_updates:-unknown}"
-            el_info "Test mode: would check/prompt for system upgrade (${num_updates:-0} updates) and firmware updates"
+        if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+            num_updates="$( sudo elive-upgrader-root --dry-run --updates-available 2>/dev/null || true )"
+            el_debug "Dry-run: simulated available updates count=${num_updates:-unknown}"
+            el_info "Dry-run: would check/prompt for system upgrade (${num_updates:-0} updates) and firmware updates"
             return 1
         fi
 
@@ -632,8 +632,8 @@ run_hooks(){
         return 1
     fi
 
-    if ((ELIVE_UPGRADER_TEST)) ; then
-        el_info "Test mode: simulating run_hooks mode=${mode} phase=${prepost} (hooks_d=${hooks_d})"
+    if ((ELIVE_UPGRADER_DRY_RUN)) ; then
+        el_info "Dry-run: simulating run_hooks mode=${mode} phase=${prepost} (hooks_d=${hooks_d})"
         return 1
     fi
 

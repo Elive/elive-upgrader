@@ -35,11 +35,13 @@ ELIVE_SECURITY_SKIP_METERED="yes"
 ELIVE_SECURITY_ALLOW_FULL_UPGRADE="no"
 ELIVE_SECURITY_CVE_FEED_URL=""
 
+RETRY_TTL=3600
 WORK_DIR=""
 PROBE_CHANGED=0
-IS_TEST=0
+IS_DRY_RUN=0
 IS_DEBUG=0
 IS_CRON=0
+IS_FORCE=0
 declare -a PENDING_VALIDATOR_UPDATES=()
 declare -a SECURITY_SOURCES=()
 
@@ -51,16 +53,16 @@ sec_log() {
         return 0
     fi
     ts="$(date '+%Y-%m-%d %H:%M:%S')"
-    if ((IS_TEST)) ; then
-        msg="${ts} [TEST:${level}] $*"
+    if ((IS_DRY_RUN)) ; then
+        msg="${ts} [DRY-RUN:${level}] $*"
     else
         msg="${ts} [${level}] $*"
     fi
-    if ! ((IS_TEST)) ; then
+    if ! ((IS_DRY_RUN)) ; then
         mkdir -p "$LOG_DIR" 2>/dev/null || true
         printf '%s\n' "$msg" >> "$LOG_FILE" 2>/dev/null || true
     fi
-    if [[ -t 2 ]] || ((IS_TEST)) || ((IS_DEBUG)) ; then
+    if [[ -t 2 ]] || ((IS_DRY_RUN)) || ((IS_DEBUG)) ; then
         printf '%s\n' "$msg" >&2
     fi
 }
@@ -85,7 +87,7 @@ Modes:
   -h, --help     Show this help message
 
 Options:
-  --test         Simulate all steps (dry-run) without modifying packages or state
+  -n, --dry-run  Simulate all steps without modifying packages or state
   --debug        Enable verbose el_debug and DEBUG logging
   --force        Ignore ELIVE_SECURITY_ENABLED="no" and probe interval
   --cron         Enforce ELIVE_SECURITY_PROBE_INTERVAL throttling (used by cron)
@@ -110,22 +112,22 @@ load_config() {
 }
 
 check_guards() {
-    el_debug "Checking runtime guards (UID=${UID:-$(id -u)}, is_test=${IS_TEST})"
-    if [[ "${UID:-$(id -u)}" -ne 0 ]] && ! ((IS_TEST)) ; then
-        sec_log "ERROR" "Must be run as root (hint: use --test to simulate unprivileged)"
+    el_debug "Checking runtime guards (UID=${UID:-$(id -u)}, is_dry_run=${IS_DRY_RUN})"
+    if [[ "${UID:-$(id -u)}" -ne 0 ]] && ! ((IS_DRY_RUN)) ; then
+        sec_log "ERROR" "Must be run as root (hint: use --dry-run to simulate unprivileged)"
         exit 1
     fi
 
     if grep -qsF "lockfs" /proc/cmdline ; then
         el_debug "Guard triggered: lockfs mode active in /proc/cmdline"
         sec_log "INFO" "Skipped: lockfs mode active"
-        ((IS_TEST)) || exit 0
+        ((IS_DRY_RUN)) || exit 0
     fi
 
     if grep -qsF "boot=live" /proc/cmdline ; then
         el_debug "Guard triggered: boot=live active in /proc/cmdline"
         sec_log "INFO" "Skipped: live mode active"
-        ((IS_TEST)) || exit 0
+        ((IS_DRY_RUN)) || exit 0
     fi
 
     if [[ -f "/etc/default/elive-distro-upgrade" ]] ; then
@@ -135,14 +137,14 @@ check_guards() {
         el_debug "Distro upgrade check: enabled=${upgrade_enabled:-no}, completed=${upgrade_completed:-no}"
         if [[ "$upgrade_enabled" = "yes" ]] && [[ "$upgrade_completed" != "yes" ]] ; then
             sec_log "INFO" "Skipped: distro upgrade is scheduled or in progress"
-            ((IS_TEST)) || exit 0
+            ((IS_DRY_RUN)) || exit 0
         fi
     fi
 }
 
 ensure_dirs() {
-    if ((IS_TEST)) ; then
-        el_debug "Test mode: skipping creation of system state/log/run directories"
+    if ((IS_DRY_RUN)) ; then
+        el_debug "Dry-run: skipping creation of system state/log/run directories"
         return 0
     fi
     mkdir -p "$STATE_DIR" "$LOG_DIR" "$RUN_DIR" "/run/lock"
@@ -150,8 +152,8 @@ ensure_dirs() {
 }
 
 acquire_flock() {
-    if ((IS_TEST)) ; then
-        el_debug "Test mode: skipping exclusive flock on $LOCK_FILE"
+    if ((IS_DRY_RUN)) ; then
+        el_debug "Dry-run: skipping exclusive flock on $LOCK_FILE"
         return 0
     fi
     exec 9>"$LOCK_FILE"
@@ -291,6 +293,30 @@ state_read_var() {
     awk -F'=' -v k="$var" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$file"
 }
 
+retry_is_throttled() {
+    local retry_at now
+    retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
+    [[ "$retry_at" =~ ^[0-9]+$ ]] || return 1
+    [[ "$retry_at" -gt 0 ]] || return 1
+    now="$(date +%s)"
+    if [[ "$now" -lt "$retry_at" ]] ; then
+        return 0
+    fi
+    return 1
+}
+
+retry_is_due() {
+    local retry_at now
+    retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
+    [[ "$retry_at" =~ ^[0-9]+$ ]] || return 1
+    [[ "$retry_at" -gt 0 ]] || return 1
+    now="$(date +%s)"
+    if [[ "$now" -ge "$retry_at" ]] ; then
+        return 0
+    fi
+    return 1
+}
+
 write_probe_state() {
     local state_file="$1" url="$2" lm="$3" etag="$4" status="$5" bytes="$6" now="$7"
     local tmp="${state_file}.tmp.$$"
@@ -330,7 +356,7 @@ run_probe() {
     el_debug "Discovered ${#SECURITY_SOURCES[@]} Debian-Security source(s)"
     if [[ "${#SECURITY_SOURCES[@]}" -eq 0 ]] ; then
         sec_log "INFO" "Probe: no enabled Debian-Security sources found"
-        ((IS_TEST)) || date +%s > "$LAST_PROBE_TIME_FILE"
+        ((IS_DRY_RUN)) || date +%s > "$LAST_PROBE_TIME_FILE"
         return 0
     fi
 
@@ -373,14 +399,14 @@ run_probe() {
         case "$http_code" in
             304)
                 sec_log "INFO" "Probe ${inrelease_url}: HTTP 304 Not Modified (body=${size_dl}B, header=${size_hdr}B, total=${total_bytes}B)"
-                ((IS_TEST)) || write_probe_state "$state_file" "$inrelease_url" "$prev_lm" "$prev_etag" "304" "$total_bytes" "$now"
+                ((IS_DRY_RUN)) || write_probe_state "$state_file" "$inrelease_url" "$prev_lm" "$prev_etag" "304" "$total_bytes" "$now"
                 ;;
             200)
                 new_lm="$(grep -i '^last-modified:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
                 new_etag="$(grep -i '^etag:' "$hdr_tmp" | tail -1 | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/\r$//')"
                 sec_log "INFO" "Probe ${inrelease_url}: HTTP 200 Changed (body=${size_dl}B, header=${size_hdr}B, total=${total_bytes}B, Last-Modified='${new_lm}')"
                 any_changed=1
-                if ! ((IS_TEST)) ; then
+                if ! ((IS_DRY_RUN)) ; then
                     if ((commit_immediately)) ; then
                         write_probe_state "$state_file" "$inrelease_url" "$new_lm" "$new_etag" "200" "$total_bytes" "$now"
                     else
@@ -402,7 +428,7 @@ run_probe() {
     if ((any_error)) && ! ((any_changed)) ; then
         return 1
     fi
-    ((IS_TEST)) || date +%s > "$LAST_PROBE_TIME_FILE"
+    ((IS_DRY_RUN)) || date +%s > "$LAST_PROBE_TIME_FILE"
     return 0
 }
 
@@ -426,10 +452,10 @@ build_security_apt_configs() {
     local pkgcache="${WORK_DIR}/pkgcache.bin"
     local srcpkgcache="${WORK_DIR}/srcpkgcache.bin"
 
-    if ((IS_TEST)) ; then
+    if ((IS_DRY_RUN)) ; then
         local test_lists="${WORK_DIR}/apt-lists"
         mkdir -p "${test_lists}/partial"
-        el_debug "Test mode: isolating APT list state to ${test_lists}"
+        el_debug "Dry-run: isolating APT list state to ${test_lists}"
         cat > "$sec_conf" <<EOF
 Dir::Etc::sourcelist "${sec_list}";
 Dir::Etc::sourceparts "/dev/null";
@@ -559,6 +585,13 @@ merge_updated_marker() {
 }
 
 run_update() {
+    if ! ((IS_DRY_RUN)) && ! ((IS_FORCE)) && retry_is_throttled ; then
+        local retry_at
+        retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
+        sec_log "INFO" "Retry throttle active (retry_at=${retry_at}), skipping apt-get update/install"
+        return 3
+    fi
+
     if [[ "${#SECURITY_SOURCES[@]}" -eq 0 ]] ; then
         discover_security_sources
     fi
@@ -567,21 +600,27 @@ run_update() {
         return 0
     fi
 
-    if [[ "$ELIVE_SECURITY_SKIP_METERED" = "yes" ]] && el_verify_internet_metered ; then
+    if [[ "$ELIVE_SECURITY_SKIP_METERED" = "yes" ]] && ! ((IS_FORCE)) && el_verify_internet_metered ; then
         el_debug "Metered connection detected via nmcli"
         sec_log "INFO" "Update deferred: connection is metered (ELIVE_SECURITY_SKIP_METERED=yes)"
-        if ! ((IS_TEST)) ; then
+        if ! ((IS_DRY_RUN)) ; then
+            local now retry_at
+            now="$(date +%s)"
+            retry_at=$(( now + RETRY_TTL ))
+            printf 'STATUS=metered-deferred\nTIMESTAMP=%s\nRETRY_AT=%s\n' "$(date -Iseconds)" "$retry_at" > "$LAST_RESULT_FILE"
+            chmod 0644 "$LAST_RESULT_FILE"
+            commit_pending_validators
             return 2
         fi
-        sec_log "INFO" "Test mode: continuing simulation despite metered connection"
+        sec_log "INFO" "Dry-run: continuing simulation despite metered connection"
     fi
 
     build_security_apt_configs
     local sec_conf="${WORK_DIR}/security-apt.conf"
     local arch_conf="${WORK_DIR}/arch-only.conf"
 
-    if ((IS_TEST)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
-        sec_log "INFO" "Test mode (unprivileged): skipping apt-get update, using read-only system APT lists"
+    if ((IS_DRY_RUN)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+        sec_log "INFO" "Dry-run (unprivileged): skipping apt-get update, using read-only system APT lists"
         cat > "$sec_conf" <<EOF
 Dir::Etc::sourcelist "${WORK_DIR}/security.list";
 Dir::Etc::sourceparts "/dev/null";
@@ -598,13 +637,19 @@ APT::Architectures { "$(dpkg --print-architecture)"; };
 EOF
     else
         sec_log "INFO" "Refreshing Debian-Security APT indices (arch=$(dpkg --print-architecture))"
-        if ((IS_TEST)) ; then
+        if ((IS_DRY_RUN)) ; then
             if ! /usr/bin/apt-get -c "$sec_conf" update -q=2 2>&1 ; then
-                sec_log "WARN" "Test mode: failed to update isolated Debian-Security APT indices"
+                sec_log "WARN" "Dry-run: failed to update isolated Debian-Security APT indices"
                 return 1
             fi
         elif ! el_aptget -c "$sec_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
             sec_log "ERROR" "Failed to update Debian-Security APT indices"
+            local now retry_at
+            now="$(date +%s)"
+            retry_at=$(( now + RETRY_TTL ))
+            printf 'STATUS=failed\nTIMESTAMP=%s\nRETRY_AT=%s\n' "$(date -Iseconds)" "$retry_at" > "$LAST_RESULT_FILE"
+            chmod 0644 "$LAST_RESULT_FILE"
+            commit_pending_validators
             return 1
         fi
     fi
@@ -618,7 +663,11 @@ EOF
     el_debug "Security candidates found: ${#sec_pkgs[@]} (${sec_pkgs[*]:-none})"
     if [[ "${#sec_pkgs[@]}" -eq 0 ]] ; then
         sec_log "INFO" "No installed packages have pending updates in Debian-Security"
-        ((IS_TEST)) || commit_pending_validators
+        if ! ((IS_DRY_RUN)) ; then
+            printf 'STATUS=success\nTIMESTAMP=%s\nPATH=none\nCHANGED_COUNT=0\n' "$(date -Iseconds)" > "$LAST_RESULT_FILE"
+            chmod 0644 "$LAST_RESULT_FILE"
+            commit_pending_validators
+        fi
         return 0
     fi
 
@@ -646,7 +695,7 @@ EOF
             fi
         done
         if ((all_present)) ; then
-            if ((IS_TEST)) ; then
+            if ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "Simulation passed for Tier 1 (security-only): would upgrade ${sec_pkgs[*]}"
                 el_debug "Tier 1 simulation output:\n${sim_out}"
                 return 0
@@ -667,9 +716,9 @@ EOF
     # Tier 2: security packages + required dependencies (full sources, single native arch, no removals)
     if ! ((upgrade_ok)) ; then
         sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=$(dpkg --print-architecture))"
-        if ((IS_TEST)) ; then
+        if ((IS_DRY_RUN)) ; then
             if [[ "${UID:-$(id -u)}" -eq 0 ]] ; then
-                /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 || sec_log "WARN" "Test mode: full APT index refresh returned errors"
+                /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 || sec_log "WARN" "Dry-run: full APT index refresh returned errors"
             fi
         elif ! el_aptget -c "$arch_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
             sec_log "WARN" "Full APT index refresh returned errors; attempting Tier 2 resolution with available indices"
@@ -677,7 +726,7 @@ EOF
         sim_rc=0
         sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s --no-remove install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
         if [[ "$sim_rc" -eq 0 ]] && ! echo "$sim_out" | grep -qE '^The following packages will be REMOVED:' ; then
-            if ((IS_TEST)) ; then
+            if ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
                 el_debug "Tier 2 simulation output:\n${sim_out}"
                 return 0
@@ -698,7 +747,7 @@ EOF
     # Tier 3: last-resort full upgrade (dist-upgrade) if explicitly allowed
     if ! ((upgrade_ok)) ; then
         if [[ "$ELIVE_SECURITY_ALLOW_FULL_UPGRADE" = "yes" ]] ; then
-            if ((IS_TEST)) ; then
+            if ((IS_DRY_RUN)) ; then
                 sim_rc=0
                 sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s dist-upgrade 2>&1)" || sim_rc=$?
                 sec_log "INFO" "Simulation for Tier 3 (full-upgrade) rc=${sim_rc}"
@@ -714,18 +763,23 @@ EOF
             fi
         else
             sec_log "ERROR" "Security update blocked: requires full-upgrade/removals, forbidden by ELIVE_SECURITY_ALLOW_FULL_UPGRADE=no"
-            if ! ((IS_TEST)) ; then
-                printf 'STATUS=blocked\nTIMESTAMP=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
+            if ! ((IS_DRY_RUN)) ; then
+                printf 'STATUS=blocked\nTIMESTAMP=%s\nRETRY_AT=0\nPACKAGES=%s\n' "$(date -Iseconds)" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
                 chmod 0644 "$LAST_RESULT_FILE"
+                commit_pending_validators
             fi
             return 1
         fi
     fi
 
     if ! ((upgrade_ok)) ; then
-        if ! ((IS_TEST)) ; then
-            printf 'STATUS=failed\nTIMESTAMP=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
+        if ! ((IS_DRY_RUN)) ; then
+            local now retry_at
+            now="$(date +%s)"
+            retry_at=$(( now + RETRY_TTL ))
+            printf 'STATUS=failed\nTIMESTAMP=%s\nRETRY_AT=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "$retry_at" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
             chmod 0644 "$LAST_RESULT_FILE"
+            commit_pending_validators
         fi
         return 1
     fi
@@ -776,7 +830,7 @@ run_cve_check() {
 
     feed_url="${ELIVE_SECURITY_CVE_FEED_URL:-https://repo.${codename}.elive.elivecd.org/elive-security-cves.json.gz}"
     el_debug "Checking unpatched CVE feed for codename=${codename}: ${feed_url}"
-    if ((IS_TEST)) ; then
+    if ((IS_DRY_RUN)) ; then
         feed_state="${WORK_DIR}/cve-feed.state"
         feed_gz="${WORK_DIR}/cve-feed.json.gz"
         feed_json="${WORK_DIR}/cve-feed.json"
@@ -978,7 +1032,7 @@ PYEOF
         }
     ' "$current_file" "$prev_file" >> "$delta_tmp"
 
-    if ((IS_TEST)) ; then
+    if ((IS_DRY_RUN)) ; then
         sec_log "INFO" "CVE simulation complete: $(wc -l < "$current_file") active unpatched CVE(s), $(wc -l < "$delta_tmp") delta(s)"
         el_debug "CVE deltas:\n$(cat "$delta_tmp")"
         return 0
@@ -1013,14 +1067,14 @@ PYEOF
 }
 
 main() {
-    local mode="" is_force=0 arg
+    local mode="" arg
     for arg in "$@" ; do
         case "$arg" in
             --auto|--probe|--update|--check-cves|--status)
                 mode="$arg"
                 ;;
-            --test|--dry-run)
-                IS_TEST=1
+            -n|--dry-run)
+                IS_DRY_RUN=1
                 ;;
             --debug|-d)
                 IS_DEBUG=1
@@ -1031,15 +1085,15 @@ main() {
                 IS_CRON=1
                 ;;
             --force)
-                is_force=1
+                IS_FORCE=1
                 ;;
             -h|--help)
                 show_help
                 exit 0
                 ;;
             *)
-                sec_log "ERROR" "Unknown argument: $arg"
-                show_help
+                echo "Unknown argument: $arg" >&2
+                show_help >&2
                 exit 1
                 ;;
         esac
@@ -1059,33 +1113,33 @@ main() {
     acquire_flock
 
     WORK_DIR="$(mktemp -d /tmp/.elive-security-worker.XXXXXX)"
-    el_debug "Worker starting: mode=${mode}, test=${IS_TEST}, cron=${IS_CRON}, force=${is_force}, workdir=${WORK_DIR}"
+    el_debug "Worker starting: mode=${mode}, dry_run=${IS_DRY_RUN}, cron=${IS_CRON}, force=${IS_FORCE}, workdir=${WORK_DIR}"
 
     case "$mode" in
         --probe)
             run_probe 1
             ;;
         --update)
-            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "Update skipped: ELIVE_SECURITY_ENABLED=${ELIVE_SECURITY_ENABLED}"
                 exit 0
             fi
             run_update
             ;;
         --check-cves)
-            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
                 exit 0
             fi
             run_cve_check
             ;;
         --auto)
-            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((is_force)) && ! ((IS_TEST)) ; then
+            if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "Run skipped: ELIVE_SECURITY_ENABLED=${ELIVE_SECURITY_ENABLED}"
                 exit 0
             fi
 
-            if ((IS_CRON)) && ! ((is_force)) && ! ((IS_TEST)) && [[ -s "$LAST_PROBE_TIME_FILE" ]] ; then
+            if ((IS_CRON)) && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) && [[ -s "$LAST_PROBE_TIME_FILE" ]] ; then
                 local now last_ts elapsed
                 now="$(date +%s)"
                 last_ts="$(cat "$LAST_PROBE_TIME_FILE" 2>/dev/null)"
@@ -1103,12 +1157,19 @@ main() {
             if run_probe 0 ; then
                 if ((PROBE_CHANGED)) ; then
                     run_update || true
-                elif ((IS_TEST)) ; then
-                    sec_log "INFO" "Test mode: InRelease unchanged (304), simulating update candidate check anyway"
+                elif ((IS_DRY_RUN)) ; then
+                    sec_log "INFO" "Dry-run: InRelease unchanged (304), simulating update candidate check anyway"
+                    run_update || true
+                elif ! ((IS_FORCE)) && retry_is_throttled ; then
+                    local retry_at
+                    retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
+                    sec_log "INFO" "Retry throttle active (retry_at=${retry_at}), waiting for window"
+                elif ! ((IS_FORCE)) && retry_is_due ; then
+                    sec_log "INFO" "Retry window expired, retrying security update (no new InRelease)"
                     run_update || true
                 fi
             fi
-            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((is_force)) || ((IS_TEST)) ; then
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then
                 run_cve_check || true
             else
                 el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"

@@ -2030,7 +2030,7 @@ ensure_security_repositories(){
         [[ ! -f "$f" ]] && continue
         if grep -E "^\s*#\s*deb\s+.*(security\.debian\.org|deb\.debian\.org/debian-security).*${sec_suite_v}" "$f" &>/dev/null; then
             log_info "Uncommenting security repository in $f..."
-            sed -i -E "s|^\s*#\s*(deb\s+.*(security\.debian\.org\|deb\.debian\.org/debian-security).*${sec_suite_v}.*$)|\1|" "$f" 2>/dev/null || true
+            sed -i -E "s#^\s*\#\s*(deb\s+.*(security\.debian\.org|deb\.debian\.org/debian-security).*${sec_suite_v}.*\$)#\1#" "$f" 2>/dev/null || true
             uncommented=1
         fi
     done
