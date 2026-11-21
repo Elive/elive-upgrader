@@ -1,5 +1,41 @@
 #!/bin/bash
-# Manual/cron entry point for the Elive automatic security updater.
-# Supports --auto, --probe, --update, --check-cves, --status, -n/--dry-run, --debug, --force, --help.
+# ==============================================================================
+# Script Name: elive-security
+# Description: Manual and cron entry point wrapper for the Elive automatic 
+#              security updater, selective patcher, and CVE checker.
+# Author: Elive Development Team
+# ==============================================================================
+#
+# This script serves as a clean wrapper around the underlying worker daemon 
+# /usr/lib/elive-upgrader/elive-security-worker. It passes all arguments 
+# directly to the worker while providing robust command-line documentation 
+# and help options.
+#
+# Supported Modes:
+#   --auto         Run full cycle: probe -> selective update -> CVE check (default)
+#   --probe        Run conditional GET probe on Debian-Security InRelease only
+#   --update       Run selective security update (without probe)
+#   --check-cves   Run unpatched CVE feed check only
+#   --status       Show current configuration, last result, and pending markers
+#
+# Supported Options:
+#   -n, --dry-run  Simulate all steps without modifying packages or state
+#   --debug        Enable verbose debugging output and logging
+#   --force        Ignore ELIVE_SECURITY_ENABLED="no" and probe interval restrictions
+#   --cron         Enforce probe interval throttling (used by system cron jobs)
+#   -h, --help     Show this help message and exit
+# ==============================================================================
 
+set -Eeuo pipefail
+
+# Check for help flags and delegate to the worker's help routine if requested
+for arg in "${@:-}"; do
+    case "$arg" in
+        -h|--help)
+            exec /usr/lib/elive-upgrader/elive-security-worker --help
+            ;;
+    esac
+done
+
+# Execute the core security worker with all provided arguments
 exec /usr/lib/elive-upgrader/elive-security-worker "$@"
