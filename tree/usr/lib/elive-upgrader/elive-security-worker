@@ -113,6 +113,13 @@ load_config() {
 
 check_guards() {
     el_debug "Checking runtime guards (UID=${UID:-$(id -u)}, is_dry_run=${IS_DRY_RUN})"
+
+    if grep -qsF "boot=live" /proc/cmdline ; then
+        el_debug "Guard triggered: boot=live active in /proc/cmdline"
+        sec_log "INFO" "Skipped: live mode active"
+        ((IS_DRY_RUN)) || exit 0
+    fi
+
     if [[ "${UID:-$(id -u)}" -ne 0 ]] && ! ((IS_DRY_RUN)) ; then
         sec_log "ERROR" "Must be run as root (hint: use --dry-run to simulate unprivileged)"
         exit 1
@@ -121,12 +128,6 @@ check_guards() {
     if grep -qsF "lockfs" /proc/cmdline ; then
         el_debug "Guard triggered: lockfs mode active in /proc/cmdline"
         sec_log "INFO" "Skipped: lockfs mode active"
-        ((IS_DRY_RUN)) || exit 0
-    fi
-
-    if grep -qsF "boot=live" /proc/cmdline ; then
-        el_debug "Guard triggered: boot=live active in /proc/cmdline"
-        sec_log "INFO" "Skipped: live mode active"
         ((IS_DRY_RUN)) || exit 0
     fi
 
