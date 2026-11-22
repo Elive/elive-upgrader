@@ -2787,7 +2787,7 @@ send_upgrade_report() {
         if el_verify_internet 2>/dev/null ; then
             if command -v nc &>/dev/null || [[ -e "/var/lib/dpkg/info/netcat-openbsd.list" ]] ; then
                 {
-                    echo -e "ELIVE_DATA_TYPE: 2::${id}::transfer::text::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::${architecture}::${eliveversion}::"
+                    echo -e "ELIVE_DATA_TYPE: 3.0::${id}::transfer::gz::distroupgrade_debug::0::::${conf_send_debug_reports_email}::${exit_status}::::${architecture}::${eliveversion}::"
                     build_report_content | gzip -9 -f
                 } > "$logs_tmp"
 
