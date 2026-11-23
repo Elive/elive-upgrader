@@ -746,38 +746,72 @@ EOF
 
     # Tier 2: security packages + required dependencies (full sources, configured archs, no removals)
     if ! ((upgrade_ok)) ; then
-        sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=${arch_csv})"
-        if ((IS_DRY_RUN)) ; then
-            if [[ "${UID:-$(id -u)}" -eq 0 ]] ; then
-                if ! /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 ; then
+        local tier2_refreshed=0
+        sim_rc=0
+        sim_out=""
+
+        if ! ((IS_FORCE)) ; then
+            sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s --no-remove install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
+            if [[ "$sim_rc" -eq 0 ]] && ! echo "$sim_out" | grep -qE '^The following packages will be REMOVED:' ; then
+                if ((IS_DRY_RUN)) ; then
+                    sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
+                    el_debug "Tier 2 simulation output:\n${sim_out}"
+                    return 0
+                fi
+                sec_log "INFO" "Applying Tier 2 (security-with-deps) using existing APT indices: ${sec_pkgs[*]}"
+                if el_aptget -c "$arch_conf" "${sec_apt_opts[@]}" --no-remove install "${sec_pkgs[@]}" >> "$LOG_FILE" 2>&1 ; then
+                    escalation_path="security-with-deps"
+                    upgrade_ok=1
+                else
+                    sec_log "WARN" "Tier 2 (security-with-deps) execution failed with existing indices, refreshing full APT indices"
+                fi
+            else
+                el_debug "Tier 2 pre-refresh simulation rc=${sim_rc}:\n${sim_out}"
+                sec_log "INFO" "Tier 2 simulation needs updated APT indices, refreshing full APT indices"
+            fi
+        fi
+
+        if ! ((upgrade_ok)) ; then
+            if ((IS_DRY_RUN)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
+                sec_log "INFO" "Dry-run (unprivileged): skipping full APT index refresh"
+            else
+                sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=${arch_csv})"
+                tier2_refreshed=1
+                if ((IS_DRY_RUN)) ; then
+                    if ! /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 ; then
+                        arch_update_ok=0
+                        sec_log "WARN" "Dry-run: full APT index refresh returned errors"
+                    fi
+                elif ! el_aptget -c "$arch_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
                     arch_update_ok=0
-                    sec_log "WARN" "Dry-run: full APT index refresh returned errors"
+                    sec_log "WARN" "Full APT index refresh returned errors; attempting Tier 2 resolution with available indices"
                 fi
             fi
-        elif ! el_aptget -c "$arch_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
-            arch_update_ok=0
-            sec_log "WARN" "Full APT index refresh returned errors; attempting Tier 2 resolution with available indices"
-        fi
-        sim_rc=0
-        sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s --no-remove install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
-        if [[ "$sim_rc" -eq 0 ]] && ! echo "$sim_out" | grep -qE '^The following packages will be REMOVED:' ; then
-            if ((IS_DRY_RUN)) ; then
-                sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
-                el_debug "Tier 2 simulation output:\n${sim_out}"
-                return 0
+
+            if ((tier2_refreshed)) || ((IS_FORCE)) ; then
+                sim_rc=0
+                sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s --no-remove install "${sec_pkgs[@]}" 2>&1)" || sim_rc=$?
             fi
-            sec_log "INFO" "Applying Tier 2 (security-with-deps): ${sec_pkgs[*]}"
-            if el_aptget -c "$arch_conf" "${sec_apt_opts[@]}" --no-remove install "${sec_pkgs[@]}" >> "$LOG_FILE" 2>&1 ; then
-                escalation_path="security-with-deps"
-                upgrade_ok=1
+
+            if [[ "$sim_rc" -eq 0 ]] && ! echo "$sim_out" | grep -qE '^The following packages will be REMOVED:' ; then
+                if ((IS_DRY_RUN)) ; then
+                    sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
+                    el_debug "Tier 2 simulation output:\n${sim_out}"
+                    return 0
+                fi
+                sec_log "INFO" "Applying Tier 2 (security-with-deps): ${sec_pkgs[*]}"
+                if el_aptget -c "$arch_conf" "${sec_apt_opts[@]}" --no-remove install "${sec_pkgs[@]}" >> "$LOG_FILE" 2>&1 ; then
+                    escalation_path="security-with-deps"
+                    upgrade_ok=1
+                else
+                    sec_log "WARN" "Tier 2 (security-with-deps) execution failed"
+                fi
             else
-                sec_log "WARN" "Tier 2 (security-with-deps) execution failed"
+                el_debug "Tier 2 simulation rc=${sim_rc}:\n${sim_out}"
+                local sim_reason
+                sim_reason="$(printf '%s\n' "$sim_out" | grep -E '^(E:|W:|The following| .*depends:| .*Breaks:| .*Conflicts:)' | head -n 10 | tr '\n' ' ')"
+                sec_log "WARN" "Tier 2 (security-with-deps) simulation failed or requires package removal${sim_reason:+: $sim_reason}"
             fi
-        else
-            el_debug "Tier 2 simulation rc=${sim_rc}:\n${sim_out}"
-            local sim_reason
-            sim_reason="$(printf '%s\n' "$sim_out" | grep -E '^(E:|W:|The following| .*depends:| .*Breaks:| .*Conflicts:)' | head -n 10 | tr '\n' ' ')"
-            sec_log "WARN" "Tier 2 (security-with-deps) simulation failed or requires package removal${sim_reason:+: $sim_reason}"
         fi
     fi
 
