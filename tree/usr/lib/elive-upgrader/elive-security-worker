@@ -30,7 +30,7 @@ LAST_PROBE_TIME_FILE="${STATE_DIR}/last-probe-timestamp"
 # Default configuration (overridden by /etc/elive/settings, /etc/default/elive-upgrader, el_config_get)
 ELIVE_SECURITY_ENABLED="yes"
 ELIVE_SECURITY_PROBE_INTERVAL="3600"
-ELIVE_SECURITY_CVE_CHECK_ENABLED="yes"
+ELIVE_SECURITY_CVE_CHECK_ENABLED="no"
 ELIVE_SECURITY_SKIP_METERED="yes"
 ELIVE_SECURITY_ALLOW_FULL_UPGRADE="no"
 ELIVE_SECURITY_CVE_FEED_URL=""
@@ -1128,13 +1128,11 @@ main() {
             run_update
             ;;
         --check-cves)
-            # Temporarily disabled: Elive CVE feed is not in use yet
-            sec_log "INFO" "CVE check skipped: temporarily disabled"
-            # if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
-            #     sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
-            #     exit 0
-            # fi
-            # run_cve_check
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
+                sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+                exit 0
+            fi
+            run_cve_check
             ;;
         --auto)
             if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
@@ -1172,12 +1170,11 @@ main() {
                     run_update || true
                 fi
             fi
-            # Temporarily disabled: Elive CVE feed is not in use yet
-            # if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then
-            #     run_cve_check || true
-            # else
-            #     el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
-            # fi
+            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then
+                run_cve_check || true
+            else
+                el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+            fi
             ;;
     esac
 }

@@ -61,7 +61,7 @@ ELIVE_SECURITY_ENABLED="yes"
 ELIVE_SECURITY_PROBE_INTERVAL="3600"
 
 # Enable or disable checking the unpatched CVE feed ("yes" or "no").
-ELIVE_SECURITY_CVE_CHECK_ENABLED="yes"
+ELIVE_SECURITY_CVE_CHECK_ENABLED="no"
 
 # Skip downloading/installing security updates on metered connections ("yes" or "no").
 # Note: the lightweight conditional InRelease probe still runs.
