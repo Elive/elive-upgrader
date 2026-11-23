@@ -433,9 +433,24 @@ run_probe() {
     return 0
 }
 
-build_security_apt_configs() {
-    local native_arch sec_list sec_conf arch_conf entry repo_uri suite comps signed_by opts
+get_configured_archs() {
+    local native_arch farch
     native_arch="$(dpkg --print-architecture)"
+    printf '%s\n' "$native_arch"
+    while IFS= read -r farch ; do
+        [[ -n "$farch" ]] && [[ "$farch" != "$native_arch" ]] && printf '%s\n' "$farch"
+    done < <(dpkg --print-foreign-architectures 2>/dev/null)
+}
+
+build_security_apt_configs() {
+    local native_arch arch a arch_csv="" arch_apt_block="" sec_list sec_conf arch_conf entry repo_uri suite comps signed_by opts
+    native_arch="$(dpkg --print-architecture)"
+    while IFS= read -r arch ; do
+        [[ -z "$arch" ]] && continue
+        arch_csv="${arch_csv:+${arch_csv},}${arch}"
+        arch_apt_block="${arch_apt_block}\"${arch}\"; "
+    done < <(get_configured_archs)
+
     sec_list="${WORK_DIR}/security.list"
     sec_conf="${WORK_DIR}/security-apt.conf"
     arch_conf="${WORK_DIR}/arch-only.conf"
@@ -443,7 +458,7 @@ build_security_apt_configs() {
     : > "$sec_list"
     for entry in "${SECURITY_SOURCES[@]}" ; do
         IFS='|' read -r repo_uri suite comps signed_by <<< "$entry"
-        opts="arch=${native_arch}"
+        opts="arch=${arch_csv}"
         if [[ -n "$signed_by" ]] && [[ "$signed_by" != *[[:space:]]* ]] && [[ -e "$signed_by" ]] ; then
             opts="${opts} signed-by=${signed_by}"
         fi
@@ -465,14 +480,14 @@ Dir::Cache::pkgcache "${pkgcache}";
 Dir::Cache::srcpkgcache "${srcpkgcache}";
 APT::Get::List-Cleanup "0";
 APT::Architecture "${native_arch}";
-APT::Architectures { "${native_arch}"; };
+APT::Architectures { ${arch_apt_block}};
 EOF
         cat > "$arch_conf" <<EOF
 Dir::State::Lists "${test_lists}";
 Dir::Cache::pkgcache "${pkgcache}";
 Dir::Cache::srcpkgcache "${srcpkgcache}";
 APT::Architecture "${native_arch}";
-APT::Architectures { "${native_arch}"; };
+APT::Architectures { ${arch_apt_block}};
 EOF
     else
         cat > "$sec_conf" <<EOF
@@ -482,27 +497,32 @@ Dir::Cache::pkgcache "${pkgcache}";
 Dir::Cache::srcpkgcache "${srcpkgcache}";
 APT::Get::List-Cleanup "0";
 APT::Architecture "${native_arch}";
-APT::Architectures { "${native_arch}"; };
+APT::Architectures { ${arch_apt_block}};
 EOF
         cat > "$arch_conf" <<EOF
 Dir::Cache::pkgcache "${pkgcache}";
 Dir::Cache::srcpkgcache "${srcpkgcache}";
 APT::Architecture "${native_arch}";
-APT::Architectures { "${native_arch}"; };
+APT::Architectures { ${arch_apt_block}};
 EOF
     fi
 }
 
 collect_security_candidates() {
     local sec_conf="$1"
-    local native_arch
-    native_arch="$(dpkg --print-architecture)"
+    local allowed_arches="all" arch
+    while IFS= read -r arch ; do
+        [[ -n "$arch" ]] && allowed_arches="${allowed_arches} ${arch}"
+    done < <(get_configured_archs)
 
     local -a installed_pkgs=()
     while IFS= read -r pkg ; do
         [[ -n "$pkg" ]] && installed_pkgs+=("$pkg")
     done < <(dpkg-query -W -f='${Status}\t${binary:Package}\t${Architecture}\n' 2>/dev/null | \
-        awk -F'\t' -v arch="$native_arch" '$1 == "install ok installed" && ($3 == arch || $3 == "all") { print $2 }')
+        awk -F'\t' -v arches="$allowed_arches" '
+            BEGIN { split(arches, arr, " "); for (i in arr) allowed[arr[i]] = 1 }
+            $1 == "install ok installed" && ($3 in allowed) { print $2 }
+        ')
 
     if [[ "${#installed_pkgs[@]}" -eq 0 ]] ; then
         return 0
@@ -619,6 +639,13 @@ run_update() {
     build_security_apt_configs
     local sec_conf="${WORK_DIR}/security-apt.conf"
     local arch_conf="${WORK_DIR}/arch-only.conf"
+    local native_arch arch arch_csv="" arch_apt_block=""
+    native_arch="$(dpkg --print-architecture)"
+    while IFS= read -r arch ; do
+        [[ -z "$arch" ]] && continue
+        arch_csv="${arch_csv:+${arch_csv},}${arch}"
+        arch_apt_block="${arch_apt_block}\"${arch}\"; "
+    done < <(get_configured_archs)
 
     if ((IS_DRY_RUN)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
         sec_log "INFO" "Dry-run (unprivileged): skipping apt-get update, using read-only system APT lists"
@@ -627,17 +654,17 @@ Dir::Etc::sourcelist "${WORK_DIR}/security.list";
 Dir::Etc::sourceparts "/dev/null";
 Dir::Cache::pkgcache "${WORK_DIR}/pkgcache.bin";
 Dir::Cache::srcpkgcache "${WORK_DIR}/srcpkgcache.bin";
-APT::Architecture "$(dpkg --print-architecture)";
-APT::Architectures { "$(dpkg --print-architecture)"; };
+APT::Architecture "${native_arch}";
+APT::Architectures { ${arch_apt_block}};
 EOF
         cat > "$arch_conf" <<EOF
 Dir::Cache::pkgcache "${WORK_DIR}/pkgcache.bin";
 Dir::Cache::srcpkgcache "${WORK_DIR}/srcpkgcache.bin";
-APT::Architecture "$(dpkg --print-architecture)";
-APT::Architectures { "$(dpkg --print-architecture)"; };
+APT::Architecture "${native_arch}";
+APT::Architectures { ${arch_apt_block}};
 EOF
     else
-        sec_log "INFO" "Refreshing Debian-Security APT indices (arch=$(dpkg --print-architecture))"
+        sec_log "INFO" "Refreshing Debian-Security APT indices (arch=${arch_csv})"
         if ((IS_DRY_RUN)) ; then
             if ! /usr/bin/apt-get -c "$sec_conf" update -q=2 2>&1 ; then
                 sec_log "WARN" "Dry-run: failed to update isolated Debian-Security APT indices"
@@ -680,7 +707,7 @@ EOF
     dpkg-query -W -f='${Status}\t${binary:Package}\t${Version}\n' 2>/dev/null | \
         awk -F'\t' '$1 == "install ok installed" || $1 == "hold ok installed" { print $2 "\t" $3 }' > "$before_file"
 
-    local escalation_path="" sim_out="" sim_rc=0 upgrade_ok=0
+    local escalation_path="" sim_out="" sim_rc=0 upgrade_ok=0 arch_update_ok=1
     local -a sec_apt_opts=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -y)
 
     # Tier 1: security-only (isolated security sourcelist, no new packages, no removals)
@@ -689,8 +716,11 @@ EOF
        ! echo "$sim_out" | grep -qE '^The following (NEW packages will be installed|packages will be REMOVED|packages have been kept back):' ; then
         local all_present=1
         for pkg in "${sec_pkgs[@]}" ; do
-            local base_pkg="${pkg%%:*}"
-            if ! printf '%s\n' "$sim_out" | awk -v p="$pkg" -v b="$base_pkg" '$1 == "Inst" && ($2 == p || $2 == b) { f=1; exit } END { exit !f }' ; then
+            local match_alt="$pkg"
+            if [[ "$pkg" = *":${native_arch}" ]] ; then
+                match_alt="${pkg%%:*}"
+            fi
+            if ! printf '%s\n' "$sim_out" | awk -v p="$pkg" -v b="$match_alt" '$1 == "Inst" && ($2 == p || $2 == b) { f=1; exit } END { exit !f }' ; then
                 all_present=0
                 break
             fi
@@ -714,14 +744,18 @@ EOF
         sec_log "INFO" "Tier 1 (security-only) cannot resolve cleanly without extra packages, escalating"
     fi
 
-    # Tier 2: security packages + required dependencies (full sources, single native arch, no removals)
+    # Tier 2: security packages + required dependencies (full sources, configured archs, no removals)
     if ! ((upgrade_ok)) ; then
-        sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=$(dpkg --print-architecture))"
+        sec_log "INFO" "Refreshing full APT indices for Tier 2 dependency resolution (arch=${arch_csv})"
         if ((IS_DRY_RUN)) ; then
             if [[ "${UID:-$(id -u)}" -eq 0 ]] ; then
-                /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 || sec_log "WARN" "Dry-run: full APT index refresh returned errors"
+                if ! /usr/bin/apt-get -c "$arch_conf" update -q=2 >/dev/null 2>&1 ; then
+                    arch_update_ok=0
+                    sec_log "WARN" "Dry-run: full APT index refresh returned errors"
+                fi
             fi
         elif ! el_aptget -c "$arch_conf" update -q=2 >> "$LOG_FILE" 2>&1 ; then
+            arch_update_ok=0
             sec_log "WARN" "Full APT index refresh returned errors; attempting Tier 2 resolution with available indices"
         fi
         sim_rc=0
@@ -741,7 +775,9 @@ EOF
             fi
         else
             el_debug "Tier 2 simulation rc=${sim_rc}:\n${sim_out}"
-            sec_log "WARN" "Tier 2 (security-with-deps) simulation failed or requires package removal"
+            local sim_reason
+            sim_reason="$(printf '%s\n' "$sim_out" | grep -E '^(E:|W:|The following| .*depends:| .*Breaks:| .*Conflicts:)' | head -n 10 | tr '\n' ' ')"
+            sec_log "WARN" "Tier 2 (security-with-deps) simulation failed or requires package removal${sim_reason:+: $sim_reason}"
         fi
     fi
 
@@ -762,6 +798,17 @@ EOF
             else
                 sec_log "ERROR" "Tier 3 (full-upgrade) failed"
             fi
+        elif ! ((arch_update_ok)) ; then
+            sec_log "ERROR" "Security update failed: full APT index refresh failed and Tier 2 could not resolve with stale indices"
+            if ! ((IS_DRY_RUN)) ; then
+                local now retry_at
+                now="$(date +%s)"
+                retry_at=$(( now + RETRY_TTL ))
+                printf 'STATUS=failed\nTIMESTAMP=%s\nRETRY_AT=%s\nPACKAGES=%s\n' "$(date -Iseconds)" "$retry_at" "${sec_pkgs[*]}" > "$LAST_RESULT_FILE"
+                chmod 0644 "$LAST_RESULT_FILE"
+                commit_pending_validators
+            fi
+            return 1
         else
             sec_log "ERROR" "Security update blocked: requires full-upgrade/removals, forbidden by ELIVE_SECURITY_ALLOW_FULL_UPGRADE=no"
             if ! ((IS_DRY_RUN)) ; then
@@ -1161,11 +1208,14 @@ main() {
                 elif ((IS_DRY_RUN)) ; then
                     sec_log "INFO" "Dry-run: InRelease unchanged (304), simulating update candidate check anyway"
                     run_update || true
-                elif ! ((IS_FORCE)) && retry_is_throttled ; then
+                elif ((IS_FORCE)) ; then
+                    sec_log "INFO" "Force mode: InRelease unchanged (304), running update check anyway"
+                    run_update || true
+                elif retry_is_throttled ; then
                     local retry_at
                     retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
                     sec_log "INFO" "Retry throttle active (retry_at=${retry_at}), waiting for window"
-                elif ! ((IS_FORCE)) && retry_is_due ; then
+                elif retry_is_due ; then
                     sec_log "INFO" "Retry window expired, retrying security update (no new InRelease)"
                     run_update || true
                 fi
