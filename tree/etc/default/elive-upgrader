@@ -58,7 +58,7 @@ ELIVE_UPGRADER_NOTIFICATIONS_ENABLED="yes"
 ELIVE_SECURITY_ENABLED="yes"
 
 # Minimum interval in seconds between scheduled cron probes (default: 3600 = 1 hour).
-ELIVE_SECURITY_PROBE_INTERVAL="3600"
+ELIVE_SECURITY_PROBE_INTERVAL="3590"
 
 # Enable or disable checking the unpatched CVE feed ("yes" or "no").
 ELIVE_SECURITY_CVE_CHECK_ENABLED="no"
