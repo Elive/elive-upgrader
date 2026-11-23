@@ -1128,11 +1128,13 @@ main() {
             run_update
             ;;
         --check-cves)
-            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
-                sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
-                exit 0
-            fi
-            run_cve_check
+            # Temporarily disabled: Elive CVE feed is not in use yet
+            sec_log "INFO" "CVE check skipped: temporarily disabled"
+            # if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
+            #     sec_log "INFO" "CVE check skipped: ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+            #     exit 0
+            # fi
+            # run_cve_check
             ;;
         --auto)
             if [[ "$ELIVE_SECURITY_ENABLED" != "yes" ]] && ! ((IS_FORCE)) && ! ((IS_DRY_RUN)) ; then
@@ -1170,11 +1172,12 @@ main() {
                     run_update || true
                 fi
             fi
-            if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then
-                run_cve_check || true
-            else
-                el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
-            fi
+            # Temporarily disabled: Elive CVE feed is not in use yet
+            # if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then
+            #     run_cve_check || true
+            # else
+            #     el_debug "CVE check disabled via ELIVE_SECURITY_CVE_CHECK_ENABLED=${ELIVE_SECURITY_CVE_CHECK_ENABLED}"
+            # fi
             ;;
     esac
 }
