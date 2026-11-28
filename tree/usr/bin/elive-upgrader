@@ -51,7 +51,7 @@ echo "$$" > "$lockfile"
 notify_security_reboot_required(){
     local force_notify="${1:-0}"
     local marker="/var/run/elive-security/reboot-required"
-    local notified_stamp="/tmp/.elive-security-reboot-notified-${USER}"
+    local notified_stamp="${XDG_RUNTIME_DIR:-/tmp}/.elive-security-reboot-notified-${USER}"
     local marker_ts="" prev_ts="" pkgs="" msg=""
 
     if [[ "${ELIVE_UPGRADER_NOTIFICATIONS_ENABLED:-yes}" != "yes" ]] || ((is_dry_run)) ; then
@@ -75,12 +75,12 @@ notify_security_reboot_required(){
     fi
 
     if [[ -n "${DISPLAY:-}" ]] ; then
-        el_notify normal system-reboot "$( eval_gettext "Reboot Required" )" "$msg" 2>/dev/null || true
+        if el_notify normal system-reboot "$( eval_gettext "Reboot Required" )" "$msg" 2>/dev/null ; then
+            [[ -n "$marker_ts" ]] && printf '%s\n' "$marker_ts" > "$notified_stamp" 2>/dev/null || true
+        fi
     else
         el_info "$msg"
     fi
-
-    [[ -n "$marker_ts" ]] && printf '%s\n' "$marker_ts" > "$notified_stamp" 2>/dev/null || true
 }
 
 show_help(){
@@ -338,8 +338,6 @@ main(){
         $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
     fi
 
-    notify_security_reboot_required 0
-
     # Delegate pending notifications and recovery choices to recovery-notification if needed
     if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]] || \
        [[ -s "/var/cache/elive-upgrader/notify-upgrade-complete" ]] || \
@@ -382,6 +380,8 @@ main(){
         #     sleep 1
         # done
     fi
+
+    notify_security_reboot_required 0
 
     # first, verify if we have internet
     el_debug "Verifying internet connectivity..."
