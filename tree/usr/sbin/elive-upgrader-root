@@ -125,7 +125,9 @@ else
         rm -f "$lockfile"
 
         #killall apt-get 2>/dev/null 1>&2 || true
-        tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+        if command -v tmux &>/dev/null ; then
+            tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+        fi
 
         #while read -ru 3 line
         #do
@@ -137,7 +139,9 @@ else
         rm -f "$lockfile"
 
         #tmux kill-session -t elive-upgrader
-        tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+        if command -v tmux &>/dev/null ; then
+            tmux kill-window -t Upgrade 2>/dev/null 1>&2 || true
+        fi
 
         #killall apt-get 2>/dev/null 1>&2 || true
 
@@ -211,7 +215,11 @@ apt_fixes(){
     if ((is_failed)) ; then
         local message_failed
         message_failed="$( printf "$( eval_gettext "You seem to have broken packages. Open a terminal and run the command '%s'. If the issue persists, consider reinstalling Elive in upgrade mode which keeps your files and settings." )" "apif" )"
-        $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+        if ensure_guitool ; then
+            $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+        else
+            el_error "$message_failed"
+        fi
         return 1
     fi
 
@@ -387,9 +395,18 @@ upgrade_system(){
     fi
 
     el_info "Upgrading system..."
+    if [[ -n "${DISPLAY:-}" ]] ; then
+        if [[ -x /usr/bin/tmux-attach-jobs ]] && ! el_dependencies_check "tmux" &>/dev/null ; then
+            el_dependencies_install "tmux" || true
+        fi
+        if ! el_dependencies_check "urxvt" &>/dev/null ; then
+            el_dependencies_install "rxvt-unicode" || true
+        fi
+    fi
+
     # test if we can run in a detached mode, so the user can close terminal without problems
-    if [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] ; then
-        timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null
+    if [[ -n "${DISPLAY:-}" ]] && [[ -x /usr/bin/tmux ]] && [[ -x /usr/bin/tmux-attach-jobs ]] && command -v urxvt >/dev/null 2>&1 ; then
+        timeout 10 tmux-attach-jobs elive-upgrader stamp "touch '/tmp/.elive-upgrading'" 1>/dev/null || true
         sleep 1 ; sync
     fi
 
@@ -406,8 +423,12 @@ upgrade_system(){
             urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader"
             is_upgraded=1
         fi
-    else
+    elif [[ -n "${DISPLAY:-}" ]] && command -v urxvt >/dev/null 2>&1 ; then
         urxvt -e bash -c "export DEBIAN_FRONTEND=noninteractive ; export DEBIAN_PRIORITY=critical ; export DEBCONF_NONINTERACTIVE_SEEN=true ; export DEBCONF_NOWARNINGS=true ; export UCF_FORCE_CONFFOLD=1 ; export APT_LISTCHANGES_FRONTEND=none ; apt-get $APTGET_OPTIONS dist-upgrade ; apt-get $APTGET_OPTIONS autoremove ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 60 " 1>/dev/null
+        is_upgraded=1
+    else
+        apt_get $APTGET_OPTIONS dist-upgrade
+        apt_get $APTGET_OPTIONS autoremove || true
         is_upgraded=1
     fi
 
@@ -715,7 +736,7 @@ upgrade_firmwares(){
 
     el_info "Firmware updates found (${updates_sig})"
 
-    if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+    if ensure_guitool ; then
         printf '%s\n' "$updates_details" | $guitool --width=560 --height=380 --text-info --cancel-label="Done" --title="$( eval_gettext "Firmware updates available:" )" 1>/dev/null 2>&1 || true
     else
         printf '%s\n' "$updates_details"
@@ -727,6 +748,10 @@ upgrade_firmwares(){
 WARNING: Updating your BIOS/firmware is not always recommended unless you are resolving specific hardware problems. While firmware updates can fix bugs, they can also introduce new regressions or issues (for example, webcams, Wi-Fi, or audio devices may stop functioning).
 
 Select how you would like to proceed:" )"
+
+    if [[ -n "$DISPLAY" ]] && ! el_dependencies_check "yad" &>/dev/null ; then
+        el_dependencies_install "yad" || true
+    fi
 
     if [[ -n "$DISPLAY" ]] && command -v yad &>/dev/null; then
         choice=0
@@ -772,7 +797,7 @@ Select how you would like to proceed:" )"
                 fi
             fi
             if ! ((is_on_ac)) && command -v laptop-detect >/dev/null 2>&1 && laptop-detect ; then
-                if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+                if ensure_guitool ; then
                     $guitool --warning --text="$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )" 1>/dev/null 2>&1
                 else
                     el_warning "$( eval_gettext "Important: Your system is not plugged in. Connect it before proceeding." )"
@@ -781,6 +806,9 @@ Select how you would like to proceed:" )"
 
             local rc_file="${fw_tmpdir}/update.rc"
             local update_rc=1
+            if [[ -n "$DISPLAY" ]] && ! el_dependencies_check "urxvt" &>/dev/null ; then
+                el_dependencies_install "rxvt-unicode" || true
+            fi
             if [[ -n "$DISPLAY" ]] && command -v urxvt >/dev/null 2>&1 ; then
                 urxvt -e bash -c "COLUMNS=80 fwupdmgr -y --no-reboot-check update ; echo \$? > '${rc_file}' ; echo ; echo ; echo -e \"Upgrade DONE\nYou can close the terminal\" ; sleep 15 " 1>/dev/null || true
             else
@@ -800,7 +828,7 @@ Select how you would like to proceed:" )"
                 if [[ -s "${fw_tmpdir}/reboot.txt" ]] ; then
                     conf_firmwares_updates_reboot_notified="$(paste -sd ';' "${fw_tmpdir}/reboot.txt")"
                     el_config_save "conf_firmwares_updates_reboot_notified"
-                    if [[ -n "$DISPLAY" ]] && [[ -n "$guitool" ]] ; then
+                    if ensure_guitool ; then
                         $guitool --info --text="$( eval_gettext "Firmware update staged. Please reboot your computer to complete the installation." )" 1>/dev/null 2>&1 || true
                     else
                         el_info "$( eval_gettext "Firmware update staged. Please reboot your computer to complete the installation." )"

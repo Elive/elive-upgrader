@@ -169,6 +169,24 @@ has_pending_distro_upgrade_hook() {
     return 1
 }
 
+ensure_guitool(){
+    if [[ -n "${DISPLAY:-}" ]] ; then
+        local tool_bin="${guitool%% *}"
+        if [[ -z "$tool_bin" ]] || ! el_dependencies_check "$tool_bin" &>/dev/null ; then
+            if ! el_dependencies_check "zenity" &>/dev/null ; then
+                el_dependencies_install "zenity" || true
+            fi
+            if [[ -z "${guitool:-}" ]] && command -v zenity &>/dev/null ; then
+                guitool="zenity"
+            fi
+        fi
+        if [[ -n "${guitool:-}" ]] && command -v "${guitool%% *}" &>/dev/null ; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 show_help(){
     echo "Usage:
 elive-upgrader                                  upgrades your system with everything needed
@@ -280,7 +298,7 @@ upgrade_system_delayed(){
 
         if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] ; then
             # TODO: make this widget not-annoying (not popup in first page), use the trayer like elive-news
-            if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
+            if ensure_guitool && $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
 
                 $guitool --info --text="$( eval_gettext "Follow the terminal instructions when they appear, answering the questions. Verify that the upgrade won't remove any essential system packages." )" 1>/dev/null 2>&1
                 # note: --noaptupdate because when we did --upgdates-available before we already updated the packages list
@@ -431,7 +449,11 @@ show_changelog(){
     esac
 
     # show changelog
-    echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=470 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    if ensure_guitool ; then
+        echo -e "${message_upgraded}$changelog" | $guitool  --width=610 --height=470 --text-info --cancel-label="Done" --title="Elive System Updated" 1>/dev/null 2>&1
+    else
+        el_info "${message_upgraded}\n${changelog}"
+    fi
     unset changelog
 
     # any next action after changelog?
@@ -446,7 +468,7 @@ show_changelog(){
 
             #if $guitool  --question --text="$( eval_gettext "Would you like to donate to this amazing project in order to keep making updates and fixes?" )" ; then
             if ! ((is_premium_user)) ; then
-                if $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
+                if ensure_guitool && $guitool  --question --text="$message_donate_to_continue" 1>/dev/null 2>&1 ; then
                     #web-launcher "https://www.elivecd.org/donate/?id=elive-upgrader-tool"
                     web-launcher "https://www.patreon.com/elive"
                 fi
@@ -529,8 +551,8 @@ check_for_new_elive_version() {
         message_new_version="$( printf "$( eval_gettext "A new version of Elive based on Debian '%s' is available." )" "$next_codename" )"
 
         # Ensure yad is available for the dialog
-        if ! el_dependencies_check "yad" &>/dev/null ; then
-            el_dependencies_install "yad"
+        if [[ -n "${DISPLAY:-}" ]] && ! el_dependencies_check "yad" &>/dev/null ; then
+            el_dependencies_install "yad" || true
         fi
 
         local title
@@ -565,14 +587,22 @@ check_for_new_elive_version() {
                 if sudo elive-upgrader-root --enable-distro-upgrade "$next_codename" ; then
                     local message_reboot
                     message_reboot="$( printf "$( eval_gettext "The system is now configured to upgrade to the next Elive version on the next reboot.\n\nPlease save your work and reboot your computer to start the upgrade process." )" "" )"
-                    $guitool --info --text="$message_reboot" --no-cancel 1>/dev/null 2>&1
+                    if ensure_guitool ; then
+                        $guitool --info --text="$message_reboot" --no-cancel 1>/dev/null 2>&1
+                    else
+                        el_info "$message_reboot"
+                    fi
                     # Upgrade initiated successfully - reset notification so user is asked again for future versions
                     conf_debian_upgrade_notification=""
                     el_config_save "conf_debian_upgrade_notification"
                 else
                     local message_failed
                     message_failed="$( eval_gettext "Failed to enable the distro upgrade. Please check the logs for more information." )"
-                    $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+                    if ensure_guitool ; then
+                        $guitool --error --text="$message_failed" 1>/dev/null 2>&1
+                    else
+                        el_error "$message_failed"
+                    fi
                 fi
                 return 0
                 ;;

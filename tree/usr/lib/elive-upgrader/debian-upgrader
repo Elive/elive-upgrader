@@ -16,6 +16,16 @@ if [[ -z "${yad:-}" ]]; then
     yad="/usr/bin/yad --borders=15 --center --image=logo-elive"
 fi
 
+ensure_gui_dialog_tool() {
+    if [[ -n "${DISPLAY:-}" ]] ; then
+        if ! el_dependencies_check "${yad%% *}" &>/dev/null && ! el_dependencies_check "zenity" &>/dev/null ; then
+            el_dependencies_install "yad" || true
+        fi
+        return 0
+    fi
+    return 1
+}
+
 # wrapper for fix strange languages
 #===  FUNCTION  ================================================================
 #          NAME:  locales_source
@@ -577,6 +587,7 @@ warn_no_full_backup_dialog(){
     local title="$(eval_gettext "Skip Full OS Backup")"
     local msg="$(printf "$(eval_gettext "Skipping full OS backup before upgrade due to limited free disk space.\n\n- Current OS Size: %s GB\n- Required Free Space for Full Backup: %s GB\n- Available Free Space: %s GB\n\nCritical configuration files will still be backed up, but a complete image backup of the OS will be skipped.\n\nDo you want to continue with the upgrade without a full OS backup?")" "${os_gb}" "${req_gb}" "${avail_gb}")"
 
+    ensure_gui_dialog_tool || true
     if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
         $yad --question --title="$title" --text="$msg" --width=500 \
             --button="$(eval_gettext "Continue without Full Backup"):0" \
@@ -898,6 +909,15 @@ wait_for_desktop() {
 }
 
 wait_for_desktop
+
+if ! command -v ${yad%% *} &>/dev/null && ! command -v zenity &>/dev/null ; then
+    if [[ -r /usr/lib/elive-tools/functions ]] ; then
+        (
+            source /usr/lib/elive-tools/functions
+            el_dependencies_check "yad" &>/dev/null || el_dependencies_install "yad" || true
+        ) || true
+    fi
+fi
 
 # Show insufficient disk space notification
 show_insufficient_space_notification() {
@@ -1827,6 +1847,10 @@ check_root() {
 }
 
 check_tmux() {
+    if ! el_dependencies_check "tmux" &>/dev/null ; then
+        log_info "tmux is not installed, installing..."
+        el_dependencies_install "tmux" || true
+    fi
     if ! command -v tmux &> /dev/null; then
         log_error "tmux is not installed. Please install it first: apt install tmux"
         exit 1
@@ -3473,6 +3497,7 @@ enable_boot_upgrade_conf() {
         # Show message to user
         local fail_msg
         fail_msg="$(eval_gettext "The upgrade simulation failed. This usually means there are conflicting packages or broken dependencies that prevent a safe upgrade.\n\nTo upgrade your system, please download a new Elive ISO and perform a normal reinstall in upgrade mode, which will keep your files and settings.")"
+        ensure_gui_dialog_tool || true
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --error --text="$fail_msg" --title="$(eval_gettext "Upgrade Simulation Failed")" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
@@ -3499,6 +3524,7 @@ enable_boot_upgrade_conf() {
         avail_mb=$(( avail_kb / 1024 ))
         local msg="$(printf "$(eval_gettext "The disk is full and upgrade packages could not be downloaded.\n\nAt least %s GB of free space is required (you have %s MB available).\n\nYou need to delete at least %s to 10 GB of disk space in order to perform the upgrade.\n\nWhat would you like to do?")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
 
+        ensure_gui_dialog_tool || true
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --question --title="$title" --text="$msg" --width=500 \
                 --button="$(eval_gettext "Keep packages and Retry"):0" \
@@ -3530,6 +3556,7 @@ enable_boot_upgrade_conf() {
         avail_mb=$(( avail_kb / 1024 ))
         local msg="$(printf "$(eval_gettext "At least %s GB of free space is required (you have %s MB available).\n\nPlease open your file manager or terminal, delete unnecessary files to free up at least %s to 10 GB, then click Continue to retry downloading.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
 
+        ensure_gui_dialog_tool || true
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --info --title="$title" --text="$msg" --width=450 --button="$(eval_gettext "Continue"):0"
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
@@ -3590,6 +3617,7 @@ enable_boot_upgrade_conf() {
         avail_kb=$(df -P / 2>/dev/null | awk 'NR==2 {print $4}')
         avail_mb=$(( avail_kb / 1024 ))
         local err_msg="$(printf "$(eval_gettext "The disk is full and packages could not be downloaded. The system upgrade cannot be performed.\n\nAt least %s GB of free space is required (you have %s MB available).\n\nPlease free up between %s and 10 GB of disk space and try running the upgrade again later.")" "${MIN_FREE_SPACE_GB}" "${avail_mb}" "${MIN_FREE_SPACE_GB}")"
+        ensure_gui_dialog_tool || true
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
             $yad --error --title="$(eval_gettext "Upgrade Cancelled - Disk Full")" --text="$err_msg" --width=450
         elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
@@ -3811,9 +3839,7 @@ EOF
     msg="$( eval_gettext "The system is ready to be rebooted to install the upgrade process.\n\nWarning: The upgrade process can take up to 1-2 hours but is fully automated. It is strictly important that you do not reboot or power off the machine during this process. You must leave the computer doing the upgrade by itself without forcing any reboot.\n\nIf the system fails to upgrade and is in an unrecoverable state, the easiest and fastest way to fix it is to download an updated version of Elive and run the installer again. The installer will take care of repairing the system while maintaining the user and its files.\n\nMake sure to read it before to continue.")"
 
     # Ensure yad is available for the dialog
-    if ! el_dependencies_check "yad" &>/dev/null ; then
-        el_dependencies_install "yad"
-    fi
+    ensure_gui_dialog_tool || true
 
     while true; do
         if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
@@ -4501,12 +4527,15 @@ main() {
             check_root
             # Clear any previous recovery notification when starting a new upgrade
             clear_recovery_notification
-            if [[ -z "$TMUX" ]]; then
+            if [[ -z "$TMUX" ]] && [[ -n "${DISPLAY:-}" ]]; then
                 check_tmux
                 log_info "Starting pre-download in tmux session..."
                 tmux-attach-jobs "elive-upgrader" "Predownloading" "bash \"$0\" --enable-boot-upgrade \"$2\""
                 sleep 1 ; sync
                 if ! LC_ALL=$EL_LC_EN ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                    if ! el_dependencies_check "urxvt" &>/dev/null ; then
+                        el_dependencies_install "rxvt-unicode" || true
+                    fi
                     if command -v urxvt &>/dev/null; then
                         urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
                     elif command -v x-terminal-emulator &>/dev/null; then
@@ -4595,6 +4624,7 @@ main() {
             if restore_from_backup; then
                 clear_recovery_notification
                 log_info "System restored from backup. Rebooting now to bring the machine back up cleanly in the restored state..."
+                ensure_gui_dialog_tool || true
                 if [[ -n "$DISPLAY" ]] && command -v ${yad%% *} &>/dev/null; then
                     $yad --info --title="$(eval_gettext "System Restored")" --text="$(eval_gettext "System restoration is complete. The system will now reboot.")" --timeout=5 --button="$(eval_gettext "Reboot Now"):0" 2>/dev/null || true
                 elif [[ -n "$DISPLAY" ]] && command -v zenity &>/dev/null; then
@@ -4631,12 +4661,26 @@ main() {
 
             # Interactive upgrade
             if [[ -z "$TMUX" ]]; then
+                check_tmux
                 log_info "Starting upgrade in tmux session..."
                 # Don't acquire lock in parent - the child tmux session will acquire it
                 tmux-attach-jobs "elive-upgrader" "distro-upgrade" "bash \"$0\" \"$@\""
                 sleep 1 ; sync
-                if ! LC_ALL=$EL_LC_EN ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
-                    urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                if [[ -n "${DISPLAY:-}" ]] ; then
+                    if ! LC_ALL=$EL_LC_EN ps ux | grep -v grep | grep -qs "rxvt.*tmux attach" ; then
+                        if ! el_dependencies_check "urxvt" &>/dev/null ; then
+                            el_dependencies_install "rxvt-unicode" || true
+                        fi
+                        if command -v urxvt &>/dev/null; then
+                            urxvt -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                        elif command -v x-terminal-emulator &>/dev/null; then
+                            x-terminal-emulator -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                        elif command -v xterm &>/dev/null; then
+                            xterm -e bash -c "unset TMUX ; tmux attach -t elive-upgrader" || true
+                        fi
+                    fi
+                elif [[ -t 0 ]] && [[ -t 1 ]] ; then
+                    tmux attach -t elive-upgrader || true
                 fi
             else
                 # Already in tmux - acquire lock and run

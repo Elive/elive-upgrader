@@ -217,12 +217,24 @@ main(){
             if [[ "$( cat /tmp/.persistence-space-free-at-boot | grep "[[:digit:]]" | tail -1 )" -gt "1200000" ]] ; then
 
                 if [[ -z "$conf_use_upgrader_in_live" ]] ; then
-                    if $guitool --question --text="$( eval_gettext "Do you want automated updates? This will keep your Persistence updated with the latest packages and Elive features." )" 1>/dev/null 2>&1 ; then
-                        conf_use_upgrader_in_live="yes"
-                    else
-                        conf_use_upgrader_in_live="no"
+                    if [[ -n "${DISPLAY:-}" ]] ; then
+                        if [[ -z "${guitool:-}" ]] || ! el_dependencies_check "${guitool%% *}" &>/dev/null ; then
+                            if ! el_dependencies_check "zenity" &>/dev/null ; then
+                                el_dependencies_install "zenity" || true
+                            fi
+                            if [[ -z "${guitool:-}" ]] && command -v zenity &>/dev/null ; then
+                                guitool="zenity"
+                            fi
+                        fi
+                        if [[ -n "${guitool:-}" ]] && command -v "${guitool%% *}" &>/dev/null ; then
+                            if $guitool --question --text="$( eval_gettext "Do you want automated updates? This will keep your Persistence updated with the latest packages and Elive features." )" 1>/dev/null 2>&1 ; then
+                                conf_use_upgrader_in_live="yes"
+                            else
+                                conf_use_upgrader_in_live="no"
+                            fi
+                            el_config_save "conf_use_upgrader_in_live"
+                        fi
                     fi
-                    el_config_save "conf_use_upgrader_in_live"
                 else
                     if [[ "$conf_use_upgrader_in_live" = "no" ]] ; then
                         exit
@@ -335,7 +347,23 @@ main(){
         true > /var/log/elive-upgrader/last-boot-upgrade-failure 2>/dev/null || true
         local user_msg
         user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
-        $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
+        if [[ -n "${DISPLAY:-}" ]] ; then
+            if [[ -z "${guitool:-}" ]] || ! el_dependencies_check "${guitool%% *}" &>/dev/null ; then
+                if ! el_dependencies_check "zenity" &>/dev/null ; then
+                    el_dependencies_install "zenity" || true
+                fi
+                if [[ -z "${guitool:-}" ]] && command -v zenity &>/dev/null ; then
+                    guitool="zenity"
+                fi
+            fi
+            if [[ -n "${guitool:-}" ]] && command -v "${guitool%% *}" &>/dev/null ; then
+                $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
+            else
+                el_error "${user_msg}${fail_msg}"
+            fi
+        else
+            el_error "${user_msg}${fail_msg}"
+        fi
     fi
 
     # Delegate pending notifications and recovery choices to recovery-notification if needed
@@ -455,7 +483,7 @@ main(){
                 num_updates="$( sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --updates-available )"
                 el_debug "betatest updates available: ${num_updates:-0}"
                 if [[ -n "$num_updates" ]] && [[ "$num_updates" -gt 0 ]] && ! ((is_dry_run)) ; then
-                    if $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
+                    if ensure_guitool && $guitool --question --text="${num_updates} $( eval_gettext "Updates available. Do you want to upgrade your system?" )" 1>/dev/null 2>&1 ; then
                         if sudo "${sudo_args[@]}" elive-upgrader-root "${root_args[@]}" --upgrade --noaptupdate ; then
                             was_anything_updated=1
                         fi
