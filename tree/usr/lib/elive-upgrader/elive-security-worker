@@ -605,6 +605,48 @@ merge_updated_marker() {
     fi
 }
 
+run_autoremove() {
+    local arch_conf="$1"
+    local sim_out="" sim_rc=0
+    local -a apt_opts=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -y)
+    local -a remove_pkgs=()
+    local pkg
+
+    # Clean up unneeded packages (notably old kernels) after each security-update
+    # cycle via apt-get autoremove --purge. The base system sets
+    # APT::NeverAutoRemove::KernelCount=2 (running + most recent kernel), keeping
+    # a real fallback kernel rather than purging the previous kernel on the next
+    # reboot (which would leave zero fallback if the new kernel misbehaves).
+    sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s autoremove --purge 2>&1)" || sim_rc=$?
+    if [[ "$sim_rc" -ne 0 ]] ; then
+        el_debug "Autoremove simulation failed (rc=${sim_rc}):\n${sim_out}"
+        sec_log "WARN" "Autoremove simulation failed (rc=${sim_rc}), skipping cleanup"
+        return 0
+    fi
+
+    while IFS= read -r pkg ; do
+        [[ -n "$pkg" ]] && remove_pkgs+=("$pkg")
+    done < <(printf '%s\n' "$sim_out" | awk '/^(Purg|Remv) / { print $2 }')
+
+    if [[ "${#remove_pkgs[@]}" -eq 0 ]] ; then
+        el_debug "Autoremove: no unneeded packages to purge"
+        return 0
+    fi
+
+    if ((IS_DRY_RUN)) ; then
+        sec_log "INFO" "Simulation for autoremove --purge: would remove ${#remove_pkgs[@]} package(s): ${remove_pkgs[*]}"
+        el_debug "Autoremove simulation output:\n${sim_out}"
+        return 0
+    fi
+
+    sec_log "INFO" "Running autoremove --purge for ${#remove_pkgs[@]} unneeded package(s): ${remove_pkgs[*]}"
+    if el_aptget -c "$arch_conf" "${apt_opts[@]}" autoremove --purge >> "$LOG_FILE" 2>&1 ; then
+        sec_log "INFO" "Autoremove --purge completed (${#remove_pkgs[@]} package(s))"
+    else
+        sec_log "WARN" "Autoremove --purge failed; will retry on next cycle"
+    fi
+}
+
 run_update() {
     if ! ((IS_DRY_RUN)) && ! ((IS_FORCE)) && retry_is_throttled ; then
         local retry_at
@@ -696,6 +738,7 @@ EOF
             chmod 0644 "$LAST_RESULT_FILE"
             commit_pending_validators
         fi
+        run_autoremove "$arch_conf"
         return 0
     fi
 
@@ -729,6 +772,7 @@ EOF
             if ((IS_DRY_RUN)) ; then
                 sec_log "INFO" "Simulation passed for Tier 1 (security-only): would upgrade ${sec_pkgs[*]}"
                 el_debug "Tier 1 simulation output:\n${sim_out}"
+                run_autoremove "$arch_conf"
                 return 0
             fi
             sec_log "INFO" "Applying Tier 1 (security-only): ${sec_pkgs[*]}"
@@ -756,6 +800,7 @@ EOF
                 if ((IS_DRY_RUN)) ; then
                     sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
                     el_debug "Tier 2 simulation output:\n${sim_out}"
+                    run_autoremove "$arch_conf"
                     return 0
                 fi
                 sec_log "INFO" "Applying Tier 2 (security-with-deps) using existing APT indices: ${sec_pkgs[*]}"
@@ -797,6 +842,7 @@ EOF
                 if ((IS_DRY_RUN)) ; then
                     sec_log "INFO" "Simulation passed for Tier 2 (security-with-deps): would upgrade ${sec_pkgs[*]}"
                     el_debug "Tier 2 simulation output:\n${sim_out}"
+                    run_autoremove "$arch_conf"
                     return 0
                 fi
                 sec_log "INFO" "Applying Tier 2 (security-with-deps): ${sec_pkgs[*]}"
@@ -823,6 +869,9 @@ EOF
                 sim_out="$(LC_ALL=C /usr/bin/apt-get -c "$arch_conf" -s dist-upgrade 2>&1)" || sim_rc=$?
                 sec_log "INFO" "Simulation for Tier 3 (full-upgrade) rc=${sim_rc}"
                 el_debug "Tier 3 simulation output:\n${sim_out}"
+                if [[ "$sim_rc" -eq 0 ]] ; then
+                    run_autoremove "$arch_conf"
+                fi
                 return "$sim_rc"
             fi
             sec_log "WARN" "Escalating to Tier 3 (full-upgrade) as last resort"
@@ -899,6 +948,7 @@ EOF
     fi
 
     commit_pending_validators
+    run_autoremove "$arch_conf"
     return 0
 }
 
