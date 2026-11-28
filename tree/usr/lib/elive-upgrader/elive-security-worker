@@ -23,6 +23,7 @@ RUN_DIR="/var/run/elive-security"
 LOCK_FILE="/run/lock/elive-security.lock"
 UPDATED_MARKER="${RUN_DIR}/updated"
 UNPATCHED_MARKER="${RUN_DIR}/unpatched"
+REBOOT_MARKER="${RUN_DIR}/reboot-required"
 ACTIVE_CVE_STATE="${STATE_DIR}/active-unpatched.state"
 LAST_RESULT_FILE="${STATE_DIR}/last-result"
 LAST_PROBE_TIME_FILE="${STATE_DIR}/last-probe-timestamp"
@@ -38,6 +39,7 @@ ELIVE_SECURITY_CVE_FEED_URL=""
 RETRY_TTL=3600
 WORK_DIR=""
 PROBE_CHANGED=0
+PROBE_OFFLINE=0
 IS_DRY_RUN=0
 IS_DEBUG=0
 IS_CRON=0
@@ -202,6 +204,12 @@ show_status() {
     else
         echo "[unpatched marker: none]"
     fi
+    if [[ -s "$REBOOT_MARKER" ]] ; then
+        echo "[reboot-required marker present]"
+        cat "$REBOOT_MARKER"
+    else
+        echo "[reboot-required marker: none]"
+    fi
 }
 
 discover_security_sources() {
@@ -350,6 +358,7 @@ run_probe() {
     local any_changed=0 any_error=0
 
     PROBE_CHANGED=0
+    PROBE_OFFLINE=0
     PENDING_VALIDATOR_UPDATES=()
     now="$(date +%s)"
 
@@ -362,6 +371,7 @@ run_probe() {
     fi
 
     if ! check_connectivity_for_sources ; then
+        PROBE_OFFLINE=1
         el_debug "Network check returned offline (no carrier or default route)"
         sec_log "INFO" "Probe skipped: no internet connectivity"
         return 0
@@ -562,11 +572,15 @@ collect_security_candidates() {
 merge_updated_marker() {
     local escalation_path="$1"
     local new_changes_file="$2"
+    local reboot_req="${3:-0}"
     local merged_tmp="${WORK_DIR}/updated.merged"
     local existing_tmp="${WORK_DIR}/updated.prev"
 
     if [[ -s "$UPDATED_MARKER" ]] ; then
         grep '^PKG|' "$UPDATED_MARKER" > "$existing_tmp" 2>/dev/null || : > "$existing_tmp"
+        if [[ "$(state_read_var "$UPDATED_MARKER" "REBOOT_REQUIRED")" = "yes" ]] ; then
+            reboot_req=1
+        fi
     else
         : > "$existing_tmp"
     fi
@@ -574,6 +588,9 @@ merge_updated_marker() {
     {
         printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
         printf 'PATH=%s\n' "$escalation_path"
+        if ((reboot_req)) ; then
+            printf 'REBOOT_REQUIRED=yes\n'
+        fi
         awk -F'|' '
             FILENAME == ARGV[1] && $1 == "PKG" {
                 p=$2; old[p]=$3; new[p]=$4;
@@ -642,9 +659,56 @@ run_autoremove() {
     sec_log "INFO" "Running autoremove --purge for ${#remove_pkgs[@]} unneeded package(s): ${remove_pkgs[*]}"
     if el_aptget -c "$arch_conf" "${apt_opts[@]}" autoremove --purge >> "$LOG_FILE" 2>&1 ; then
         sec_log "INFO" "Autoremove --purge completed (${#remove_pkgs[@]} package(s))"
+        return 0
     else
         sec_log "WARN" "Autoremove --purge failed; will retry on next cycle"
+        return 1
     fi
+}
+
+collect_reboot_packages() {
+    local changes_file="$1"
+    local out_file="$2"
+    : > "$out_file"
+
+    if [[ -s "$changes_file" ]] ; then
+        awk -F'|' '$1 ~ /^(linux-(signed-)?image-|linux-base$|intel-microcode$|amd64-microcode$|systemd(:|$)|libc6(:|$))/ { print $1 }' "$changes_file" >> "$out_file"
+    fi
+
+    if [[ -f /var/run/reboot-required ]] ; then
+        if [[ -s /var/run/reboot-required.pkgs ]] ; then
+            cat /var/run/reboot-required.pkgs >> "$out_file"
+        elif [[ ! -s "$out_file" ]] ; then
+            printf 'system-reboot-required\n' >> "$out_file"
+        fi
+    fi
+
+    if [[ -s "$out_file" ]] ; then
+        sort -u "$out_file" -o "$out_file"
+        return 0
+    fi
+    return 1
+}
+
+write_reboot_marker() {
+    local reboot_pkgs_file="$1"
+    local prev_pkgs="${WORK_DIR}/reboot.prev"
+    local merged_tmp="${WORK_DIR}/reboot.merged"
+
+    if [[ -s "$REBOOT_MARKER" ]] ; then
+        sed -n 's/^PKG|//p' "$REBOOT_MARKER" > "$prev_pkgs" 2>/dev/null || : > "$prev_pkgs"
+    else
+        : > "$prev_pkgs"
+    fi
+
+    {
+        printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
+        printf 'REASON=Security updates require a system reboot\n'
+        sort -u "$prev_pkgs" "$reboot_pkgs_file" | awk 'NF { printf "PKG|%s\n", $0 }'
+    } > "$merged_tmp"
+
+    chmod 0644 "$merged_tmp"
+    mv -f "$merged_tmp" "$REBOOT_MARKER"
 }
 
 run_update() {
@@ -738,7 +802,12 @@ EOF
             chmod 0644 "$LAST_RESULT_FILE"
             commit_pending_validators
         fi
-        run_autoremove "$arch_conf"
+        if ! run_autoremove "$arch_conf" && ! ((IS_DRY_RUN)) ; then
+            local now retry_at
+            now="$(date +%s)"
+            retry_at=$(( now + RETRY_TTL ))
+            printf 'RETRY_AT=%s\n' "$retry_at" >> "$LAST_RESULT_FILE"
+        fi
         return 0
     fi
 
@@ -929,26 +998,44 @@ EOF
         }
     ' "$before_file" "$after_file" > "$changes_file"
 
-    local changed_count
+    local changed_count is_reboot_req=0
+    local reboot_pkgs_file="${WORK_DIR}/reboot-pkgs.txt"
     changed_count="$(wc -l < "$changes_file")"
+
+    if [[ "$changed_count" -gt 0 ]] && collect_reboot_packages "$changes_file" "$reboot_pkgs_file" ; then
+        is_reboot_req=1
+    fi
+
     {
         printf 'STATUS=success\n'
         printf 'TIMESTAMP=%s\n' "$(date -Iseconds)"
         printf 'PATH=%s\n' "$escalation_path"
         printf 'CHANGED_COUNT=%s\n' "$changed_count"
+        if ((is_reboot_req)) ; then
+            printf 'REBOOT_REQUIRED=yes\n'
+        fi
         sed 's/^/PKG|/' "$changes_file"
     } > "$LAST_RESULT_FILE"
     chmod 0644 "$LAST_RESULT_FILE"
 
     if [[ "$changed_count" -gt 0 ]] ; then
         sec_log "INFO" "Updated ${changed_count} package(s) via path=${escalation_path}"
-        merge_updated_marker "$escalation_path" "$changes_file"
+        merge_updated_marker "$escalation_path" "$changes_file" "$is_reboot_req"
+        if ((is_reboot_req)) ; then
+            write_reboot_marker "$reboot_pkgs_file"
+            sec_log "INFO" "System reboot required after security update (packages: $(paste -sd ',' "$reboot_pkgs_file"))"
+        fi
     else
         sec_log "INFO" "Upgrade completed via path=${escalation_path} with 0 package version changes"
     fi
 
     commit_pending_validators
-    run_autoremove "$arch_conf"
+    if ! run_autoremove "$arch_conf" ; then
+        local now retry_at
+        now="$(date +%s)"
+        retry_at=$(( now + RETRY_TTL ))
+        printf 'RETRY_AT=%s\n' "$retry_at" >> "$LAST_RESULT_FILE"
+    fi
     return 0
 }
 
@@ -1299,9 +1386,11 @@ main() {
                     local retry_at
                     retry_at="$(state_read_var "$LAST_RESULT_FILE" "RETRY_AT")"
                     sec_log "INFO" "Retry throttle active (retry_at=${retry_at}), waiting for window"
-                elif retry_is_due ; then
+                elif ! ((PROBE_OFFLINE)) && retry_is_due ; then
                     sec_log "INFO" "Retry window expired, retrying security update (no new InRelease)"
                     run_update || true
+                elif ((PROBE_OFFLINE)) && retry_is_due ; then
+                    el_debug "Retry window expired but skipped while offline"
                 fi
             fi
             if [[ "$ELIVE_SECURITY_CVE_CHECK_ENABLED" = "yes" ]] || ((IS_FORCE)) || ((IS_DRY_RUN)) ; then

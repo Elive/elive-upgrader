@@ -48,6 +48,41 @@ echo "$$" > "$lockfile"
 
 # end lock system }}}
 
+notify_security_reboot_required(){
+    local force_notify="${1:-0}"
+    local marker="/var/run/elive-security/reboot-required"
+    local notified_stamp="/tmp/.elive-security-reboot-notified-${USER}"
+    local marker_ts="" prev_ts="" pkgs="" msg=""
+
+    if [[ "${ELIVE_UPGRADER_NOTIFICATIONS_ENABLED:-yes}" != "yes" ]] || ((is_dry_run)) ; then
+        return 0
+    fi
+    [[ -s "$marker" ]] || return 0
+
+    marker_ts="$(awk -F'=' '$1 == "TIMESTAMP" { print $2; exit }' "$marker" 2>/dev/null || true)"
+    if [[ -r "$notified_stamp" ]] ; then
+        prev_ts="$(cat "$notified_stamp" 2>/dev/null || true)"
+    fi
+    if ! ((force_notify)) && [[ -n "$marker_ts" ]] && [[ "$marker_ts" = "$prev_ts" ]] ; then
+        return 0
+    fi
+
+    pkgs="$(sed -n 's/^PKG|//p' "$marker" 2>/dev/null | paste -sd ', ' - || true)"
+    if [[ -n "$pkgs" ]] ; then
+        msg="$( printf "$( eval_gettext "Security updates were installed (%s). Please reboot your computer to apply them." )" "$pkgs" )"
+    else
+        msg="$( eval_gettext "Security updates were installed. Please reboot your computer to apply them." )"
+    fi
+
+    if [[ -n "${DISPLAY:-}" ]] ; then
+        el_notify normal system-reboot "$( eval_gettext "Reboot Required" )" "$msg" 2>/dev/null || true
+    else
+        el_info "$msg"
+    fi
+
+    [[ -n "$marker_ts" ]] && printf '%s\n' "$marker_ts" > "$notified_stamp" 2>/dev/null || true
+}
+
 show_help(){
     echo "Usage: $(basename "$0") [OPTIONS]"
     echo
@@ -265,17 +300,18 @@ main(){
     fi
 
     if ((is_security_mode)) ; then
-        local sec_args=("--auto")
+        local sec_args=("--auto") sec_rc=0
         ((is_dry_run)) && sec_args+=("--dry-run")
         ((is_debug_mode)) && sec_args+=("--debug")
         ((is_force_mode)) && sec_args+=("--force")
         el_debug "Running manual security check: elive-security ${sec_args[*]}"
         if ((is_dry_run)) && [[ "${UID:-$(id -u)}" -ne 0 ]] ; then
-            /usr/sbin/elive-security "${sec_args[@]}"
+            /usr/sbin/elive-security "${sec_args[@]}" || sec_rc=$?
         else
-            sudo "${sudo_args[@]}" elive-upgrader-root --security "${sec_args[@]}"
+            sudo "${sudo_args[@]}" elive-upgrader-root --security "${sec_args[@]}" || sec_rc=$?
+            notify_security_reboot_required 1
         fi
-        exit $?
+        exit "$sec_rc"
     fi
 
     # Handle immediate upgrade action if requested
@@ -301,6 +337,8 @@ main(){
         user_msg="$(eval_gettext "The automatic boot-time system upgrade failed and was safely cancelled to prevent boot loops. Your system has been restored to its previous state.\n\nReason/Error:\n")"
         $guitool --error --text="${user_msg}${fail_msg}" 1>/dev/null 2>&1
     fi
+
+    notify_security_reboot_required 0
 
     # Delegate pending notifications and recovery choices to recovery-notification if needed
     if [[ -s "/var/cache/elive-upgrader/notify-upgrade-failed-space" ]] || \
